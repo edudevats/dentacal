@@ -1,0 +1,188 @@
+/* ═══════════════════════════════════════════════════════════════
+   La Casa del Sr. Pérez — Estilos
+   Paleta: Teal/Turquesa #17a2b8 / #0d9aaf
+═══════════════════════════════════════════════════════════════ */
+
+:root {
+  --teal: #17a2b8;
+  --teal-dark: #0d9aaf;
+  --teal-light: #d1f0f5;
+  --sidebar-width: 220px;
+  --sidebar-bg: #1a2940;
+  --sidebar-text: #c8d8e8;
+  --sidebar-active: #17a2b8;
+  --topbar-height: 56px;
+}
+
+/* ── Layout ─────────────────────────────────────────────────── */
+body { background: #f0f4f8; margin: 0; font-size: 14px; }
+
+#wrapper { display: flex; min-height: 100vh; }
+
+#sidebar {
+  width: var(--sidebar-width);
+  min-height: 100vh;
+  background: var(--sidebar-bg);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  z-index: 100;
+  transition: width .25s ease;
+}
+
+#page-content {
+  margin-left: var(--sidebar-width);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  transition: margin-left .25s ease;
+}
+
+/* Sidebar collapsed */
+#wrapper.sidebar-collapsed #sidebar { width: 60px; }
+#wrapper.sidebar-collapsed #page-content { margin-left: 60px; }
+#wrapper.sidebar-collapsed .brand-text,
+#wrapper.sidebar-collapsed .nav-item span:not(.bi),
+#wrapper.sidebar-collapsed .sidebar-footer { display: none; }
+#wrapper.sidebar-collapsed .nav-item { justify-content: center; padding: 12px 0; }
+
+/* ── Sidebar ─────────────────────────────────────────────────── */
+.sidebar-brand {
+  padding: 20px 16px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  display: flex; align-items: center; gap: 10px;
+}
+.brand-icon { font-size: 1.5rem; }
+.brand-text { color: #fff; font-weight: 700; font-size: 1.1rem; white-space: nowrap; }
+
+.sidebar-nav { flex: 1; padding: 10px 0; }
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  color: var(--sidebar-text);
+  text-decoration: none;
+  font-size: 0.88rem;
+  transition: background .15s, color .15s;
+  border-left: 3px solid transparent;
+  white-space: nowrap;
+}
+.nav-item:hover { background: rgba(255,255,255,.08); color: #fff; }
+.nav-item.active {
+  background: rgba(23,162,184,.18);
+  color: var(--teal);
+  border-left-color: var(--teal);
+}
+.nav-item .bi { font-size: 1.1rem; flex-shrink: 0; }
+
+.sidebar-footer {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255,255,255,.08);
+  color: var(--sidebar-text);
+}
+
+/* ── Topbar ──────────────────────────────────────────────────── */
+.topbar {
+  height: var(--topbar-height);
+  background: #fff;
+  border-bottom: 1px solid #e0e7ef;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  position: sticky; top: 0; z-index: 50;
+}
+.topbar-title { flex: 1; font-weight: 600; color: #2d3748; }
+.topbar-actions { display: flex; gap: 8px; }
+.sidebar-toggle { background: none; border: none; font-size: 1.3rem; color: #555; padding: 4px 8px; }
+.sidebar-toggle:hover { color: var(--teal); }
+
+.main-content { padding: 20px; flex: 1; }
+
+/* ── Teal button / components ────────────────────────────────── */
+.btn-teal {
+  background: var(--teal);
+  color: #fff;
+  border: none;
+}
+.btn-teal:hover { background: var(--teal-dark); color: #fff; }
+
+.btn-outline-teal {
+  border: 1px solid var(--teal);
+  color: var(--teal);
+  background: transparent;
+}
+.btn-outline-teal:hover { background: var(--teal); color: #fff; }
+
+.bg-teal { background-color: var(--teal) !important; }
+
+.btn-xs { padding: 2px 6px; font-size: 0.75rem; }
+
+/* ── Cards ────────────────────────────────────────────────────── */
+.card {
+  border: none;
+  border-radius: 10px;
+  box-shadow: 0 1px 6px rgba(0,0,0,.07);
+}
+.card-sm .card-body { padding: 12px; }
+
+/* ── Calendar ─────────────────────────────────────────────────── */
+#calendar { min-height: 620px; }
+.fc { font-size: 13px; }
+.fc .fc-toolbar-title { font-size: 1.1rem; }
+.fc .fc-button-primary { background: var(--teal); border-color: var(--teal-dark); }
+.fc .fc-button-primary:hover { background: var(--teal-dark); }
+.fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc .fc-button-primary:not(:disabled):active { background: var(--teal-dark); border-color: var(--teal-dark); }
+
+/* ── Color dots ───────────────────────────────────────────────── */
+.color-dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.color-dot-lg {
+  display: inline-block;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── CRM Estado badges ────────────────────────────────────────── */
+.crm-badge-nuevo        { background: #6c757d; color: #fff; }
+.crm-badge-activo       { background: #28a745; color: #fff; }
+.crm-badge-seguimiento_1 { background: #ffc107; color: #212529; }
+.crm-badge-seguimiento_2 { background: #e83e8c; color: #fff; }
+.crm-badge-llamada_pendiente { background: #6f42c1; color: #fff; }
+.crm-badge-perdido      { background: #dc3545; color: #fff; }
+
+.badge.crm-badge-nuevo,
+.badge.crm-badge-activo,
+.badge.crm-badge-seguimiento_1,
+.badge.crm-badge-seguimiento_2,
+.badge.crm-badge-llamada_pendiente,
+.badge.crm-badge-perdido { font-size: 0.72rem; }
+
+/* ── Cita estado badges ───────────────────────────────────────── */
+.badge.estado-pendiente   { background: #6c757d; color: #fff; }
+.badge.estado-confirmada  { background: #28a745; color: #fff; }
+.badge.estado-no_asistio  { background: #dc3545; color: #fff; }
+.badge.estado-cancelada   { background: #adb5bd; color: #212529; }
+
+/* ── Paciente results dropdown ────────────────────────────────── */
+#pacienteResults .list-group-item { cursor: pointer; font-size: 0.85rem; }
+#pacienteResults .list-group-item:hover { background: var(--teal-light); }
+
+/* ── Responsive ───────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  #sidebar { width: 60px; }
+  #page-content { margin-left: 60px; }
+  .brand-text, .nav-item span:not(.bi), .sidebar-footer { display: none; }
+  .nav-item { justify-content: center; padding: 12px 0; }
+  .main-content { padding: 12px; }
+}

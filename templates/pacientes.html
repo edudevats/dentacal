@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Pacientes{% endblock %}
+{% block page_title %}Fichas de Pacientes{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-teal btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoPaciente">
+  <i class="bi bi-person-plus"></i> Nuevo Paciente
+</button>
+{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <input type="text" class="form-control form-control-sm" id="searchPacientes" placeholder="Buscar por nombre o teléfono…">
+  </div>
+</div>
+
+<div class="row g-3" id="pacientesList">
+  {% for p in pacientes %}
+  <div class="col-12 col-md-6 col-lg-4 paciente-card" data-nombre="{{ p.nombre.lower() }}" data-tel="{{ p.telefono }}">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <h6 class="mb-0">{{ p.nombre }}</h6>
+          <span class="badge crm-badge-{{ p.estado_crm }}">{{ p.estado_crm.replace('_',' ') }}</span>
+        </div>
+        <p class="small text-muted mb-1"><i class="bi bi-phone"></i> {{ p.telefono }}</p>
+        {% if p.email %}<p class="small text-muted mb-1"><i class="bi bi-envelope"></i> {{ p.email }}</p>{% endif %}
+        {% if p.fecha_ultima_cita %}
+        <p class="small text-muted mb-1"><i class="bi bi-calendar-check"></i> Última cita: {{ p.fecha_ultima_cita.strftime('%d/%m/%Y') }}</p>
+        {% endif %}
+        {% if p.nombre_escuela %}
+        <p class="small text-muted mb-2"><i class="bi bi-building"></i> {{ p.nombre_escuela }}</p>
+        {% endif %}
+        <a href="/pacientes/{{ p.id }}" class="btn btn-outline-teal btn-sm w-100">
+          <i class="bi bi-eye"></i> Ver ficha completa
+        </a>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12 text-center py-5 text-muted">
+    <i class="bi bi-people" style="font-size:3rem"></i>
+    <p class="mt-2">No hay pacientes registrados</p>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Modal Nuevo Paciente -->
+<div class="modal fade" id="modalNuevoPaciente" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Nuevo Paciente</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formNuevoPaciente">
+          <div class="row g-2">
+            <div class="col-12">
+              <label class="form-label">Nombre completo *</label>
+              <input type="text" class="form-control" id="npNombre" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Teléfono *</label>
+              <input type="text" class="form-control" id="npTelefono" placeholder="+52…" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">Email</label>
+              <input type="email" class="form-control" id="npEmail">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Fecha de nacimiento</label>
+              <input type="date" class="form-control" id="npNacimiento">
+            </div>
+            <div class="col-6">
+              <label class="form-label">Escuela</label>
+              <input type="text" class="form-control" id="npEscuela">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notas</label>
+              <textarea class="form-control" id="npNotas" rows="2"></textarea>
+            </div>
+          </div>
+          <div id="errorNuevoPaciente" class="alert alert-danger d-none mt-2"></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-teal btn-sm" id="btnGuardarPaciente">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Búsqueda en tiempo real
+document.getElementById('searchPacientes').addEventListener('input', function() {
+  const q = this.value.toLowerCase();
+  document.querySelectorAll('.paciente-card').forEach(card => {
+    const match = card.dataset.nombre.includes(q) || card.dataset.tel.includes(q);
+    card.style.display = match ? '' : 'none';
+  });
+});
+
+// Guardar nuevo paciente
+document.getElementById('btnGuardarPaciente').addEventListener('click', async function() {
+  const err = document.getElementById('errorNuevoPaciente');
+  err.classList.add('d-none');
+  const body = {
+    nombre: document.getElementById('npNombre').value.trim(),
+    telefono: document.getElementById('npTelefono').value.trim(),
+    email: document.getElementById('npEmail').value.trim(),
+    fecha_nacimiento: document.getElementById('npNacimiento').value,
+    nombre_escuela: document.getElementById('npEscuela').value.trim(),
+    notas: document.getElementById('npNotas').value.trim(),
+  };
+  if (!body.nombre || !body.telefono) {
+    err.textContent = 'Nombre y teléfono son requeridos';
+    err.classList.remove('d-none');
+    return;
+  }
+  const res = await fetch('/api/pacientes', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+  });
+  if (res.ok) {
+    window.location.reload();
+  } else {
+    const data = await res.json();
+    err.textContent = data.error || 'Error al guardar';
+    err.classList.remove('d-none');
+  }
+});
+</script>
+{% endblock %}

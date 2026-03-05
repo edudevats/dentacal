@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Configuración{% endblock %}
+{% block page_title %}Configuración{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <!-- Tipos de Cita -->
+  <div class="col-12 col-lg-6">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">Tipos de Cita</span>
+        <button class="btn btn-teal btn-sm" id="btnNuevoTipo">
+          <i class="bi bi-plus"></i> Agregar
+        </button>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0" id="tablaTipos">
+          <thead class="table-light">
+            <tr><th>Nombre</th><th>Duración</th><th>Costo</th><th>Estado</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for t in tipos %}
+            <tr id="tipo-row-{{ t.id }}">
+              <td>{{ t.nombre }}</td>
+              <td>{{ t.duracion_mins }} min</td>
+              <td>${{ '%.0f'|format(t.costo) }}</td>
+              <td>
+                {% if t.activo %}
+                <span class="badge bg-success">Activo</span>
+                {% else %}
+                <span class="badge bg-secondary">Inactivo</span>
+                {% endif %}
+              </td>
+              <td>
+                <button class="btn btn-xs btn-outline-secondary" onclick="editarTipo({{ t.id }}, '{{ t.nombre }}', {{ t.duracion_mins }}, {{ t.costo }})">
+                  <i class="bi bi-pencil"></i>
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Plantillas de Mensajes -->
+  <div class="col-12 col-lg-6">
+    <div class="card">
+      <div class="card-header fw-semibold">Plantillas de Mensajes WhatsApp</div>
+      <div class="card-body">
+        <div class="accordion" id="accordionPlantillas">
+          {% for p in plantillas %}
+          <div class="accordion-item">
+            <h2 class="accordion-header">
+              <button class="accordion-button collapsed py-2" type="button"
+                      data-bs-toggle="collapse" data-bs-target="#plnt{{ p.id }}">
+                <span class="badge bg-teal me-2">{{ p.tipo }}</span>
+                {% if not p.activo %}<span class="badge bg-secondary ms-1">Inactiva</span>{% endif %}
+              </button>
+            </h2>
+            <div id="plnt{{ p.id }}" class="accordion-collapse collapse">
+              <div class="accordion-body p-2">
+                <textarea class="form-control form-control-sm mb-2" rows="5"
+                          id="plntContenido{{ p.id }}">{{ p.contenido }}</textarea>
+                <div class="d-flex gap-2">
+                  <button class="btn btn-teal btn-sm" onclick="guardarPlantilla({{ p.id }})">
+                    <i class="bi bi-save"></i> Guardar
+                  </button>
+                  <div class="form-check form-switch ms-2 mt-1">
+                    <input class="form-check-input" type="checkbox" id="plntActivo{{ p.id }}"
+                           {% if p.activo %}checked{% endif %}
+                           onchange="togglePlantilla({{ p.id }}, this.checked)">
+                    <label class="form-check-label small" for="plntActivo{{ p.id }}">Activa</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Tipo Cita -->
+<div class="modal fade" id="modalTipo" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="tituloModalTipo">Tipo de Cita</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="tipoId">
+        <div class="mb-2">
+          <label class="form-label">Nombre *</label>
+          <input type="text" class="form-control" id="tipoNombre">
+        </div>
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label">Duración (min)</label>
+            <input type="number" class="form-control" id="tipoDuracion" value="30" min="5">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Costo ($)</label>
+            <input type="number" class="form-control" id="tipoCosto" value="0" min="0">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-teal btn-sm" id="btnGuardarTipo">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function editarTipo(id, nombre, dur, costo) {
+  document.getElementById('tipoId').value = id;
+  document.getElementById('tipoNombre').value = nombre;
+  document.getElementById('tipoDuracion').value = dur;
+  document.getElementById('tipoCosto').value = costo;
+  document.getElementById('tituloModalTipo').textContent = 'Editar Tipo';
+  new bootstrap.Modal(document.getElementById('modalTipo')).show();
+}
+
+document.getElementById('btnNuevoTipo').addEventListener('click', function() {
+  document.getElementById('tipoId').value = '';
+  document.getElementById('tipoNombre').value = '';
+  document.getElementById('tipoDuracion').value = 30;
+  document.getElementById('tipoCosto').value = 0;
+  document.getElementById('tituloModalTipo').textContent = 'Nuevo Tipo';
+  new bootstrap.Modal(document.getElementById('modalTipo')).show();
+});
+
+document.getElementById('btnGuardarTipo').addEventListener('click', async function() {
+  const id = document.getElementById('tipoId').value;
+  const body = {
+    nombre: document.getElementById('tipoNombre').value,
+    duracion_mins: parseInt(document.getElementById('tipoDuracion').value),
+    costo: parseFloat(document.getElementById('tipoCosto').value),
+  };
+  const url = id ? `/api/tipos-cita/${id}` : '/api/tipos-cita';
+  const method = id ? 'PUT' : 'POST';
+  const res = await fetch(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  if (res.ok) window.location.reload();
+  else alert('Error al guardar');
+});
+
+async function guardarPlantilla(id) {
+  const contenido = document.getElementById(`plntContenido${id}`).value;
+  const res = await fetch(`/api/plantillas/${id}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({contenido}),
+  });
+  if (res.ok) {
+    const btn = event.target.closest('button');
+    btn.innerHTML = '<i class="bi bi-check-lg"></i> Guardado';
+    setTimeout(() => btn.innerHTML = '<i class="bi bi-save"></i> Guardar', 2000);
+  }
+}
+
+async function togglePlantilla(id, activo) {
+  await fetch(`/api/plantillas/${id}`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({activo}),
+  });
+}
+</script>
+{% endblock %}

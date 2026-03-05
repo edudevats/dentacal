@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block title %}Doctores{% endblock %}
+{% block page_title %}Gestión de Doctores{% endblock %}
+
+{% block topbar_actions %}
+<button class="btn btn-teal btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoDoctor">
+  <i class="bi bi-person-plus"></i> Nuevo Doctor
+</button>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3" id="doctoresList">
+  {% for d in dentistas %}
+  <div class="col-12 col-md-6 col-lg-4">
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <span class="color-dot-lg" style="background:{{ d.color }}"></span>
+          <div>
+            <h6 class="mb-0">{{ d.nombre }}</h6>
+            <small class="text-muted">{{ d.especialidad or 'Sin especialidad' }}</small>
+          </div>
+          <div class="ms-auto">
+            {% if d.activo %}
+            <span class="badge bg-success">Activo</span>
+            {% else %}
+            <span class="badge bg-secondary">Inactivo</span>
+            {% endif %}
+          </div>
+        </div>
+
+        {% if d.telefono %}
+        <p class="small text-muted mb-2"><i class="bi bi-phone"></i> {{ d.telefono }}</p>
+        {% endif %}
+
+        <!-- Horarios -->
+        <div class="mb-2">
+          <p class="small fw-semibold mb-1">Horario semanal:</p>
+          {% set dias = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'] %}
+          {% if d.horarios %}
+            {% for h in d.horarios | sort(attribute='dia_semana') %}
+            <span class="badge bg-light text-dark border me-1 mb-1">
+              {{ dias[h.dia_semana] }} {{ h.hora_inicio }}-{{ h.hora_fin }}
+            </span>
+            {% endfor %}
+          {% else %}
+          <span class="text-muted small">Sin horario registrado</span>
+          {% endif %}
+        </div>
+
+        <!-- Bloqueos activos -->
+        {% set hoy = [] %}
+        {% for b in d.bloqueos %}
+          {# Solo mostrar bloqueos futuros o actuales #}
+        {% endfor %}
+
+        <div class="d-flex gap-1 mt-3">
+          <button class="btn btn-outline-teal btn-sm flex-fill"
+                  onclick="editarDoctor({{ d.id }})">
+            <i class="bi bi-pencil"></i> Editar
+          </button>
+          <button class="btn btn-outline-secondary btn-sm"
+                  onclick="abrirHorario({{ d.id }}, '{{ d.nombre }}')">
+            <i class="bi bi-clock"></i>
+          </button>
+          <button class="btn btn-outline-warning btn-sm"
+                  onclick="abrirBloqueo({{ d.id }}, '{{ d.nombre }}')">
+            <i class="bi bi-slash-circle"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12 text-center py-5 text-muted">
+    <i class="bi bi-person-badge" style="font-size:3rem"></i>
+    <p class="mt-2">No hay doctores registrados</p>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Modal Nuevo/Editar Doctor -->
+<div class="modal fade" id="modalNuevoDoctor" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="tituloModalDoctor">Nuevo Doctor</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="docId">
+        <div class="row g-2">
+          <div class="col-8">
+            <label class="form-label">Nombre *</label>
+            <input type="text" class="form-control" id="docNombre" required>
+          </div>
+          <div class="col-4">
+            <label class="form-label">Color</label>
+            <input type="color" class="form-control form-control-color w-100" id="docColor" value="#3788d8">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Especialidad</label>
+            <input type="text" class="form-control" id="docEspecialidad">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Teléfono</label>
+            <input type="text" class="form-control" id="docTelefono">
+          </div>
+          <div class="col-auto">
+            <div class="form-check mt-4">
+              <input class="form-check-input" type="checkbox" id="docActivo" checked>
+              <label class="form-check-label" for="docActivo">Activo</label>
+            </div>
+          </div>
+        </div>
+        <div id="errorDoctor" class="alert alert-danger d-none mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-teal btn-sm" id="btnGuardarDoctor">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Horario -->
+<div class="modal fade" id="modalHorario" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Horario — <span id="horarioDocNombre"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="horarioDocId">
+        <div id="listaHorarios" class="mb-3"></div>
+        <hr>
+        <h6>Agregar horario</h6>
+        <div class="row g-2">
+          <div class="col-4">
+            <label class="form-label">Día</label>
+            <select class="form-select form-select-sm" id="horDia">
+              <option value="0">Lunes</option>
+              <option value="1">Martes</option>
+              <option value="2">Miércoles</option>
+              <option value="3">Jueves</option>
+              <option value="4">Viernes</option>
+              <option value="5">Sábado</option>
+              <option value="6">Domingo</option>
+            </select>
+          </div>
+          <div class="col-4">
+            <label class="form-label">Inicio</label>
+            <input type="time" class="form-control form-control-sm" id="horInicio" value="09:00">
+          </div>
+          <div class="col-4">
+            <label class="form-label">Fin</label>
+            <input type="time" class="form-control form-control-sm" id="horFin" value="18:00">
+          </div>
+        </div>
+        <button class="btn btn-teal btn-sm mt-2" id="btnAgregarHorario">
+          <i class="bi bi-plus"></i> Agregar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Bloqueo -->
+<div class="modal fade" id="modalBloqueo" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Ausencia/Vacaciones — <span id="bloqueoDocNombre"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="bloqueoDocId">
+        <div id="listaBloqueos" class="mb-3"></div>
+        <hr>
+        <h6>Registrar ausencia</h6>
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label">Fecha inicio</label>
+            <input type="date" class="form-control form-control-sm" id="blqInicio">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Fecha fin</label>
+            <input type="date" class="form-control form-control-sm" id="blqFin">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Motivo</label>
+            <input type="text" class="form-control form-control-sm" id="blqMotivo" placeholder="Vacaciones, capacitación…">
+          </div>
+        </div>
+        <button class="btn btn-warning btn-sm mt-2" id="btnAgregarBloqueo">
+          <i class="bi bi-plus"></i> Registrar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/doctores.js') }}"></script>
+{% endblock %}

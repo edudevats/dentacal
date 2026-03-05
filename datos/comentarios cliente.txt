@@ -1,0 +1,46 @@
+Así es como están los doctores por colores ahora ya no está Wendy así que será Antonio
+
+Te mandaré los machotes de respuestas para los pacientes
+Cuando el paciente PREGUNTA POR INFORMACIÓN:
+Hola buenos días/ buenas tardes 
+Claro
+La consulta tiene un costo de $550.00 le incluye su diagnóstico, plan de tratamiento, presupuesto y radiografías intraorales que requiera su pequeño o pequeña 😀
+Cuando el paciente ACEPTE Y QUIERA CITA, se da opciones de días y horarios, se manda lo siguiente:Con gusto 😀 para las citas de pacientes que vienen por 1a vez a nuestro consultorio dental, solicitamos un pago anticipado del 50% del total de la consulta. Esto nos ayuda a garantizar tu cita y a ofrecerte el mejor servicio posible. Si tienes alguna pregunta o necesitas más información, no dudes en decírmelo. ¡Gracias por su comprensión, le compartimos el dato para su transferencia! 🦷✨
+En caso de no poder acudir les pedimos reagendar con 24hrs de anticipación, si no acuden no será reembolsable
+
+Una vez realizado el PAGO:
+Perfecto 
+Le compartimos toda la información
+
+CONFIRMAR CITA
+Nos vemos el día ———- de ——- a las ———
+
+Ahora el mensaje que se envía para SONRISAS MÁGICAS 
+cada 6 o 4 meses es el siguiente:
+Hola buenos días/tardes 😀 Cómo está? Le escribo para agendar la cita de (nombre), ya nos toca su cita de revisión, control y mantenimiento para realizar su limpieza y aplicación de flúor 
+Les acomoda vernos (ofrecer días de acuerdo cuando viene el Dr/a y entre semana o sábado de acuerdo a las necesidades del Px)?
+
+Mensaje para CONFIRMACIÓN DE CITA UN DÍA ANTES:
+Hola buenas tardes 
+Cómo está? Le escribo para confirmar la cita de….. mañana a las…..
+Gracias 😁
+
+Pacientes Actualizado.xlsx
+Excel de pacientes de acuerdo a su estatus (ahí me gustaría que se actualizara de acuerdo a sus citas)
+Y considerando que se les manda un Whatssap 
+A los 15 días el segundo Whatssap y a los 15 días una llamada que es lo que viene en color rosa, morado y azul en el Excel
+
+Y que con sus fecha de nacimiento se le mande el mensaje que pueden recibir su pin cumpleañero sólo si acuden a su cita el mes de su cumpleaños
+
+
+
+Ese es el archivo de la facturación donde solo llenamos la base de datos y la contadora se encarga de hacerlo 
+
+
+
+También quisiera incluir esto (reseñas.jpg)
+Porque para nosotros son muy importantes las reseñas de Google
+
+
+Por ejemplo en el caso de Justificantes médicos para la escuela eso sí me gustaría que fuera automático lo mismo yo tengo un machote te mando la foto
+Quizá que se replica algo igual solo con los datos del niño, la escuela, la fecha y el tratamiento que se realizó ese día (con el nombre del paciente)(justificante.jpg)

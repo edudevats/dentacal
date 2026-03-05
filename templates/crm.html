@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}CRM Pacientes{% endblock %}
+{% block page_title %}CRM — Gestión de Pacientes{% endblock %}
+
+{% block topbar_actions %}
+<a href="/api/crm/export" class="btn btn-outline-secondary btn-sm">
+  <i class="bi bi-file-earmark-excel"></i> Exportar Excel
+</a>
+{% endblock %}
+
+{% block content %}
+<!-- Filtros -->
+<div class="card mb-3">
+  <div class="card-body py-2">
+    <div class="row g-2 align-items-center">
+      <div class="col-12 col-md-4">
+        <input type="text" class="form-control form-control-sm" id="searchCrm" placeholder="Buscar paciente…">
+      </div>
+      <div class="col-12 col-md-4">
+        <select class="form-select form-select-sm" id="filterEstado">
+          <option value="">Todos los estados</option>
+          {% for e in estados %}
+          <option value="{{ e }}">{{ e.replace('_', ' ').title() }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-auto">
+        <button class="btn btn-teal btn-sm" id="btnBuscarCrm">
+          <i class="bi bi-search"></i> Buscar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tabla -->
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm mb-0" id="tablaCrm">
+        <thead class="table-light">
+          <tr>
+            <th>Paciente</th>
+            <th>Teléfono</th>
+            <th>Última cita</th>
+            <th>Estado</th>
+            <th>Citas</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="crmBody">
+          <tr><td colspan="6" class="text-center py-4">Cargando…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Modal detalle paciente -->
+<div class="modal fade" id="modalPacienteCrm" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalPacienteNombre">Paciente</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="modalPacienteBody">
+        <!-- Llenado por JS -->
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal enviar WA -->
+<div class="modal fade" id="modalEnviarWA" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Enviar WhatsApp</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="waPacienteId">
+        <div class="mb-3">
+          <label class="form-label">Tipo de mensaje</label>
+          <select class="form-select" id="waTipo">
+            <option value="sonrisas_magicas">Sonrisas Mágicas (seguimiento)</option>
+            <option value="recordatorio_24h">Recordatorio 24h</option>
+            <option value="cumpleanos">Cumpleaños</option>
+            <option value="resena">Solicitar Reseña</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Mensaje personalizado (opcional)</label>
+          <textarea class="form-control" id="waMensajeCustom" rows="4" placeholder="Dejar vacío para usar plantilla predeterminada…"></textarea>
+        </div>
+        <div id="waError" class="alert alert-danger d-none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-success btn-sm" id="btnEnviarWA">
+          <i class="bi bi-whatsapp"></i> Enviar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Colores de estado para JS -->
+<script>
+const ESTADO_COLORES = {{ estado_colores | tojson }};
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/crm.js') }}"></script>
+{% endblock %}
