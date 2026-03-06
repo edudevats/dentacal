@@ -108,6 +108,25 @@ def crear_usuario():
     return redirect(url_for('auth.admin_usuarios'))
 
 
+@auth_bp.route('/admin/usuarios/<int:user_id>/reset-password', methods=['POST'])
+@login_required
+def reset_password_usuario(user_id):
+    if not current_user.is_admin():
+        from flask import jsonify
+        return jsonify(error='Sin permisos'), 403
+    user = User.query.get_or_404(user_id)
+    nueva = request.form.get('nueva_password', '')
+    if len(nueva) < 8:
+        flash('La contrasena debe tener al menos 8 caracteres.', 'danger')
+        return redirect(url_for('auth.admin_usuarios'))
+    user.set_password(nueva)
+    db.session.commit()
+    _audit(current_user.id, 'reset_password', tabla='users', registro_id=user.id,
+           ip=request.remote_addr)
+    flash(f'Contrasena de {user.username} actualizada correctamente.', 'success')
+    return redirect(url_for('auth.admin_usuarios'))
+
+
 @auth_bp.route('/admin/usuarios/<int:user_id>/toggle', methods=['POST'])
 @login_required
 def toggle_usuario(user_id):

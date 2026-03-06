@@ -39,13 +39,14 @@ def create_app(config_name=None):
 
 
 def _init_extensions(app):
-    from extensions import db, migrate, login_manager, csrf, limiter, cache
+    from extensions import db, migrate, login_manager, csrf, limiter, cache, mail
 
     db.init_app(app)
     migrate.init_app(app, db)
     csrf.init_app(app)
     limiter.init_app(app)
     cache.init_app(app)
+    mail.init_app(app)
 
     login_manager.init_app(app)
     login_manager.login_view = 'auth.login'

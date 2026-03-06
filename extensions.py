@@ -9,6 +9,7 @@ from flask_wtf.csrf import CSRFProtect
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_caching import Cache
+from flask_mail import Mail
 from apscheduler.schedulers.background import BackgroundScheduler
 
 db = SQLAlchemy()
@@ -17,4 +18,5 @@ login_manager = LoginManager()
 csrf = CSRFProtect()
 limiter = Limiter(key_func=get_remote_address)
 cache = Cache()
+mail = Mail()
 scheduler = BackgroundScheduler(timezone='America/Mexico_City')

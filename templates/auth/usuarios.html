@@ -39,6 +39,10 @@
                   </span>
                 </td>
                 <td>
+                  <button class="btn btn-sm btn-outline-warning" data-bs-toggle="modal"
+                          data-bs-target="#modalResetPassword{{ u.id }}">
+                    <i class="bi bi-key"></i>
+                  </button>
                   {% if u.id != current_user.id %}
                   <form method="POST" action="{{ url_for('auth.toggle_usuario', user_id=u.id) }}" class="d-inline">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -57,6 +61,33 @@
     </div>
   </div>
 </div>
+
+<!-- Modales Reset Password -->
+{% for u in usuarios %}
+<div class="modal fade" id="modalResetPassword{{ u.id }}" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('auth.reset_password_usuario', user_id=u.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h6 class="modal-title"><i class="bi bi-key me-2"></i>Cambiar contrasena — {{ u.username }}</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Nueva contrasena</label>
+            <input type="password" name="nueva_password" class="form-control" required minlength="8">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-warning btn-sm">Actualizar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
 
 <!-- Modal Nuevo Usuario -->
 <div class="modal fade" id="modalNuevoUsuario" tabindex="-1">
