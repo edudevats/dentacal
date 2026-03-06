@@ -1,53 +1,102 @@
-from flask import Blueprint, request, jsonify, render_template
+from flask import Blueprint, jsonify, request
 from flask_login import login_required
-from models import db, Paciente, Cita
+from extensions import db
+from models import Paciente, EstatusCRM
 from datetime import datetime
 
-bp_pacientes = Blueprint('pacientes', __name__)
+pacientes_bp = Blueprint('pacientes', __name__, url_prefix='/api/pacientes')
 
 
-@bp_pacientes.before_request
+@pacientes_bp.route('', methods=['GET'])
 @login_required
-def require_login():
-    pass
+def listar():
+    q = Paciente.query.filter_by(eliminado=False)
 
-
-@bp_pacientes.route('/pacientes')
-def view_pacientes():
-    pacientes = Paciente.query.order_by(Paciente.nombre).all()
-    return render_template('pacientes.html', pacientes=pacientes)
-
-
-@bp_pacientes.route('/pacientes/<int:paciente_id>')
-def view_paciente(paciente_id):
-    paciente = Paciente.query.get_or_404(paciente_id)
-    citas = Cita.query.filter_by(paciente_id=paciente_id).order_by(Cita.fecha_inicio.desc()).all()
-    return render_template('paciente_detalle.html', paciente=paciente, citas=citas)
-
-
-# ── API ───────────────────────────────────────────────────────────────────────
-
-@bp_pacientes.route('/api/pacientes', methods=['GET'])
-def api_listar_pacientes():
-    q = request.args.get('q', '').strip()
-    query = Paciente.query
-    if q:
-        like = f'%{q}%'
-        query = query.filter(
-            db.or_(Paciente.nombre.ilike(like), Paciente.telefono.ilike(like))
+    # Busqueda
+    search = request.args.get('q', '').strip()
+    if search:
+        like = f'%{search}%'
+        q = q.filter(
+            db.or_(
+                Paciente.nombre.ilike(like),
+                Paciente.apellidos.ilike(like),
+                Paciente.whatsapp.ilike(like),
+                Paciente.telefono.ilike(like),
+            )
         )
-    pacientes = query.order_by(Paciente.nombre).all()
-    return jsonify([p.to_dict() for p in pacientes])
+
+    estatus = request.args.get('estatus')
+    if estatus:
+        try:
+            q = q.filter_by(estatus_crm=EstatusCRM[estatus])
+        except KeyError:
+            pass
+
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    per_page = min(per_page, 200)
+
+    pagination = q.order_by(Paciente.nombre).paginate(
+        page=page, per_page=per_page, error_out=False)
+
+    return jsonify({
+        'pacientes': [p.to_dict() for p in pagination.items],
+        'total': pagination.total,
+        'page': page,
+        'pages': pagination.pages,
+    })
 
 
-@bp_pacientes.route('/api/pacientes', methods=['POST'])
-def api_crear_paciente():
-    data = request.json
-    if not data.get('nombre') or not data.get('telefono'):
-        return jsonify({'error': 'Nombre y teléfono son requeridos'}), 400
+@pacientes_bp.route('/buscar-whatsapp', methods=['GET'])
+@login_required
+def buscar_por_whatsapp():
+    numero = request.args.get('numero', '').strip()
+    if not numero:
+        return jsonify(error='Numero requerido'), 400
+    # Normalizar: remover whatsapp: prefix y espacios
+    numero = numero.replace('whatsapp:', '').replace(' ', '').replace('-', '')
+    if not numero.startswith('+'):
+        numero_con_plus = '+' + numero
+    else:
+        numero_con_plus = numero
 
-    if Paciente.query.filter_by(telefono=data['telefono']).first():
-        return jsonify({'error': 'Ya existe un paciente con ese teléfono'}), 409
+    paciente = Paciente.query.filter(
+        db.or_(
+            Paciente.whatsapp == numero,
+            Paciente.whatsapp == numero_con_plus,
+        ),
+        Paciente.eliminado == False
+    ).first()
+
+    if paciente:
+        return jsonify(encontrado=True, paciente=paciente.to_dict())
+    return jsonify(encontrado=False)
+
+
+@pacientes_bp.route('/<int:paciente_id>', methods=['GET'])
+@login_required
+def detalle(paciente_id):
+    p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
+    data = p.to_dict()
+    # Ultimas 5 citas
+    from models import Cita
+    citas = Cita.query.filter_by(paciente_id=paciente_id)\
+        .order_by(Cita.fecha_inicio.desc()).limit(5).all()
+    data['citas_recientes'] = [c.to_dict() for c in citas]
+    return jsonify(data)
+
+
+@pacientes_bp.route('', methods=['POST'])
+@login_required
+def crear():
+    data = request.get_json(force=True)
+    if not data.get('nombre'):
+        return jsonify(error='El nombre es requerido'), 400
+
+    # Verificar duplicado por whatsapp
+    whatsapp = _normalizar_numero(data.get('whatsapp', ''))
+    if whatsapp and Paciente.query.filter_by(whatsapp=whatsapp, eliminado=False).first():
+        return jsonify(error='Ya existe un paciente con ese numero de WhatsApp'), 409
 
     fecha_nac = None
     if data.get('fecha_nacimiento'):
@@ -56,60 +105,74 @@ def api_crear_paciente():
         except ValueError:
             pass
 
-    paciente = Paciente(
+    p = Paciente(
         nombre=data['nombre'],
-        telefono=data['telefono'],
-        email=data.get('email', ''),
+        apellidos=data.get('apellidos', ''),
         fecha_nacimiento=fecha_nac,
-        nombre_escuela=data.get('nombre_escuela', ''),
+        telefono=data.get('telefono', ''),
+        whatsapp=whatsapp or data.get('whatsapp', ''),
+        email=data.get('email', ''),
+        nombre_tutor=data.get('nombre_tutor', ''),
+        telefono_tutor=data.get('telefono_tutor', ''),
+        escuela=data.get('escuela', ''),
         notas=data.get('notas', ''),
-        estado_crm=data.get('estado_crm', 'nuevo'),
+        estatus_crm=EstatusCRM[data.get('estatus_crm', 'prospecto')],
     )
-    db.session.add(paciente)
+    db.session.add(p)
     db.session.commit()
-    return jsonify(paciente.to_dict()), 201
+    return jsonify(p.to_dict()), 201
 
 
-@bp_pacientes.route('/api/pacientes/<int:paciente_id>', methods=['GET'])
-def api_obtener_paciente(paciente_id):
-    p = Paciente.query.get_or_404(paciente_id)
-    data = p.to_dict()
-    data['citas'] = [c.to_dict() for c in p.citas]
-    return jsonify(data)
+@pacientes_bp.route('/<int:paciente_id>', methods=['PUT'])
+@login_required
+def actualizar(paciente_id):
+    p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
+    data = request.get_json(force=True)
 
-
-@bp_pacientes.route('/api/pacientes/telefono/<telefono>', methods=['GET'])
-def api_buscar_por_telefono(telefono):
-    p = Paciente.query.filter_by(telefono=telefono).first()
-    if not p:
-        return jsonify({'error': 'No encontrado'}), 404
-    data = p.to_dict()
-    data['citas'] = [c.to_dict() for c in p.citas]
-    return jsonify(data)
-
-
-@bp_pacientes.route('/api/pacientes/<int:paciente_id>', methods=['PUT'])
-def api_actualizar_paciente(paciente_id):
-    p = Paciente.query.get_or_404(paciente_id)
-    data = request.json
-
-    for campo in ('nombre', 'email', 'nombre_escuela', 'notas', 'estado_crm'):
-        if campo in data:
-            setattr(p, campo, data[campo])
-
+    if 'nombre' in data:
+        p.nombre = data['nombre']
+    if 'apellidos' in data:
+        p.apellidos = data['apellidos']
     if 'fecha_nacimiento' in data and data['fecha_nacimiento']:
         try:
             p.fecha_nacimiento = datetime.strptime(data['fecha_nacimiento'], '%Y-%m-%d').date()
         except ValueError:
+            pass
+    if 'telefono' in data:
+        p.telefono = data['telefono']
+    if 'whatsapp' in data:
+        p.whatsapp = _normalizar_numero(data['whatsapp'])
+    if 'email' in data:
+        p.email = data['email']
+    if 'nombre_tutor' in data:
+        p.nombre_tutor = data['nombre_tutor']
+    if 'telefono_tutor' in data:
+        p.telefono_tutor = data['telefono_tutor']
+    if 'escuela' in data:
+        p.escuela = data['escuela']
+    if 'notas' in data:
+        p.notas = data['notas']
+    if 'estatus_crm' in data:
+        try:
+            p.estatus_crm = EstatusCRM[data['estatus_crm']]
+        except KeyError:
             pass
 
     db.session.commit()
     return jsonify(p.to_dict())
 
 
-@bp_pacientes.route('/api/pacientes/<int:paciente_id>', methods=['DELETE'])
-def api_eliminar_paciente(paciente_id):
-    p = Paciente.query.get_or_404(paciente_id)
-    db.session.delete(p)
+@pacientes_bp.route('/<int:paciente_id>', methods=['DELETE'])
+@login_required
+def eliminar(paciente_id):
+    p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
+    p.eliminado = True
     db.session.commit()
-    return jsonify({'ok': True})
+    return jsonify(ok=True)
+
+
+def _normalizar_numero(numero):
+    if not numero:
+        return numero
+    numero = numero.replace('whatsapp:', '').replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+    return numero

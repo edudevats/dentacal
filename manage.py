@@ -1,106 +1,99 @@
-#!/usr/bin/env python
 """
-CLI de gestión — La Casa del Sr. Pérez
+CLI de administracion del proyecto.
 
 Uso:
-  python manage.py db init          # Inicializar Alembic
-  python manage.py db migrate -m "msg"  # Generar migración
-  python manage.py db upgrade       # Aplicar migraciones
-  python manage.py crear_admin      # Crear usuario admin interactivo
-  python manage.py shell            # Shell con contexto Flask
-  python manage.py test             # Correr pytest
-  python manage.py seed             # Insertar datos semilla
+    python manage.py crear_admin
+    python manage.py seed
+    python manage.py db upgrade
+    python manage.py test
+    python manage.py shell
 """
-import sys
 import os
 import click
-from flask.cli import FlaskGroup, with_appcontext
+from dotenv import load_dotenv
+load_dotenv()
 
 from app import create_app
-from models import db
+from extensions import db
 
-# Determinar entorno
-env = os.environ.get('FLASK_ENV', 'development')
-
-
-def get_app():
-    return create_app(env)
+app = create_app(os.environ.get('FLASK_ENV', 'development'))
 
 
-@click.group(cls=FlaskGroup, create_app=get_app)
-def cli():
-    """La Casa del Sr. Pérez — CLI de gestión."""
-    pass
+@app.cli.command('crear_admin')
+@click.option('--username', default=lambda: os.environ.get('ADMIN_USERNAME', 'admin'))
+@click.option('--email', default=lambda: os.environ.get('ADMIN_EMAIL', 'admin@consultorio.com'))
+@click.option('--password', default=lambda: os.environ.get('ADMIN_PASSWORD', 'Admin123!'))
+def crear_admin(username, email, password):
+    """Crea el usuario administrador inicial."""
+    from models import User, RolUsuario
+    with app.app_context():
+        if User.query.filter_by(username=username).first():
+            click.echo(f'El usuario {username} ya existe.')
+            return
+        user = User(username=username, email=email, rol=RolUsuario.admin)
+        user.set_password(password)
+        db.session.add(user)
+        db.session.commit()
+        click.echo(f'Admin {username} creado correctamente.')
 
 
-@cli.command('crear_admin')
-@with_appcontext
-def crear_admin():
-    """Crea un usuario administrador de forma interactiva."""
-    from models import User
-
-    click.echo('\n=== Crear Usuario Administrador ===')
-    username = click.prompt('Username')
-    email = click.prompt('Email')
-    password = click.prompt('Password', hide_input=True, confirmation_prompt=True)
-
-    if User.query.filter((User.username == username) | (User.email == email)).first():
-        click.secho('Error: El usuario o email ya existe.', fg='red')
-        sys.exit(1)
-
-    user = User(username=username, email=email, role='admin')
-    user.set_password(password)
-    db.session.add(user)
-    db.session.commit()
-    click.secho(f'✅  Admin "{username}" creado correctamente.', fg='green')
-
-
-@cli.command('seed')
-@with_appcontext
+@app.cli.command('seed')
 def seed():
-    """Inserta datos semilla (consultorios, tipos de cita, plantillas)."""
-    from app import seed_initial_data, create_app
-    app = create_app(env)
-    seed_initial_data(app)
-    click.secho('✅  Datos semilla insertados.', fg='green')
+    """Inserta datos de prueba adicionales."""
+    from models import Paciente, EstatusCRM
+    with app.app_context():
+        if Paciente.query.first():
+            click.echo('Ya existen pacientes. Seed omitido.')
+            return
+        pacientes = [
+            Paciente(
+                nombre='Maria', apellidos='Garcia Lopez',
+                fecha_nacimiento=None,
+                telefono='5551234567', whatsapp='5551234567',
+                nombre_tutor='Rosa Lopez', telefono_tutor='5559876543',
+                escuela='Escuela Primaria Juarez',
+                estatus_crm=EstatusCRM.activo,
+            ),
+            Paciente(
+                nombre='Carlos', apellidos='Martinez Perez',
+                telefono='5552345678', whatsapp='5552345678',
+                estatus_crm=EstatusCRM.prospecto,
+            ),
+            Paciente(
+                nombre='Sofia', apellidos='Hernandez',
+                telefono='5553456789', whatsapp='5553456789',
+                estatus_crm=EstatusCRM.alta,
+            ),
+        ]
+        db.session.add_all(pacientes)
+        db.session.commit()
+        click.echo(f'{len(pacientes)} pacientes de prueba creados.')
 
 
-@cli.command('shell')
-@with_appcontext
-def shell():
-    """Abre un shell Python con contexto Flask."""
-    import code
-    from models import (
-        db, User, Paciente, Cita, Dentista,
-        Consultorio, TipoCita, PlantillaMensaje,
-    )
-    ctx = {
-        'db': db,
-        'User': User,
-        'Paciente': Paciente,
-        'Cita': Cita,
-        'Dentista': Dentista,
-        'Consultorio': Consultorio,
-        'TipoCita': TipoCita,
-        'PlantillaMensaje': PlantillaMensaje,
-    }
-    click.echo('Flask shell — variables disponibles: ' + ', '.join(ctx.keys()))
-    code.interact(local=ctx)
-
-
-@cli.command('test')
-@click.argument('path', default='tests/', required=False)
-@click.option('--cov', is_flag=True, default=False, help='Generar reporte de cobertura')
-@click.option('--no-cov', 'skip_cov', is_flag=True, default=False, help='Omitir cobertura')
-def run_tests(path, cov, skip_cov):
-    """Corre la suite de tests con pytest (+ coverage por defecto)."""
+@app.cli.command('test')
+@click.argument('path', default='tests/')
+def run_tests(path):
+    """Ejecuta los tests con pytest."""
     import subprocess
-    cmd = [sys.executable, '-m', 'pytest', path, '-v']
-    if not skip_cov:
-        cmd += ['--cov=.', '--cov-report=term-missing', '--cov-config=.coveragerc']
-    result = subprocess.run(cmd, check=False)
-    sys.exit(result.returncode)
+    import sys
+    result = subprocess.run(
+        [sys.executable, '-m', 'pytest', path, '-v'],
+        cwd=os.path.dirname(__file__)
+    )
+    raise SystemExit(result.returncode)
+
+
+@app.cli.command('shell')
+def shell():
+    """Shell interactivo con contexto de la app."""
+    import code
+    with app.app_context():
+        ctx = {'app': app, 'db': db}
+        from models import (User, Paciente, Cita, Dentista, Consultorio,
+                            TipoCita, ConfiguracionConsultorio)
+        ctx.update(locals())
+        code.interact(local=ctx, banner='La Casa del Sr. Perez - Shell')
 
 
 if __name__ == '__main__':
-    cli()
+    app.cli()

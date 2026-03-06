@@ -1,23 +1,20 @@
 """
-WSGI entry point para PythonAnywhere.
+Entry point para PythonAnywhere y Gunicorn.
 
-En el panel de PythonAnywhere (Web > WSGI configuration file):
-  - Apuntar a este archivo
-  - Ajustar PYTHONANYWHERE_USER con tu usuario
-
-Ejemplo de ruta en PythonAnywhere:
-  /home/tupyuser/dental_app/wsgi.py
+PythonAnywhere WSGI config:
+    import sys
+    sys.path.insert(0, '/home/TU_USUARIO/lacasadelsrperez')
+    from wsgi import application
 """
-import sys
 import os
+from dotenv import load_dotenv
 
-# Ajusta esta ruta a la ubicación real del proyecto en PythonAnywhere
-project_path = os.path.dirname(os.path.abspath(__file__))
-if project_path not in sys.path:
-    sys.path.insert(0, project_path)
-
-os.environ.setdefault('FLASK_ENV', 'production')
+# Cargar .env (util en desarrollo; en produccion las vars se setean en el panel)
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 from app import create_app
 
-application = create_app('production')
+application = create_app(os.environ.get('FLASK_ENV', 'production'))
+
+if __name__ == '__main__':
+    application.run()

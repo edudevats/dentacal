@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    @page { size: letter; margin: 2cm; }
+    body { font-family: Arial, sans-serif; font-size: 13px; color: #1a1a1a; line-height: 1.6; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 2px solid #00B5AD; padding-bottom: 15px; }
+    .logo-text { color: #00B5AD; font-size: 20px; font-weight: bold; }
+    .logo-sub  { color: #555; font-size: 11px; }
+    .fecha-header { text-align: right; font-size: 11px; color: #555; }
+    .destinatario { margin-bottom: 20px; }
+    .destinatario .label { font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; font-size: 12px; }
+    .body-text { margin-bottom: 30px; text-align: justify; }
+    .firma-section { margin-top: 70px; text-align: center; }
+    .firma-linea { border-top: 1px solid #1a1a1a; width: 280px; margin: 0 auto 8px; }
+    .firma-nombre { font-weight: bold; font-size: 14px; }
+    .firma-cedula { font-size: 11px; color: #555; text-transform: uppercase; letter-spacing: 0.05em; }
+    .footer { margin-top: 40px; border-top: 1px solid #ddd; padding-top: 10px; font-size: 10px; color: #888; text-align: center; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div class="logo-text">La Casa del Sr. Perez</div>
+    <div class="logo-sub">Consultorio Dental Pediatrico y de Adultos</div>
+    <div class="logo-sub">Av. Claveria, Azcapotzalco, CDMX</div>
+  </div>
+  <div class="fecha-header">
+    {{ justificante.fecha_emision.strftime('%d DE %B DE %Y').upper() }}
+  </div>
+</div>
+
+<div class="destinatario">
+  <div class="label">A quien corresponda</div>
+  {% if justificante.escuela %}
+  <div>{{ justificante.escuela }}</div>
+  {% endif %}
+</div>
+
+<div class="body-text">
+  <p>
+    Mediante la presente informamos que el paciente
+    <strong>{{ paciente.nombre_completo }}</strong>
+    se presento a consulta dental en nuestro consultorio el dia
+    {{ justificante.fecha_emision.strftime('%d de %B de %Y') }},
+    para realizar: <strong>{{ justificante.tratamiento_realizado }}</strong>.
+  </p>
+  <p>
+    Por lo anterior, se le indica reposo relativo y seguir las indicaciones medicas proporcionadas
+    durante la consulta.
+  </p>
+</div>
+
+<div class="firma-section">
+  <div class="firma-linea"></div>
+  <div class="firma-nombre">{{ justificante.doctor_firmante }}</div>
+  <div class="firma-cedula">
+    {% if 'Paulina' in justificante.doctor_firmante %}
+    Cedula Esp. 12269548 &bull; Odontopediatra
+    {% else %}
+    Cirujano Dentista
+    {% endif %}
+  </div>
+</div>
+
+<div class="footer">
+  drapaulinaodontopediatra@gmail.com &bull; 55 4016 5552 / 55 3863 0912
+  &bull; La Casa del Sr. Perez
+</div>
+
+</body>
+</html>

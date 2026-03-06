@@ -1,117 +1,135 @@
-{% extends "base.html" %}
-{% block title %}CRM Pacientes{% endblock %}
-{% block page_title %}CRM — Gestión de Pacientes{% endblock %}
-
-{% block topbar_actions %}
-<a href="/api/crm/export" class="btn btn-outline-secondary btn-sm">
-  <i class="bi bi-file-earmark-excel"></i> Exportar Excel
-</a>
-{% endblock %}
+{% extends 'base.html' %}
+{% block title %}CRM{% endblock %}
+{% block page_title %}<i class="bi bi-graph-up-arrow me-2" style="color:var(--primary)"></i>CRM - Seguimiento{% endblock %}
 
 {% block content %}
-<!-- Filtros -->
-<div class="card mb-3">
-  <div class="card-body py-2">
-    <div class="row g-2 align-items-center">
-      <div class="col-12 col-md-4">
-        <input type="text" class="form-control form-control-sm" id="searchCrm" placeholder="Buscar paciente…">
+<div class="p-3">
+  <!-- Stats row -->
+  <div class="row g-3 mb-3" id="crmStats">
+    <div class="col-6 col-md-3">
+      <div class="card text-center p-3">
+        <div class="fw-bold fs-4" id="stat-alta" style="color:#F9A825">0</div>
+        <div class="text-muted small">Alta</div>
       </div>
-      <div class="col-12 col-md-4">
-        <select class="form-select form-select-sm" id="filterEstado">
-          <option value="">Todos los estados</option>
-          {% for e in estados %}
-          <option value="{{ e }}">{{ e.replace('_', ' ').title() }}</option>
-          {% endfor %}
-        </select>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card text-center p-3">
+        <div class="fw-bold fs-4" id="stat-activo" style="color:#2E7D32">0</div>
+        <div class="text-muted small">Activo</div>
       </div>
-      <div class="col-auto">
-        <button class="btn btn-teal btn-sm" id="btnBuscarCrm">
-          <i class="bi bi-search"></i> Buscar
-        </button>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card text-center p-3">
+        <div class="fw-bold fs-4" id="stat-prospecto" style="color:#E65100">0</div>
+        <div class="text-muted small">Prospecto</div>
       </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card text-center p-3">
+        <div class="fw-bold fs-4" id="stat-baja" style="color:#9E9E9E">0</div>
+        <div class="text-muted small">Baja</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kanban CRM -->
+  <div class="d-flex gap-3 overflow-auto pb-2">
+    <!-- ALTA -->
+    <div class="crm-col flex-shrink-0">
+      <div class="crm-col-header" style="background:#FFF9C4;color:#F57F17">
+        <i class="bi bi-star-fill me-1"></i>ALTA
+        <span class="badge ms-2" style="background:#F9A825;color:#fff" id="count-alta">0</span>
+      </div>
+      <div id="col-alta" class="crm-cards"></div>
+    </div>
+    <!-- ACTIVO -->
+    <div class="crm-col flex-shrink-0">
+      <div class="crm-col-header" style="background:#E8F5E9;color:#2E7D32">
+        <i class="bi bi-activity me-1"></i>ACTIVO
+        <span class="badge ms-2 bg-success" id="count-activo">0</span>
+      </div>
+      <div id="col-activo" class="crm-cards"></div>
+    </div>
+    <!-- PROSPECTO -->
+    <div class="crm-col flex-shrink-0">
+      <div class="crm-col-header" style="background:#FFF3E0;color:#E65100">
+        <i class="bi bi-hourglass-split me-1"></i>PROSPECTO
+        <span class="badge ms-2" style="background:#FFA726;color:#fff" id="count-prospecto">0</span>
+      </div>
+      <div id="col-prospecto" class="crm-cards"></div>
+    </div>
+    <!-- BAJA -->
+    <div class="crm-col flex-shrink-0">
+      <div class="crm-col-header" style="background:#F5F5F5;color:#757575">
+        <i class="bi bi-archive me-1"></i>BAJA
+        <span class="badge ms-2 bg-secondary" id="count-baja">0</span>
+      </div>
+      <div id="col-baja" class="crm-cards"></div>
     </div>
   </div>
 </div>
 
-<!-- Tabla -->
-<div class="card">
-  <div class="card-body p-0">
-    <div class="table-responsive">
-      <table class="table table-hover table-sm mb-0" id="tablaCrm">
-        <thead class="table-light">
-          <tr>
-            <th>Paciente</th>
-            <th>Teléfono</th>
-            <th>Última cita</th>
-            <th>Estado</th>
-            <th>Citas</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody id="crmBody">
-          <tr><td colspan="6" class="text-center py-4">Cargando…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- Modal detalle paciente -->
-<div class="modal fade" id="modalPacienteCrm" tabindex="-1">
+<!-- Modal Detalle CRM -->
+<div class="modal fade" id="modalCRM" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="modalPacienteNombre">Paciente</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body" id="modalPacienteBody">
-        <!-- Llenado por JS -->
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Modal enviar WA -->
-<div class="modal fade" id="modalEnviarWA" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Enviar WhatsApp</h5>
+        <h5 class="modal-title" id="crmNombrePaciente">Paciente</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <input type="hidden" id="waPacienteId">
-        <div class="mb-3">
-          <label class="form-label">Tipo de mensaje</label>
-          <select class="form-select" id="waTipo">
-            <option value="sonrisas_magicas">Sonrisas Mágicas (seguimiento)</option>
-            <option value="recordatorio_24h">Recordatorio 24h</option>
-            <option value="cumpleanos">Cumpleaños</option>
-            <option value="resena">Solicitar Reseña</option>
-          </select>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Status CRM</label>
+              <select id="crm_estatus" class="form-select">
+                <option value="alta">Alta</option>
+                <option value="activo">Activo</option>
+                <option value="prospecto">Prospecto</option>
+                <option value="baja">Baja</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Enviar WhatsApp</label>
+              <textarea id="crm_wa_mensaje" class="form-control" rows="4"
+                        placeholder="Escribe el mensaje..."></textarea>
+              <button class="btn btn-success btn-sm mt-1 w-100" id="btnEnviarWA">
+                <i class="bi bi-whatsapp me-1"></i>Enviar
+              </button>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="mb-2">
+              <div class="fw-semibold small text-muted mb-1">Historial de conversacion</div>
+              <div id="crm_historial" style="height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:8px;font-size:13px">
+                <p class="text-muted text-center">Sin mensajes</p>
+              </div>
+            </div>
+            <div>
+              <div class="fw-semibold small text-muted mb-1">Proximas citas</div>
+              <div id="crm_citas" class="small"></div>
+            </div>
+          </div>
         </div>
-        <div class="mb-3">
-          <label class="form-label">Mensaje personalizado (opcional)</label>
-          <textarea class="form-control" id="waMensajeCustom" rows="4" placeholder="Dejar vacío para usar plantilla predeterminada…"></textarea>
+
+        <!-- Seguimiento -->
+        <hr>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <div class="fw-semibold small">Seguimientos</div>
+          <button class="btn btn-sm btn-outline-primary" id="btnAgregarSeguimiento">+ Agregar</button>
         </div>
-        <div id="waError" class="alert alert-danger d-none"></div>
+        <div id="crm_seguimientos" class="small"></div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
-        <button class="btn btn-success btn-sm" id="btnEnviarWA">
-          <i class="bi bi-whatsapp"></i> Enviar
-        </button>
+        <input type="hidden" id="crm_paciente_id">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button class="btn btn-primary" id="btnGuardarCRM">Guardar Status</button>
       </div>
     </div>
   </div>
 </div>
-
-<!-- Colores de estado para JS -->
-<script>
-const ESTADO_COLORES = {{ estado_colores | tojson }};
-</script>
 {% endblock %}
 
-{% block scripts %}
+{% block extra_js %}
 <script src="{{ url_for('static', filename='js/crm.js') }}"></script>
 {% endblock %}

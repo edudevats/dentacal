@@ -1,0 +1,194 @@
+/* =====================================================
+   La Casa del Sr. Perez - Main CSS
+   Brand colors: teal #00B5AD, green #72B843,
+   yellow #F5DC57, orange #F2853D, pink #E84375
+   ===================================================== */
+
+:root {
+  --primary:    #00B5AD;
+  --primary-dk: #008C86;
+  --green:      #72B843;
+  --yellow:     #F5DC57;
+  --orange:     #F2853D;
+  --pink:       #E84375;
+  --sidebar-w:  240px;
+  --topbar-h:   56px;
+  --text:       #2d3748;
+  --muted:      #718096;
+  --border:     #e2e8f0;
+  --bg:         #f7fafc;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text); background: var(--bg); overflow-x: hidden; }
+
+/* ---- SIDEBAR ---- */
+.sidebar {
+  position: fixed; top: 0; left: 0; height: 100vh;
+  width: var(--sidebar-w); background: linear-gradient(180deg, #1a202c 0%, #2d3748 100%);
+  color: #fff; z-index: 1000; transition: all .3s ease; overflow: hidden;
+}
+.sidebar.collapsed { width: 60px; }
+.sidebar.collapsed .brand-text,
+.sidebar.collapsed .sidebar-link span,
+.sidebar.collapsed .user-name,
+.sidebar.collapsed .user-role,
+.sidebar.collapsed .user-actions { display: none; }
+
+.sidebar-brand {
+  display: flex; align-items: center; gap: 12px;
+  padding: 20px 16px; border-bottom: 1px solid rgba(255,255,255,.1);
+}
+.brand-icon { font-size: 28px; color: var(--primary); flex-shrink: 0; }
+.brand-text { display: flex; flex-direction: column; }
+.brand-name { font-size: 13px; font-weight: 700; color: #fff; line-height: 1.2; }
+.brand-sub   { font-size: 11px; color: var(--primary); }
+
+.sidebar-nav { list-style: none; padding: 12px 0; }
+.sidebar-nav li { margin: 2px 8px; }
+.sidebar-link {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: 8px; color: rgba(255,255,255,.7);
+  text-decoration: none; font-size: 14px; transition: all .2s;
+}
+.sidebar-link:hover { background: rgba(255,255,255,.1); color: #fff; }
+.sidebar-link.active { background: var(--primary); color: #fff; font-weight: 600; }
+.sidebar-link i { font-size: 17px; flex-shrink: 0; width: 20px; text-align: center; }
+
+.sidebar-user {
+  padding: 16px; border-top: 1px solid rgba(255,255,255,.1);
+}
+.user-info { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.user-avatar {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--primary); display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 15px; flex-shrink: 0;
+}
+.user-name  { font-size: 13px; font-weight: 600; color: #fff; }
+.user-role  { font-size: 11px; color: rgba(255,255,255,.6); text-transform: capitalize; }
+
+/* ---- MAIN CONTENT ---- */
+.main-content {
+  margin-left: var(--sidebar-w); min-height: 100vh;
+  transition: margin-left .3s ease; display: flex; flex-direction: column;
+}
+.main-content.expanded { margin-left: 60px; }
+
+.topbar {
+  height: var(--topbar-h); background: #fff;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 20px; gap: 12px;
+  position: sticky; top: 0; z-index: 900; box-shadow: 0 1px 3px rgba(0,0,0,.05);
+}
+.topbar-title { font-size: 16px; font-weight: 600; flex-grow: 1; }
+.sidebar-toggle { color: var(--text) !important; }
+
+.page-content { padding: 0; flex-grow: 1; }
+
+/* ---- CARDS ---- */
+.card { border: 1px solid var(--border); border-radius: 12px; }
+.card-header { background: #fff; border-bottom: 1px solid var(--border); font-weight: 600; padding: 14px 16px; }
+
+/* ---- BUTTONS ---- */
+.btn-primary { background: var(--primary); border-color: var(--primary); }
+.btn-primary:hover { background: var(--primary-dk); border-color: var(--primary-dk); }
+.btn-outline-primary { color: var(--primary); border-color: var(--primary); }
+.btn-outline-primary:hover { background: var(--primary); border-color: var(--primary); }
+
+/* ---- BADGES / STATUS ---- */
+.badge-alta       { background: #FFF9C4; color: #F57F17; border: 1px solid #F9A825; }
+.badge-activo     { background: #E8F5E9; color: #2E7D32; border: 1px solid #66BB6A; }
+.badge-prospecto  { background: #FFF3E0; color: #E65100; border: 1px solid #FFA726; }
+.badge-baja       { background: #FAFAFA; color: #757575; border: 1px solid #BDBDBD; }
+
+.cita-pendiente   { border-left: 3px solid #FFC107; }
+.cita-confirmada  { border-left: 3px solid var(--green); }
+.cita-no_asistencia { border-left: 3px solid #9E9E9E; opacity: .7; }
+.cita-cancelada   { border-left: 3px solid #BDBDBD; opacity: .5; }
+
+/* ---- LOGIN PAGE ---- */
+.login-page {
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #1a202c 0%, var(--primary-dk) 50%, var(--primary) 100%);
+}
+.login-container {
+  width: 100%; max-width: 420px; background: #fff;
+  border-radius: 16px; padding: 40px; box-shadow: 0 20px 60px rgba(0,0,0,.3);
+}
+.login-brand { text-align: center; margin-bottom: 32px; }
+.login-logo { font-size: 48px; color: var(--primary); margin-bottom: 8px; }
+.login-title { font-size: 22px; font-weight: 700; color: var(--text); }
+.login-subtitle { color: var(--muted); font-size: 14px; }
+.btn-login { background: var(--primary); border-color: var(--primary); padding: 12px; font-size: 15px; border-radius: 8px; }
+.btn-login:hover { background: var(--primary-dk); border-color: var(--primary-dk); }
+
+/* ---- CALENDAR (FullCalendar overrides) ---- */
+.fc .fc-toolbar-title { font-size: 17px !important; font-weight: 700; }
+.fc .fc-col-header-cell { background: #f8fafc; }
+.fc .fc-resource-cell { background: #f8fafc; font-weight: 600; color: var(--primary); }
+.fc-event { border-radius: 5px !important; padding: 2px 4px !important; font-size: 12px !important; cursor: pointer !important; }
+.fc-event:hover { opacity: .85; }
+.fc-daygrid-event .fc-event-title { font-weight: 500; }
+.fc .fc-timegrid-slot { height: 40px !important; }
+.fc .fc-timegrid-slot-minor { border-top-style: dotted !important; }
+
+/* Legend de doctores */
+.doctor-legend { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; }
+.legend-item {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; cursor: pointer; padding: 3px 8px;
+  border-radius: 20px; border: 1px solid transparent; transition: all .2s;
+}
+.legend-item:hover { background: rgba(0,0,0,.05); }
+.legend-item.inactive { opacity: .4; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+/* ---- CRM KANBAN ---- */
+.crm-col {
+  min-width: 240px; background: #f1f5f9;
+  border-radius: 10px; padding: 12px;
+}
+.crm-col-header { font-weight: 700; font-size: 13px; margin-bottom: 10px; padding: 6px 10px; border-radius: 6px; }
+.crm-card {
+  background: #fff; border-radius: 8px; padding: 12px; margin-bottom: 8px;
+  border: 1px solid var(--border); cursor: pointer; transition: box-shadow .2s;
+}
+.crm-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.1); }
+.crm-card .patient-name { font-weight: 600; font-size: 14px; }
+.crm-card .patient-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* ---- TABLES ---- */
+.table th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.table td { vertical-align: middle; }
+
+/* ---- MODALS ---- */
+.modal-header { background: var(--primary); color: #fff; border-radius: 12px 12px 0 0; }
+.modal-header .btn-close { filter: invert(1); }
+.modal-title { font-weight: 700; }
+
+/* ---- SLOTS GRID ---- */
+.slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+.slot-btn {
+  padding: 8px 4px; border: 2px solid var(--border);
+  border-radius: 8px; text-align: center; font-size: 13px;
+  cursor: pointer; transition: all .2s; background: #fff;
+}
+.slot-btn.available:hover { border-color: var(--primary); background: #e6fffe; color: var(--primary); }
+.slot-btn.unavailable { background: #f3f4f6; color: #9ca3af; cursor: not-allowed; text-decoration: line-through; }
+.slot-btn.selected { border-color: var(--primary); background: var(--primary); color: #fff; }
+
+/* ---- JUSTIFICANTE PDF ---- */
+.justificante-pdf { padding: 40px; font-family: Arial, sans-serif; color: #1a1a1a; }
+.justificante-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; }
+.justificante-logo { font-size: 22px; font-weight: 700; color: var(--primary); }
+.justificante-body { line-height: 1.8; font-size: 14px; }
+.justificante-firma { margin-top: 60px; text-align: center; }
+.justificante-firma .linea { border-top: 1px solid #1a1a1a; width: 280px; margin: 0 auto 6px; }
+
+/* ---- RESPONSIVE ---- */
+@media (max-width: 768px) {
+  :root { --sidebar-w: 200px; }
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.mobile-open { transform: translateX(0); }
+  .main-content { margin-left: 0 !important; }
+}

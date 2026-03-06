@@ -1,138 +1,175 @@
-from flask import Blueprint, request, jsonify, render_template, current_app
+from flask import Blueprint, jsonify, request
 from flask_login import login_required
-from models import db, Paciente, Cita, SeguimientoCRM
-from datetime import datetime
-from services.whatsapp_service import enviar_mensaje
-from services.crm_service import obtener_plantilla_mensaje
+from extensions import db
+from models import (Paciente, EstatusCRM, SeguimientoCRM, TipoSeguimiento,
+                    ConversacionWhatsapp, Cita)
+from datetime import datetime, timedelta
 
-bp_crm = Blueprint('crm', __name__)
+crm_bp = Blueprint('crm', __name__, url_prefix='/api/crm')
 
 
-@bp_crm.before_request
+@crm_bp.route('', methods=['GET'])
 @login_required
-def require_login():
-    pass
+def listar():
+    q = Paciente.query.filter_by(eliminado=False)
 
-ESTADOS_CRM = ['nuevo', 'activo', 'seguimiento_1', 'seguimiento_2', 'llamada_pendiente', 'perdido']
+    estatus = request.args.get('estatus')
+    if estatus:
+        try:
+            q = q.filter_by(estatus_crm=EstatusCRM[estatus])
+        except KeyError:
+            pass
 
-ESTADO_COLORES = {
-    'nuevo': '#6c757d',
-    'activo': '#28a745',
-    'seguimiento_1': '#ffc107',
-    'seguimiento_2': '#e83e8c',
-    'llamada_pendiente': '#6f42c1',
-    'perdido': '#dc3545',
-}
-
-
-@bp_crm.route('/crm')
-def view_crm():
-    pacientes = Paciente.query.order_by(Paciente.nombre).all()
-    return render_template('crm.html',
-                           pacientes=pacientes,
-                           estados=ESTADOS_CRM,
-                           estado_colores=ESTADO_COLORES)
-
-
-@bp_crm.route('/api/crm/pacientes', methods=['GET'])
-def api_crm_pacientes():
-    estado = request.args.get('estado')
-    q_text = request.args.get('q', '').strip()
-
-    q = Paciente.query
-    if estado:
-        q = q.filter_by(estado_crm=estado)
-    if q_text:
-        like = f'%{q_text}%'
-        q = q.filter(db.or_(Paciente.nombre.ilike(like), Paciente.telefono.ilike(like)))
-
-    pacientes = q.order_by(Paciente.nombre).all()
-    result = []
+    pacientes = q.order_by(Paciente.estatus_crm, Paciente.nombre).all()
+    resultado = []
     for p in pacientes:
         d = p.to_dict()
-        d['total_citas'] = len(p.citas)
-        result.append(d)
-    return jsonify(result)
+        # Siguiente seguimiento pendiente
+        siguiente = SeguimientoCRM.query.filter_by(
+            paciente_id=p.id, completado=False
+        ).order_by(SeguimientoCRM.fecha_programada).first()
+        d['siguiente_seguimiento'] = {
+            'tipo': siguiente.tipo.value,
+            'fecha': siguiente.fecha_programada.isoformat() if siguiente.fecha_programada else None,
+        } if siguiente else None
+        resultado.append(d)
+    return jsonify(resultado)
 
 
-@bp_crm.route('/api/crm/pacientes/<int:paciente_id>/estado', methods=['PUT'])
-def api_cambiar_estado(paciente_id):
-    p = Paciente.query.get_or_404(paciente_id)
-    data = request.json
-    nuevo_estado = data.get('estado_crm')
-    if nuevo_estado not in ESTADOS_CRM:
-        return jsonify({'error': 'Estado inválido'}), 400
-    p.estado_crm = nuevo_estado
-    db.session.commit()
-    return jsonify(p.to_dict())
+@crm_bp.route('/<int:paciente_id>', methods=['GET'])
+@login_required
+def detalle_crm(paciente_id):
+    p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
+    data = p.to_dict()
+
+    data['seguimientos'] = [
+        {
+            'id': s.id,
+            'tipo': s.tipo.value,
+            'fecha_programada': s.fecha_programada.isoformat() if s.fecha_programada else None,
+            'completado': s.completado,
+            'notas': s.notas or '',
+        }
+        for s in p.seguimientos
+    ]
+
+    # Historial de citas
+    citas = Cita.query.filter_by(paciente_id=paciente_id)\
+        .order_by(Cita.fecha_inicio.desc()).limit(10).all()
+    data['citas'] = [c.to_dict() for c in citas]
+
+    return jsonify(data)
 
 
-@bp_crm.route('/api/crm/enviar_wa', methods=['POST'])
-def api_enviar_wa_manual():
-    """Enviar WhatsApp manual a un paciente."""
-    data = request.json
-    paciente_id = data.get('paciente_id')
-    tipo = data.get('tipo', 'sonrisas_magicas')
-    mensaje_custom = data.get('mensaje')
-
-    p = Paciente.query.get_or_404(paciente_id)
-
-    if mensaje_custom:
-        mensaje = mensaje_custom
-    else:
-        mensaje = obtener_plantilla_mensaje(tipo, {'paciente': p.nombre})
-
-    numero = p.telefono
-    if not numero.startswith('whatsapp:'):
-        numero = f'whatsapp:{numero}'
+@crm_bp.route('/<int:paciente_id>/estatus', methods=['PUT'])
+@login_required
+def cambiar_estatus(paciente_id):
+    p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
+    data = request.get_json(force=True)
+    nuevo_estatus = data.get('estatus')
 
     try:
-        enviar_mensaje(numero, mensaje)
-        # Registrar seguimiento
-        seg = SeguimientoCRM(
-            paciente_id=p.id,
-            tipo=tipo,
-            fecha_programada=datetime.utcnow(),
-            fecha_enviado=datetime.utcnow(),
-        )
-        db.session.add(seg)
-        db.session.commit()
-        return jsonify({'ok': True, 'mensaje': mensaje})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        p.estatus_crm = EstatusCRM[nuevo_estatus]
+    except KeyError:
+        return jsonify(error='Estatus invalido. Valores: alta, activo, prospecto, baja'), 400
+
+    db.session.commit()
+    return jsonify(ok=True, estatus=p.estatus_crm.value)
 
 
-@bp_crm.route('/api/crm/export')
-def api_export_excel():
-    """Exporta pacientes a Excel."""
-    import openpyxl
-    from io import BytesIO
-    from flask import send_file
+@crm_bp.route('/<int:paciente_id>/seguimiento', methods=['POST'])
+@login_required
+def crear_seguimiento(paciente_id):
+    p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
+    data = request.get_json(force=True)
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = 'Pacientes CRM'
+    tipo_str = data.get('tipo', 'whatsapp_1')
+    try:
+        tipo = TipoSeguimiento[tipo_str]
+    except KeyError:
+        return jsonify(error='Tipo invalido'), 400
 
-    headers = ['ID', 'Nombre', 'Teléfono', 'Email', 'Estado CRM', 'Última Cita', 'Notas']
-    ws.append(headers)
+    fecha_programada = None
+    if data.get('fecha_programada'):
+        try:
+            fecha_programada = datetime.fromisoformat(data['fecha_programada'])
+        except ValueError:
+            pass
 
-    for p in Paciente.query.order_by(Paciente.nombre).all():
-        ws.append([
-            p.id,
-            p.nombre,
-            p.telefono,
-            p.email or '',
-            p.estado_crm,
-            p.fecha_ultima_cita.strftime('%Y-%m-%d %H:%M') if p.fecha_ultima_cita else '',
-            p.notas or '',
-        ])
-
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return send_file(
-        buf,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        as_attachment=True,
-        download_name='pacientes_crm.xlsx',
+    seg = SeguimientoCRM(
+        paciente_id=paciente_id,
+        tipo=tipo,
+        fecha_programada=fecha_programada,
+        notas=data.get('notas', ''),
     )
+    db.session.add(seg)
+    db.session.commit()
+    return jsonify(id=seg.id), 201
+
+
+@crm_bp.route('/seguimiento/<int:seg_id>/completar', methods=['POST'])
+@login_required
+def completar_seguimiento(seg_id):
+    seg = SeguimientoCRM.query.get_or_404(seg_id)
+    seg.completado = True
+    seg.fecha_enviado = datetime.utcnow()
+    data = request.get_json(force=True) or {}
+    if data.get('notas'):
+        seg.notas = data['notas']
+    db.session.commit()
+    return jsonify(ok=True)
+
+
+@crm_bp.route('/<int:paciente_id>/enviar-whatsapp', methods=['POST'])
+@login_required
+def enviar_whatsapp(paciente_id):
+    p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
+    data = request.get_json(force=True)
+    mensaje = data.get('mensaje', '').strip()
+    numero = p.whatsapp or p.telefono_tutor or p.telefono
+
+    if not mensaje:
+        return jsonify(error='El mensaje es requerido'), 400
+    if not numero:
+        return jsonify(error='El paciente no tiene numero de WhatsApp'), 400
+
+    try:
+        from services.whatsapp_service import enviar_mensaje
+        sid = enviar_mensaje(numero, mensaje)
+        # Guardar en historial
+        _guardar_conversacion(numero, p.id, mensaje, es_bot=True)
+        return jsonify(ok=True, sid=sid)
+    except Exception as e:
+        return jsonify(error=str(e)), 500
+
+
+@crm_bp.route('/<int:paciente_id>/conversacion', methods=['GET'])
+@login_required
+def conversacion(paciente_id):
+    p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
+    numero = p.whatsapp or p.telefono_tutor or p.telefono
+
+    mensajes = ConversacionWhatsapp.query.filter(
+        db.or_(
+            ConversacionWhatsapp.paciente_id == paciente_id,
+            ConversacionWhatsapp.numero_telefono == numero,
+        )
+    ).order_by(ConversacionWhatsapp.timestamp).all()
+
+    return jsonify([{
+        'id': m.id,
+        'mensaje': m.mensaje,
+        'es_bot': m.es_bot,
+        'timestamp': m.timestamp.isoformat(),
+    } for m in mensajes])
+
+
+def _guardar_conversacion(numero, paciente_id, mensaje, es_bot=False):
+    conv = ConversacionWhatsapp(
+        numero_telefono=numero,
+        paciente_id=paciente_id,
+        mensaje=mensaje,
+        es_bot=es_bot,
+    )
+    db.session.add(conv)
+    db.session.commit()

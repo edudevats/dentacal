@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="header-section">
+    <div class="back-link">
+        <a href="{{ url_for('main.dashboard') }}">← Back to Dashboard</a>
+    </div>
+    <h2>Agregar Nuevo Doctor</h2>
+    <p>Registra un nuevo médico en el sistema.</p>
+</div>
+
+<div class="card" style="max-width: 600px;">
+    {% if success %}
+    <div class="msg success" style="margin-bottom:1rem; padding: 1rem; background: #d1fae5; border-radius: 6px;">
+        ✅ Doctor agregado correctamente. <a href="{{ url_for('main.dashboard') }}">Volver al Dashboard</a>
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('main.add_doctor') }}">
+        <div class="form-group">
+            <label for="nombre">Nombre del Doctor</label>
+            <input type="text" id="nombre" name="nombre" class="form-control" required
+                placeholder="Ej. Dra. María González">
+        </div>
+
+        <div class="form-group">
+            <label for="email">Correo Electrónico</label>
+            <input type="email" id="email" name="email" class="form-control" required
+                placeholder="maria.gonzalez@hospital.com">
+        </div>
+
+        <div class="form-group">
+            <label for="google_calendar_id">ID de Google Calendar</label>
+            <input type="email" id="google_calendar_id" name="google_calendar_id" class="form-control" required
+                placeholder="maria.gonzalez@hospital.com">
+            <small class="text-muted">Por lo general, es el mismo correo electrónico del doctor.</small>
+        </div>
+
+        <div style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 1;">
+                <label for="hora_inicio">Hora Inicio Trabajo</label>
+                <input type="time" id="hora_inicio" name="hora_inicio" class="form-control" value="09:00" required>
+            </div>
+
+            <div class="form-group" style="flex: 1;">
+                <label for="hora_fin">Hora Fin Trabajo</label>
+                <input type="time" id="hora_fin" name="hora_fin" class="form-control" value="18:00" required>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Registrar Doctor</button>
+    </form>
+</div>
+{% endblock %}

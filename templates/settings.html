@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="header-section">
+    <h2>Ajustes del Sistema</h2>
+    <p>Configura tus claves y credenciales de la API.</p>
+</div>
+
+<div class="card" style="margin-bottom: 2rem;">
+    <h3>Configuración General</h3>
+    <p class="text-muted" style="margin-bottom: 1.5rem;">Ajustes de la clínica y el calendario principal de
+        administrador.</p>
+
+    {% if success %}
+    <div class="msg success" style="margin-bottom:1rem; padding: 1rem; background: #d1fae5; border-radius: 6px;">
+        ✅ Ajustes guardados correctamente.
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('main.settings') }}">
+        <div class="form-group">
+            <label for="clinic_name">Nombre de la Clínica / Sistema</label>
+            <input type="text" id="clinic_name" name="clinic_name" class="form-control"
+                value="{{ settings.clinic_name if settings else 'MediCal' }}" required>
+        </div>
+
+        <div class="form-group">
+            <label for="admin_calendar_id">ID de Google Calendar del Administrador</label>
+            <input type="text" id="admin_calendar_id" name="admin_calendar_id" class="form-control"
+                value="{{ settings.admin_calendar_id if settings else 'primary' }}" required>
+            <small class="text-muted">Donde se guardarán todas las citas médicas centralizadas. Por lo general es el
+                correo electrónico principal o 'primary'.</small>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border); margin: 2rem 0;">
+
+        <h3>Credenciales de Google Calendar API</h3>
+        <p class="text-muted" style="margin-bottom: 1.5rem;">Copia y pega el contenido completo de tu archivo
+            <code>credentials.json</code> (Service Account) aquí abajo para vincular tu calendario.</p>
+
+        <div class="form-group">
+            <label for="credentials_json">Contenido de credentials.json (Opcional si ya está cargado)</label>
+            <textarea id="credentials_json" name="credentials_json" class="form-control" rows="10"
+                placeholder='{"type": "service_account", "project_id": "...", ...}'
+                style="font-family: monospace;">{{ current_creds }}</textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="max-width: 250px;">Guardar Cambios</button>
+    </form>
+</div>
+{% endblock %}

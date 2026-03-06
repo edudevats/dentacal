@@ -1,116 +1,129 @@
-from flask import Blueprint, request, jsonify, render_template
-from flask_login import login_required
-from models import db, TipoCita, PlantillaMensaje
-from extensions import cache
+from flask import Blueprint, jsonify, request
+from flask_login import login_required, current_user
+from extensions import db
+from models import TipoCita, PlantillaMensaje, ConfiguracionConsultorio
 
-bp_config = Blueprint('configuracion', __name__)
+configuracion_bp = Blueprint('configuracion', __name__, url_prefix='/api/configuracion')
 
 
-@bp_config.before_request
+@configuracion_bp.route('', methods=['GET'])
 @login_required
-def require_login():
-    pass
+def obtener():
+    config = ConfiguracionConsultorio.query.first()
+    if not config:
+        return jsonify({}), 200
+    return jsonify({
+        'id': config.id,
+        'nombre_consultorio': config.nombre_consultorio,
+        'direccion': config.direccion,
+        'telefono': config.telefono or '',
+        'horario_apertura': config.horario_apertura.strftime('%H:%M') if config.horario_apertura else '09:00',
+        'horario_cierre': config.horario_cierre.strftime('%H:%M') if config.horario_cierre else '18:00',
+        'precio_primera_consulta': float(config.precio_primera_consulta) if config.precio_primera_consulta else 550,
+        'porcentaje_anticipo': config.porcentaje_anticipo,
+        'clabe': config.clabe,
+        'tarjeta': config.tarjeta,
+        'titular_cuenta': config.titular_cuenta,
+        'google_reviews_link': config.google_reviews_link,
+    })
 
 
-@bp_config.route('/configuracion')
-def view_configuracion():
-    tipos = TipoCita.query.all()
-    plantillas = PlantillaMensaje.query.all()
-    return render_template('configuracion.html', tipos=tipos, plantillas=plantillas)
+@configuracion_bp.route('', methods=['PUT'])
+@login_required
+def actualizar():
+    if not current_user.is_admin():
+        return jsonify(error='Sin permisos'), 403
+    config = ConfiguracionConsultorio.query.first()
+    if not config:
+        config = ConfiguracionConsultorio()
+        db.session.add(config)
+
+    data = request.get_json(force=True)
+    fields = ['nombre_consultorio', 'direccion', 'telefono', 'clabe',
+              'tarjeta', 'titular_cuenta', 'google_reviews_link',
+              'porcentaje_anticipo']
+    for f in fields:
+        if f in data:
+            setattr(config, f, data[f])
+
+    from datetime import time
+    if 'horario_apertura' in data:
+        h, m = data['horario_apertura'].split(':')
+        config.horario_apertura = time(int(h), int(m))
+    if 'horario_cierre' in data:
+        h, m = data['horario_cierre'].split(':')
+        config.horario_cierre = time(int(h), int(m))
+    if 'precio_primera_consulta' in data:
+        config.precio_primera_consulta = float(data['precio_primera_consulta'])
+
+    db.session.commit()
+    return jsonify(ok=True)
 
 
-@bp_config.route('/tipos-cita')
-def view_tipos_cita():
-    """Página dedicada de gestión de tipos de cita."""
-    tipos = TipoCita.query.order_by(TipoCita.nombre).all()
-    return render_template('tipos_cita.html', tipos=tipos)
+# --- Tipos de cita ---
+
+@configuracion_bp.route('/tipos-cita', methods=['GET'])
+@login_required
+def listar_tipos():
+    tipos = TipoCita.query.filter_by(activo=True).all()
+    return jsonify([t.to_dict() for t in tipos])
 
 
-# ── Tipos de cita API ─────────────────────────────────────────────────────────
+@configuracion_bp.route('/tipos-cita', methods=['POST'])
+@login_required
+def crear_tipo():
+    if not current_user.is_admin():
+        return jsonify(error='Sin permisos'), 403
+    data = request.get_json(force=True)
+    if not data.get('nombre'):
+        return jsonify(error='nombre requerido'), 400
 
-@bp_config.route('/api/tipos-cita', methods=['GET'])
-@cache.cached(timeout=1800, key_prefix='tipos_cita')  # 30 min
-def api_listar_tipos():
-    return jsonify([t.to_dict() for t in TipoCita.query.order_by(TipoCita.nombre).all()])
-
-
-@bp_config.route('/api/tipos-cita', methods=['POST'])
-def api_crear_tipo():
-    data = request.json or {}
-    nombre = data.get('nombre', '').strip()
-    if not nombre:
-        return jsonify(error='El nombre es requerido'), 400
-    if TipoCita.query.filter_by(nombre=nombre).first():
-        return jsonify(error='Ya existe un tipo con ese nombre'), 409
     t = TipoCita(
-        nombre=nombre,
-        duracion_mins=int(data.get('duracion_mins', 30)),
-        costo=float(data.get('costo', 0)),
-        activo=True,
+        nombre=data['nombre'],
+        duracion_minutos=data.get('duracion_minutos', 60),
+        precio=data.get('precio', 0),
+        descripcion=data.get('descripcion', ''),
+        color=data.get('color', '#3788d8'),
+        requiere_anticipo=bool(data.get('requiere_anticipo', False)),
     )
     db.session.add(t)
     db.session.commit()
-    cache.delete('tipos_cita')
     return jsonify(t.to_dict()), 201
 
 
-@bp_config.route('/api/tipos-cita/<int:tipo_id>', methods=['PUT'])
-def api_actualizar_tipo(tipo_id):
+@configuracion_bp.route('/tipos-cita/<int:tipo_id>', methods=['PUT'])
+@login_required
+def actualizar_tipo(tipo_id):
+    if not current_user.is_admin():
+        return jsonify(error='Sin permisos'), 403
     t = TipoCita.query.get_or_404(tipo_id)
-    data = request.json or {}
-    if 'nombre' in data:
-        nombre = data['nombre'].strip()
-        if not nombre:
-            return jsonify(error='El nombre es requerido'), 400
-        duplicado = TipoCita.query.filter(
-            TipoCita.nombre == nombre, TipoCita.id != tipo_id
-        ).first()
-        if duplicado:
-            return jsonify(error='Ya existe un tipo con ese nombre'), 409
-        t.nombre = nombre
-    if 'duracion_mins' in data:
-        t.duracion_mins = int(data['duracion_mins'])
-    if 'costo' in data:
-        t.costo = float(data['costo'])
-    if 'activo' in data:
-        t.activo = bool(data['activo'])
+    data = request.get_json(force=True)
+    for field in ['nombre', 'duracion_minutos', 'precio', 'descripcion', 'color', 'requiere_anticipo']:
+        if field in data:
+            setattr(t, field, data[field])
     db.session.commit()
-    cache.delete('tipos_cita')
     return jsonify(t.to_dict())
 
 
-@bp_config.route('/api/tipos-cita/<int:tipo_id>', methods=['DELETE'])
-def api_eliminar_tipo(tipo_id):
-    t = TipoCita.query.get_or_404(tipo_id)
-    from models import Cita
-    tiene_citas = Cita.query.filter_by(tipo_cita_id=tipo_id).first()
-    if tiene_citas:
-        # Desactivar en vez de eliminar si tiene citas asociadas
-        t.activo = False
-        db.session.commit()
-        cache.delete('tipos_cita')
-        return jsonify(ok=True, accion='desactivado',
-                       mensaje='Tiene citas asociadas, se desactivó en lugar de eliminar')
-    db.session.delete(t)
-    db.session.commit()
-    cache.delete('tipos_cita')
-    return jsonify(ok=True, accion='eliminado')
+# --- Plantillas ---
+
+@configuracion_bp.route('/plantillas', methods=['GET'])
+@login_required
+def listar_plantillas():
+    plantillas = PlantillaMensaje.query.filter_by(activo=True).all()
+    return jsonify([p.to_dict() for p in plantillas])
 
 
-# ── Plantillas de mensajes ────────────────────────────────────────────────────
-
-@bp_config.route('/api/plantillas', methods=['GET'])
-def api_listar_plantillas():
-    return jsonify([p.to_dict() for p in PlantillaMensaje.query.all()])
-
-
-@bp_config.route('/api/plantillas/<int:plantilla_id>', methods=['PUT'])
-def api_actualizar_plantilla(plantilla_id):
+@configuracion_bp.route('/plantillas/<int:plantilla_id>', methods=['PUT'])
+@login_required
+def actualizar_plantilla(plantilla_id):
+    if not current_user.is_admin():
+        return jsonify(error='Sin permisos'), 403
     p = PlantillaMensaje.query.get_or_404(plantilla_id)
-    data = request.json
+    data = request.get_json(force=True)
     if 'contenido' in data:
         p.contenido = data['contenido']
-    if 'activo' in data:
-        p.activo = data['activo']
+    if 'nombre' in data:
+        p.nombre = data['nombre']
     db.session.commit()
     return jsonify(p.to_dict())

@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="header-section">
+    <div class="back-link">
+        <a href="{{ url_for('main.dashboard') }}">← Back to Dashboard</a>
+    </div>
+    <h2>Editar Doctor</h2>
+    <p>Actualiza los datos del médico en el sistema.</p>
+</div>
+
+<div class="card" style="max-width: 600px;">
+    {% if success %}
+    <div class="msg success" style="margin-bottom:1rem; padding: 1rem; background: #d1fae5; border-radius: 6px;">
+        ✅ Doctor actualizado correctamente. <a href="{{ url_for('main.dashboard') }}">Volver al Dashboard</a>
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('main.edit_doctor', doctor_id=doctor.id) }}">
+        <div class="form-group">
+            <label for="nombre">Nombre del Doctor</label>
+            <input type="text" id="nombre" name="nombre" class="form-control" required value="{{ doctor.nombre }}">
+        </div>
+
+        <div class="form-group">
+            <label for="email">Correo Electrónico</label>
+            <input type="email" id="email" name="email" class="form-control" required value="{{ doctor.email }}">
+        </div>
+
+        <div class="form-group">
+            <label for="google_calendar_id">ID de Google Calendar</label>
+            <input type="email" id="google_calendar_id" name="google_calendar_id" class="form-control" required
+                value="{{ doctor.google_calendar_id }}">
+        </div>
+
+        <div style="display: flex; gap: 1rem;">
+            <div class="form-group" style="flex: 1;">
+                <label for="hora_inicio">Hora Inicio Trabajo</label>
+                <input type="time" id="hora_inicio" name="hora_inicio" class="form-control"
+                    value="{{ doctor.hora_inicio_trabajo.strftime('%H:%M') }}" required>
+            </div>
+
+            <div class="form-group" style="flex: 1;">
+                <label for="hora_fin">Hora Fin Trabajo</label>
+                <input type="time" id="hora_fin" name="hora_fin" class="form-control"
+                    value="{{ doctor.hora_fin_trabajo.strftime('%H:%M') }}" required>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Guardar Cambios</button>
+    </form>
+</div>
+{% endblock %}

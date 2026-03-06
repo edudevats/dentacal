@@ -1,197 +1,178 @@
-from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime, date, time
+from enum import Enum as PyEnum
+from extensions import db
 from flask_login import UserMixin
-from passlib.context import CryptContext
-from datetime import datetime, timedelta
-import json
-import jwt as pyjwt
+from werkzeug.security import generate_password_hash, check_password_hash
 
-db = SQLAlchemy()
 
-# Contexto passlib — pbkdf2_sha256 como esquema principal (compatible con bcrypt 4.x)
-# bcrypt 4.x eliminó __about__ rompiendo passlib 1.7.4; pbkdf2_sha256 es igualmente seguro
-_pwd_context = CryptContext(schemes=['pbkdf2_sha256', 'bcrypt'], deprecated='auto',
-                            pbkdf2_sha256__rounds=260000)
+# --- Enums ---
 
+class RolUsuario(PyEnum):
+    admin = 'admin'
+    recepcionista = 'recepcionista'
+
+
+class EstatusCita(PyEnum):
+    pendiente = 'pendiente'
+    confirmada = 'confirmada'
+    no_asistencia = 'no_asistencia'
+    cancelada = 'cancelada'
+
+
+class EstatusCRM(PyEnum):
+    alta = 'alta'
+    activo = 'activo'
+    prospecto = 'prospecto'
+    baja = 'baja'
+
+
+class TipoSeguimiento(PyEnum):
+    whatsapp_1 = 'whatsapp_1'
+    whatsapp_2 = 'whatsapp_2'
+    llamada = 'llamada'
+
+
+class TipoRecordatorio(PyEnum):
+    confirmacion_24h = 'confirmacion_24h'
+    seguimiento_crm = 'seguimiento_crm'
+    cumpleanos = 'cumpleanos'
+    postconsulta = 'postconsulta'
+    sonrisas_magicas = 'sonrisas_magicas'
+
+
+class EstatusRecordatorio(PyEnum):
+    pendiente = 'pendiente'
+    enviado = 'enviado'
+    fallido = 'fallido'
+
+
+# --- Modelos ---
 
 class User(UserMixin, db.Model):
-    __tablename__ = 'user'
+    __tablename__ = 'users'
+
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default='recepcionista')
-    # 'admin' | 'recepcionista'
+    rol = db.Column(db.Enum(RolUsuario), nullable=False, default=RolUsuario.recepcionista)
     activo = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    last_login = db.Column(db.DateTime)
 
     def set_password(self, password):
-        """Hash con bcrypt vía passlib."""
-        self.password_hash = _pwd_context.hash(password)
+        self.password_hash = generate_password_hash(password)
 
     def check_password(self, password):
-        """Verifica contra hash bcrypt. Migra hashes Werkzeug viejos automáticamente."""
-        try:
-            valid, new_hash = _pwd_context.verify_and_update(password, self.password_hash)
-            if valid and new_hash:
-                # Re-hash actualizado (p.ej. cambio de rounds)
-                self.password_hash = new_hash
-            return valid
-        except Exception:
-            # Fallback para hashes Werkzeug existentes (pbkdf2:sha256:...)
-            from werkzeug.security import check_password_hash as _wz_check
-            if _wz_check(self.password_hash, password):
-                # Migrar al nuevo esquema
-                self.set_password(password)
-                return True
-            return False
+        return check_password_hash(self.password_hash, password)
 
     def is_admin(self):
-        return self.role == 'admin'
+        return self.rol == RolUsuario.admin
 
-    # ── JWT API tokens ────────────────────────────────────────────────────────
-
-    def generate_api_token(self, secret_key, expires_in=3600):
-        """Genera un token JWT para acceso a la API."""
-        payload = {
-            'user_id': self.id,
-            'username': self.username,
-            'role': self.role,
-            'iat': datetime.utcnow(),
-            'exp': datetime.utcnow() + timedelta(seconds=expires_in),
-        }
-        return pyjwt.encode(payload, secret_key, algorithm='HS256')
-
-    @staticmethod
-    def verify_api_token(token, secret_key):
-        """Verifica un token JWT. Retorna el User o None."""
-        try:
-            payload = pyjwt.decode(token, secret_key, algorithms=['HS256'])
-            return db.session.get(User, payload['user_id'])
-        except pyjwt.ExpiredSignatureError:
-            return None
-        except pyjwt.InvalidTokenError:
-            return None
-
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'username': self.username,
-            'email': self.email,
-            'role': self.role,
-            'activo': self.activo,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'last_login': self.last_login.isoformat() if self.last_login else None,
-        }
+    def __repr__(self):
+        return f'<User {self.username}>'
 
 
 class AuditLog(db.Model):
-    __tablename__ = 'audit_log'
+    __tablename__ = 'audit_logs'
+
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     accion = db.Column(db.String(100), nullable=False)
-    recurso = db.Column(db.String(50))
-    recurso_id = db.Column(db.Integer)
-    detalle = db.Column(db.Text)  # JSON
+    tabla = db.Column(db.String(50))
+    registro_id = db.Column(db.Integer)
+    datos_anteriores = db.Column(db.Text)
+    datos_nuevos = db.Column(db.Text)
     ip_address = db.Column(db.String(45))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     user = db.relationship('User', backref='audit_logs')
 
-    @staticmethod
-    def registrar(user_id, accion, recurso=None, recurso_id=None, detalle=None, ip=None):
-        log = AuditLog(
-            user_id=user_id,
-            accion=accion,
-            recurso=recurso,
-            recurso_id=recurso_id,
-            detalle=json.dumps(detalle) if detalle else None,
-            ip_address=ip,
-        )
-        db.session.add(log)
-        # No hace commit — el caller lo hace
-
 
 class Dentista(db.Model):
-    __tablename__ = 'dentista'
+    __tablename__ = 'dentistas'
+
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(100), nullable=False)
-    color = db.Column(db.String(7), default='#3788d8')
     especialidad = db.Column(db.String(100))
+    color = db.Column(db.String(7), default='#3788d8')  # Hex
     telefono = db.Column(db.String(20))
+    email = db.Column(db.String(120))
     activo = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-    horarios = db.relationship('HorarioDentista', backref='dentista', lazy=True, cascade='all, delete-orphan')
-    bloqueos = db.relationship('BloqueoDentista', backref='dentista', lazy=True, cascade='all, delete-orphan')
+    horarios = db.relationship('HorarioDentista', backref='dentista',
+                               lazy=True, cascade='all, delete-orphan')
+    bloqueos = db.relationship('BloqueoDentista', backref='dentista',
+                               lazy=True, cascade='all, delete-orphan')
     citas = db.relationship('Cita', backref='dentista', lazy=True)
 
     def to_dict(self):
         return {
             'id': self.id,
             'nombre': self.nombre,
-            'color': self.color,
             'especialidad': self.especialidad,
+            'color': self.color,
             'telefono': self.telefono,
+            'email': self.email,
             'activo': self.activo,
         }
 
 
 class HorarioDentista(db.Model):
-    __tablename__ = 'horario_dentista'
-    id = db.Column(db.Integer, primary_key=True)
-    dentista_id = db.Column(db.Integer, db.ForeignKey('dentista.id'), nullable=False)
-    dia_semana = db.Column(db.Integer, nullable=False)  # 0=Lunes … 6=Domingo
-    hora_inicio = db.Column(db.String(5), nullable=False)  # "HH:MM"
-    hora_fin = db.Column(db.String(5), nullable=False)
+    """Horario semanal del dentista. dia_semana: 0=Lun, 6=Dom."""
+    __tablename__ = 'horarios_dentista'
 
-    def to_dict(self):
-        dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
-        return {
-            'id': self.id,
-            'dentista_id': self.dentista_id,
-            'dia_semana': self.dia_semana,
-            'dia_nombre': dias[self.dia_semana],
-            'hora_inicio': self.hora_inicio,
-            'hora_fin': self.hora_fin,
-        }
+    id = db.Column(db.Integer, primary_key=True)
+    dentista_id = db.Column(db.Integer, db.ForeignKey('dentistas.id'), nullable=False)
+    dia_semana = db.Column(db.Integer, nullable=False)  # 0-6
+    hora_inicio = db.Column(db.Time, nullable=False, default=time(9, 0))
+    hora_fin = db.Column(db.Time, nullable=False, default=time(18, 0))
+    activo = db.Column(db.Boolean, default=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('dentista_id', 'dia_semana', name='uq_horario_dentista_dia'),
+    )
 
 
 class BloqueoDentista(db.Model):
-    __tablename__ = 'bloqueo_dentista'
-    id = db.Column(db.Integer, primary_key=True)
-    dentista_id = db.Column(db.Integer, db.ForeignKey('dentista.id'), nullable=False)
-    fecha_inicio = db.Column(db.Date, nullable=False)
-    fecha_fin = db.Column(db.Date, nullable=False)
-    motivo = db.Column(db.String(200))
+    """Bloqueos de tiempo del dentista (vacaciones, permisos, etc.)."""
+    __tablename__ = 'bloqueos_dentista'
 
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'dentista_id': self.dentista_id,
-            'fecha_inicio': self.fecha_inicio.isoformat(),
-            'fecha_fin': self.fecha_fin.isoformat(),
-            'motivo': self.motivo,
-        }
+    id = db.Column(db.Integer, primary_key=True)
+    dentista_id = db.Column(db.Integer, db.ForeignKey('dentistas.id'), nullable=False)
+    fecha_inicio = db.Column(db.DateTime, nullable=False)
+    fecha_fin = db.Column(db.DateTime, nullable=False)
+    motivo = db.Column(db.String(200))
 
 
 class Consultorio(db.Model):
-    __tablename__ = 'consultorio'
+    __tablename__ = 'consultorios'
+
     id = db.Column(db.Integer, primary_key=True)
-    nombre = db.Column(db.String(50), nullable=False)
+    nombre = db.Column(db.String(50), nullable=False, unique=True)
+    descripcion = db.Column(db.String(200))
     activo = db.Column(db.Boolean, default=True)
 
     citas = db.relationship('Cita', backref='consultorio', lazy=True)
 
     def to_dict(self):
-        return {'id': self.id, 'nombre': self.nombre, 'activo': self.activo}
+        return {
+            'id': self.id,
+            'title': self.nombre,
+            'descripcion': self.descripcion,
+        }
 
 
 class TipoCita(db.Model):
-    __tablename__ = 'tipo_cita'
+    __tablename__ = 'tipos_cita'
+
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(100), nullable=False)
-    duracion_mins = db.Column(db.Integer, default=30)
-    costo = db.Column(db.Float, default=0)
+    duracion_minutos = db.Column(db.Integer, default=60)
+    precio = db.Column(db.Numeric(10, 2), default=0)
+    descripcion = db.Column(db.String(200))
+    color = db.Column(db.String(7), default='#3788d8')
+    requiere_anticipo = db.Column(db.Boolean, default=False)
     activo = db.Column(db.Boolean, default=True)
 
     citas = db.relationship('Cita', backref='tipo_cita', lazy=True)
@@ -200,192 +181,241 @@ class TipoCita(db.Model):
         return {
             'id': self.id,
             'nombre': self.nombre,
-            'duracion_mins': self.duracion_mins,
-            'costo': self.costo,
-            'activo': self.activo,
+            'duracion_minutos': self.duracion_minutos,
+            'precio': float(self.precio),
+            'requiere_anticipo': self.requiere_anticipo,
         }
 
 
 class Paciente(db.Model):
-    __tablename__ = 'paciente'
+    __tablename__ = 'pacientes'
+
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(100), nullable=False)
-    telefono = db.Column(db.String(20), unique=True, nullable=False)
-    email = db.Column(db.String(100))
+    apellidos = db.Column(db.String(100))
     fecha_nacimiento = db.Column(db.Date)
-    nombre_escuela = db.Column(db.String(150))
+    telefono = db.Column(db.String(20))
+    whatsapp = db.Column(db.String(20), unique=True)
+    email = db.Column(db.String(120))
+
+    # Tutor (pacientes pediatricos)
+    nombre_tutor = db.Column(db.String(200))
+    telefono_tutor = db.Column(db.String(20))
+
+    # Datos escolares (para justificantes)
+    escuela = db.Column(db.String(200))
+
     notas = db.Column(db.Text)
-    estado_crm = db.Column(db.String(30), default='nuevo')
-    # nuevo | activo | seguimiento_1 | seguimiento_2 | llamada_pendiente | perdido
-    fecha_ultima_cita = db.Column(db.DateTime)
-    pin_cumpleanero_usado = db.Column(db.Boolean, default=False)
+    estatus_crm = db.Column(db.Enum(EstatusCRM), default=EstatusCRM.prospecto)
+    fecha_alta = db.Column(db.DateTime, default=datetime.utcnow)
+    ultima_cita = db.Column(db.DateTime)
+
     eliminado = db.Column(db.Boolean, default=False)  # soft delete
-    creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     citas = db.relationship('Cita', backref='paciente', lazy=True)
-    seguimientos = db.relationship('SeguimientoCRM', backref='paciente', lazy=True)
     conversaciones = db.relationship('ConversacionWhatsapp', backref='paciente', lazy=True)
+    seguimientos = db.relationship('SeguimientoCRM', backref='paciente',
+                                   lazy=True, order_by='SeguimientoCRM.fecha_programada')
     justificantes = db.relationship('Justificante', backref='paciente', lazy=True)
+
+    @property
+    def nombre_completo(self):
+        if self.apellidos:
+            return f'{self.nombre} {self.apellidos}'
+        return self.nombre
+
+    @property
+    def mes_cumpleanos(self):
+        if self.fecha_nacimiento:
+            return self.fecha_nacimiento.month
+        return None
 
     def to_dict(self):
         return {
             'id': self.id,
             'nombre': self.nombre,
-            'telefono': self.telefono,
-            'email': self.email,
+            'apellidos': self.apellidos or '',
+            'nombre_completo': self.nombre_completo,
             'fecha_nacimiento': self.fecha_nacimiento.isoformat() if self.fecha_nacimiento else None,
-            'nombre_escuela': self.nombre_escuela,
-            'notas': self.notas,
-            'estado_crm': self.estado_crm,
-            'fecha_ultima_cita': self.fecha_ultima_cita.isoformat() if self.fecha_ultima_cita else None,
-            'pin_cumpleanero_usado': self.pin_cumpleanero_usado,
-            'creado_en': self.creado_en.isoformat() if self.creado_en else None,
+            'telefono': self.telefono or '',
+            'whatsapp': self.whatsapp or '',
+            'email': self.email or '',
+            'nombre_tutor': self.nombre_tutor or '',
+            'telefono_tutor': self.telefono_tutor or '',
+            'escuela': self.escuela or '',
+            'notas': self.notas or '',
+            'estatus_crm': self.estatus_crm.value if self.estatus_crm else 'prospecto',
+            'ultima_cita': self.ultima_cita.isoformat() if self.ultima_cita else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
 
 class Cita(db.Model):
-    __tablename__ = 'cita'
-    id = db.Column(db.Integer, primary_key=True)
-    paciente_id = db.Column(db.Integer, db.ForeignKey('paciente.id'), nullable=False)
-    dentista_id = db.Column(db.Integer, db.ForeignKey('dentista.id'), nullable=False)
-    consultorio_id = db.Column(db.Integer, db.ForeignKey('consultorio.id'), nullable=False)
-    tipo_cita_id = db.Column(db.Integer, db.ForeignKey('tipo_cita.id'))
-    fecha_inicio = db.Column(db.DateTime, nullable=False)
-    fecha_fin = db.Column(db.DateTime, nullable=False)
-    estado = db.Column(db.String(20), default='pendiente')
-    # pendiente | confirmada | no_asistio | cancelada
-    anticipo_registrado = db.Column(db.Boolean, default=False)
-    anticipo_monto = db.Column(db.Float, default=0)
-    notas = db.Column(db.Text)
-    creado_por = db.Column(db.String(20), default='recepcionista')  # recepcionista | bot
-    creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+    __tablename__ = 'citas'
 
-    recordatorios = db.relationship('Recordatorio', backref='cita', lazy=True, cascade='all, delete-orphan')
+    id = db.Column(db.Integer, primary_key=True)
+    paciente_id = db.Column(db.Integer, db.ForeignKey('pacientes.id'), nullable=False)
+    dentista_id = db.Column(db.Integer, db.ForeignKey('dentistas.id'), nullable=False)
+    consultorio_id = db.Column(db.Integer, db.ForeignKey('consultorios.id'), nullable=False)
+    tipo_cita_id = db.Column(db.Integer, db.ForeignKey('tipos_cita.id'))
+
+    fecha_inicio = db.Column(db.DateTime, nullable=False, index=True)
+    fecha_fin = db.Column(db.DateTime, nullable=False)
+
+    status = db.Column(db.Enum(EstatusCita), default=EstatusCita.pendiente)
+    notas = db.Column(db.Text)
+
+    anticipo_pagado = db.Column(db.Boolean, default=False)
+    anticipo_monto = db.Column(db.Numeric(10, 2), default=0)
+
+    reminder_24h_sent = db.Column(db.Boolean, default=False)
+    postconsulta_sent = db.Column(db.Boolean, default=False)
+
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    recordatorios = db.relationship('Recordatorio', backref='cita',
+                                    lazy=True, cascade='all, delete-orphan')
     justificantes = db.relationship('Justificante', backref='cita', lazy=True)
 
     def to_dict(self):
         return {
             'id': self.id,
             'paciente_id': self.paciente_id,
-            'paciente_nombre': self.paciente.nombre if self.paciente else '',
-            'paciente_telefono': self.paciente.telefono if self.paciente else '',
+            'paciente': self.paciente.nombre_completo if self.paciente else '',
             'dentista_id': self.dentista_id,
-            'dentista_nombre': self.dentista.nombre if self.dentista else '',
+            'dentista': self.dentista.nombre if self.dentista else '',
             'dentista_color': self.dentista.color if self.dentista else '#3788d8',
             'consultorio_id': self.consultorio_id,
-            'consultorio_nombre': self.consultorio.nombre if self.consultorio else '',
+            'consultorio': self.consultorio.nombre if self.consultorio else '',
             'tipo_cita_id': self.tipo_cita_id,
-            'tipo_cita_nombre': self.tipo_cita.nombre if self.tipo_cita else '',
+            'tipo_cita': self.tipo_cita.nombre if self.tipo_cita else '',
             'fecha_inicio': self.fecha_inicio.isoformat(),
             'fecha_fin': self.fecha_fin.isoformat(),
-            'estado': self.estado,
-            'anticipo_registrado': self.anticipo_registrado,
-            'anticipo_monto': self.anticipo_monto,
-            'notas': self.notas,
-            'creado_por': self.creado_por,
+            'status': self.status.value,
+            'notas': self.notas or '',
+            'anticipo_pagado': self.anticipo_pagado,
+            'anticipo_monto': float(self.anticipo_monto) if self.anticipo_monto else 0,
+        }
+
+    def to_calendar_event(self):
+        """Formato FullCalendar con resource (consultorio) y color del dentista."""
+        status_colors = {
+            EstatusCita.pendiente: None,  # usa color del dentista
+            EstatusCita.confirmada: None,
+            EstatusCita.no_asistencia: '#9e9e9e',
+            EstatusCita.cancelada: '#bdbdbd',
+        }
+        color = status_colors.get(self.status) or (self.dentista.color if self.dentista else '#3788d8')
+
+        return {
+            'id': self.id,
+            'title': f'{self.paciente.nombre_completo if self.paciente else "?"} - {self.dentista.nombre if self.dentista else "?"}',
+            'start': self.fecha_inicio.isoformat(),
+            'end': self.fecha_fin.isoformat(),
+            'resourceId': str(self.consultorio_id),
+            'backgroundColor': color,
+            'borderColor': color,
+            'textColor': '#ffffff',
+            'extendedProps': {
+                'paciente_id': self.paciente_id,
+                'dentista_id': self.dentista_id,
+                'consultorio_id': self.consultorio_id,
+                'status': self.status.value,
+                'tipo_cita': self.tipo_cita.nombre if self.tipo_cita else '',
+                'anticipo_pagado': self.anticipo_pagado,
+                'notas': self.notas or '',
+            }
         }
 
 
 class Recordatorio(db.Model):
-    __tablename__ = 'recordatorio'
-    id = db.Column(db.Integer, primary_key=True)
-    cita_id = db.Column(db.Integer, db.ForeignKey('cita.id'), nullable=False)
-    tipo = db.Column(db.String(30), nullable=False)
-    # 24h | sonrisas_magicas | cumpleanos | resena
-    programado_para = db.Column(db.DateTime, nullable=False)
-    enviado = db.Column(db.Boolean, default=False)
-    fecha_envio = db.Column(db.DateTime)
+    __tablename__ = 'recordatorios'
 
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'cita_id': self.cita_id,
-            'tipo': self.tipo,
-            'programado_para': self.programado_para.isoformat(),
-            'enviado': self.enviado,
-            'fecha_envio': self.fecha_envio.isoformat() if self.fecha_envio else None,
-        }
+    id = db.Column(db.Integer, primary_key=True)
+    cita_id = db.Column(db.Integer, db.ForeignKey('citas.id'), nullable=False)
+    tipo = db.Column(db.Enum(TipoRecordatorio), nullable=False)
+    mensaje_enviado = db.Column(db.Text)
+    fecha_envio = db.Column(db.DateTime)
+    status = db.Column(db.Enum(EstatusRecordatorio), default=EstatusRecordatorio.pendiente)
+    error = db.Column(db.Text)
 
 
 class SeguimientoCRM(db.Model):
-    __tablename__ = 'seguimiento_crm'
-    id = db.Column(db.Integer, primary_key=True)
-    paciente_id = db.Column(db.Integer, db.ForeignKey('paciente.id'), nullable=False)
-    tipo = db.Column(db.String(20), nullable=False)  # whatsapp_1 | whatsapp_2 | llamada
-    fecha_programada = db.Column(db.DateTime, nullable=False)
-    fecha_enviado = db.Column(db.DateTime)
-    respondido = db.Column(db.Boolean, default=False)
+    __tablename__ = 'seguimientos_crm'
 
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'paciente_id': self.paciente_id,
-            'tipo': self.tipo,
-            'fecha_programada': self.fecha_programada.isoformat(),
-            'fecha_enviado': self.fecha_enviado.isoformat() if self.fecha_enviado else None,
-            'respondido': self.respondido,
-        }
+    id = db.Column(db.Integer, primary_key=True)
+    paciente_id = db.Column(db.Integer, db.ForeignKey('pacientes.id'), nullable=False)
+    tipo = db.Column(db.Enum(TipoSeguimiento), nullable=False)
+    fecha_programada = db.Column(db.DateTime)
+    fecha_enviado = db.Column(db.DateTime)
+    notas = db.Column(db.Text)
+    completado = db.Column(db.Boolean, default=False)
 
 
 class ConversacionWhatsapp(db.Model):
-    __tablename__ = 'conversacion_whatsapp'
-    id = db.Column(db.Integer, primary_key=True)
-    telefono = db.Column(db.String(20), nullable=False, unique=True)
-    paciente_id = db.Column(db.Integer, db.ForeignKey('paciente.id'), nullable=True)
-    estado_flujo = db.Column(db.String(30), default='info')
-    # info | agendando | pagando | confirmado
-    historial_mensajes = db.Column(db.Text, default='[]')  # JSON
-    ultima_actividad = db.Column(db.DateTime, default=datetime.utcnow)
+    __tablename__ = 'conversaciones_whatsapp'
 
-    def to_dict(self):
-        import json
-        return {
-            'id': self.id,
-            'telefono': self.telefono,
-            'paciente_id': self.paciente_id,
-            'estado_flujo': self.estado_flujo,
-            'historial_mensajes': json.loads(self.historial_mensajes or '[]'),
-            'ultima_actividad': self.ultima_actividad.isoformat() if self.ultima_actividad else None,
-        }
+    id = db.Column(db.Integer, primary_key=True)
+    numero_telefono = db.Column(db.String(20), nullable=False, index=True)
+    paciente_id = db.Column(db.Integer, db.ForeignKey('pacientes.id'), nullable=True)
+    mensaje = db.Column(db.Text, nullable=False)
+    es_bot = db.Column(db.Boolean, default=False)  # False=paciente, True=bot
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    session_context = db.Column(db.Text)  # JSON con contexto de la sesion
 
 
 class Justificante(db.Model):
-    __tablename__ = 'justificante'
-    id = db.Column(db.Integer, primary_key=True)
-    paciente_id = db.Column(db.Integer, db.ForeignKey('paciente.id'), nullable=False)
-    cita_id = db.Column(db.Integer, db.ForeignKey('cita.id'), nullable=False)
-    tratamiento = db.Column(db.String(200))
-    escuela = db.Column(db.String(150))
-    fecha_emision = db.Column(db.Date, default=datetime.utcnow)
-    numero_justificante = db.Column(db.String(20), unique=True)
-    pdf_path = db.Column(db.String(255))
+    __tablename__ = 'justificantes'
 
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'paciente_id': self.paciente_id,
-            'cita_id': self.cita_id,
-            'tratamiento': self.tratamiento,
-            'escuela': self.escuela,
-            'fecha_emision': self.fecha_emision.isoformat() if self.fecha_emision else None,
-            'numero_justificante': self.numero_justificante,
-            'pdf_path': self.pdf_path,
-        }
+    id = db.Column(db.Integer, primary_key=True)
+    paciente_id = db.Column(db.Integer, db.ForeignKey('pacientes.id'), nullable=False)
+    cita_id = db.Column(db.Integer, db.ForeignKey('citas.id'), nullable=True)
+    fecha_emision = db.Column(db.Date, default=date.today)
+    escuela = db.Column(db.String(200))
+    tratamiento_realizado = db.Column(db.Text, nullable=False)
+    doctor_firmante = db.Column(db.String(200), default='C.D.E.O. Paulina Mendoza Ordoñez')
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    creator = db.relationship('User', backref='justificantes')
 
 
 class PlantillaMensaje(db.Model):
-    __tablename__ = 'plantilla_mensaje'
+    __tablename__ = 'plantillas_mensaje'
+
     id = db.Column(db.Integer, primary_key=True)
-    tipo = db.Column(db.String(50), unique=True, nullable=False)
-    # bienvenida | anticipo | confirmacion | recordatorio_24h |
-    # sonrisas_magicas | cumpleanos | resena
+    nombre = db.Column(db.String(100), nullable=False)
+    tipo = db.Column(db.String(50), nullable=False)
     contenido = db.Column(db.Text, nullable=False)
     activo = db.Column(db.Boolean, default=True)
 
     def to_dict(self):
         return {
             'id': self.id,
+            'nombre': self.nombre,
             'tipo': self.tipo,
             'contenido': self.contenido,
-            'activo': self.activo,
         }
+
+
+class ConfiguracionConsultorio(db.Model):
+    """Configuracion global del consultorio (singleton)."""
+    __tablename__ = 'configuracion_consultorio'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre_consultorio = db.Column(db.String(200), default='La Casa del Sr. Perez')
+    direccion = db.Column(db.Text, default='Av. Claveria, CDMX (puerta negra lado derecho de Farmacia Similares)')
+    telefono = db.Column(db.String(20))
+    whatsapp_negocio = db.Column(db.String(20))
+    horario_apertura = db.Column(db.Time, default=time(9, 0))
+    horario_cierre = db.Column(db.Time, default=time(18, 0))
+    precio_primera_consulta = db.Column(db.Numeric(10, 2), default=550.00)
+    porcentaje_anticipo = db.Column(db.Integer, default=50)
+    clabe = db.Column(db.String(20), default='012180015419659725')
+    tarjeta = db.Column(db.String(20), default='4152314207155287')
+    titular_cuenta = db.Column(db.String(200), default='Paulina Mendoza Ordoñez')
+    google_reviews_link = db.Column(db.String(500), default='https://n9.cl/ufkug')
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

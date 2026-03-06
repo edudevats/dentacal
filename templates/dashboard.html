@@ -1,0 +1,188 @@
+{% extends 'base.html' %}
+{% block title %}Calendario - La Casa del Sr. Perez{% endblock %}
+{% block page_title %}<i class="bi bi-calendar3 me-2" style="color:var(--primary)"></i>Calendario de Citas{% endblock %}
+
+{% block extra_css %}
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar-scheduler@6.1.15/index.global.min.css" rel="stylesheet">
+<style>
+  .calendar-wrapper { height: calc(100vh - var(--topbar-h) - 110px); min-height: 500px; }
+  #calendar { height: 100%; }
+  .fc-license-message { display: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="p-3">
+
+  <!-- Toolbar -->
+  <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+    <!-- Filtro dentista -->
+    <select id="filtro-dentista" class="form-select form-select-sm" style="max-width:200px">
+      <option value="">Todos los dentistas</option>
+      {% for d in dentistas %}
+      <option value="{{ d.id }}" data-color="{{ d.color }}">{{ d.nombre }}</option>
+      {% endfor %}
+    </select>
+
+    <!-- Filtro consultorio -->
+    <select id="filtro-consultorio" class="form-select form-select-sm" style="max-width:180px">
+      <option value="">Todos los consultorios</option>
+      {% for c in consultorios %}
+      <option value="{{ c.id }}">{{ c.nombre }}</option>
+      {% endfor %}
+    </select>
+
+    <button class="btn btn-primary btn-sm ms-auto" id="btnNuevaCita">
+      <i class="bi bi-plus-lg me-1"></i>Nueva Cita
+    </button>
+  </div>
+
+  <!-- Leyenda de doctores -->
+  <div class="doctor-legend mb-2" id="doctorLegend">
+    {% for d in dentistas %}
+    <div class="legend-item" data-dentista-id="{{ d.id }}" onclick="toggleDentista({{ d.id }}, this)">
+      <span class="legend-dot" style="background:{{ d.color }}"></span>
+      <span>{{ d.nombre }}</span>
+      <small class="text-muted">({{ d.especialidad }})</small>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Calendar -->
+  <div class="calendar-wrapper card p-2">
+    <div id="calendar"></div>
+  </div>
+</div>
+
+<!-- ============ MODAL AGENDAR / VER CITA ============ -->
+<div class="modal fade" id="modalCita" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalCitaTitulo"><i class="bi bi-calendar-plus me-2"></i>Nueva Cita</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formCita">
+          <input type="hidden" id="cita_id">
+          <div class="row g-3">
+            <!-- Paciente -->
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Paciente <span class="text-danger">*</span></label>
+              <div class="input-group">
+                <input type="text" id="paciente_search" class="form-control"
+                       placeholder="Buscar por nombre o telefono..." autocomplete="off">
+                <button class="btn btn-outline-primary" type="button" id="btnBuscarPaciente">
+                  <i class="bi bi-search"></i>
+                </button>
+              </div>
+              <input type="hidden" id="paciente_id">
+              <div id="paciente_info" class="mt-1 text-success small"></div>
+              <div id="paciente_results" class="list-group mt-1 d-none" style="position:absolute;z-index:9999;max-width:400px"></div>
+            </div>
+
+            <!-- Tipo de cita -->
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Tipo de Cita</label>
+              <select id="tipo_cita_id" class="form-select">
+                <option value="">-- Seleccionar --</option>
+                {% for t in tipos_cita %}
+                <option value="{{ t.id }}" data-duracion="{{ t.duracion_minutos }}" data-precio="{{ t.precio }}">
+                  {{ t.nombre }} ({{ t.duracion_minutos }} min - ${{ "%.0f"|format(t.precio) }})
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <!-- Dentista -->
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Dentista <span class="text-danger">*</span></label>
+              <select id="dentista_id" class="form-select">
+                <option value="">-- Seleccionar --</option>
+                {% for d in dentistas %}
+                <option value="{{ d.id }}" data-color="{{ d.color }}">{{ d.nombre }} - {{ d.especialidad }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <!-- Consultorio -->
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Consultorio <span class="text-danger">*</span></label>
+              <select id="consultorio_id" class="form-select">
+                <option value="">-- Seleccionar --</option>
+                {% for c in consultorios %}
+                <option value="{{ c.id }}">{{ c.nombre }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <!-- Fecha y Hora -->
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Fecha <span class="text-danger">*</span></label>
+              <input type="date" id="fecha_cita" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Hora inicio <span class="text-danger">*</span></label>
+              <input type="time" id="hora_inicio" class="form-control" step="900">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Hora fin <span class="text-danger">*</span></label>
+              <input type="time" id="hora_fin" class="form-control" step="900">
+            </div>
+
+            <!-- Anticipo -->
+            <div class="col-md-6">
+              <div class="form-check mt-2">
+                <input type="checkbox" class="form-check-input" id="anticipo_pagado">
+                <label class="form-check-label" for="anticipo_pagado">Anticipo pagado</label>
+              </div>
+              <input type="number" id="anticipo_monto" class="form-control form-control-sm mt-1"
+                     placeholder="Monto del anticipo ($)" step="50" min="0">
+            </div>
+
+            <!-- Status (solo edicion) -->
+            <div class="col-md-6" id="statusWrapper" style="display:none">
+              <label class="form-label fw-semibold">Status</label>
+              <select id="status_cita" class="form-select">
+                <option value="pendiente">Pendiente</option>
+                <option value="confirmada">Confirmada</option>
+                <option value="no_asistencia">No Asistencia</option>
+                <option value="cancelada">Cancelada</option>
+              </select>
+            </div>
+
+            <!-- Notas -->
+            <div class="col-12">
+              <label class="form-label fw-semibold">Notas</label>
+              <textarea id="notas_cita" class="form-control" rows="2"
+                        placeholder="Motivo, observaciones, indicaciones..."></textarea>
+            </div>
+          </div>
+
+          <div id="formMsg" class="mt-2"></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-danger d-none" id="btnCancelarCita">
+          <i class="bi bi-x-circle me-1"></i>Cancelar Cita
+        </button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-primary" id="btnGuardarCita">
+          <i class="bi bi-check-lg me-1"></i>Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar-scheduler@6.1.15/index.global.min.js"></script>
+<script src="{{ url_for('static', filename='js/calendario.js') }}"></script>
+
+<script>
+// Datos para el calendario (pasados desde Jinja)
+window.CONSULTORIOS = {{ consultorios_json | tojson }};
+window.DENTISTAS    = {{ dentistas_json | tojson }};
+</script>
+{% endblock %}

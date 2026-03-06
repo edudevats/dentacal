@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="header-section">
+    <div class="back-link">
+        <a href="{{ url_for('main.dashboard') }}">← Back to Dashboard</a>
+    </div>
+    <h2>Calendar: {{ doctor.nombre }}</h2>
+    <p>Schedule appointments for {{ doctor.email }}</p>
+</div>
+
+<div class="calendar-container card large">
+    <div id="doctor-calendar" data-doctor-id="{{ doctor.id }}"></div>
+</div>
+
+<!-- Modal for Booking -->
+<div id="booking-modal" class="modal">
+    <div class="modal-content">
+        <span class="close-btn">&times;</span>
+        <h3>Agendar Nueva Cita</h3>
+        <p id="modal-time-slot" class="text-muted"></p>
+
+        <form id="booking-form">
+            <input type="hidden" id="doctor-id" value="{{ doctor.id }}">
+            <input type="hidden" id="event-start">
+            <input type="hidden" id="event-end">
+
+            <div class="form-group">
+                <label for="paciente-info">Nombre del Paciente:</label>
+                <input type="text" id="paciente-info" required class="form-control" placeholder="Ej. Juan Pérez">
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="submit-btn">Confirmar Cita</button>
+            <div id="form-msg" class="msg"></div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% endblock %}

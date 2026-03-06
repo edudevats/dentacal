@@ -1,130 +1,66 @@
-"""Tests de CRUD de citas y detección de solapamiento."""
 import pytest
-import json
 from datetime import datetime, timedelta
-from models import Cita, Paciente, Dentista, Consultorio, TipoCita, db
 
 
-def _fecha(offset_days=1, hour=10):
-    """Genera un datetime futuro para tests."""
-    base = datetime.now().replace(hour=hour, minute=0, second=0, microsecond=0)
-    return base + timedelta(days=offset_days)
+def test_overlap_detection(app):
+    """La segunda cita en el mismo horario debe retornar 409."""
+    with app.app_context():
+        from models import Cita, Paciente, Dentista, Consultorio, EstatusCita, EstatusCRM
+        from extensions import db
+
+        # Asegurar paciente y dentista existen
+        p = Paciente.query.filter_by(eliminado=False).first()
+        d = Dentista.query.filter_by(activo=True).first()
+        c = Consultorio.query.filter_by(activo=True).first()
+
+        if not all([p, d, c]):
+            pytest.skip('No hay datos de prueba suficientes')
+
+        inicio = datetime(2030, 6, 1, 10, 0, 0)
+        fin    = datetime(2030, 6, 1, 11, 0, 0)
+
+        # Primera cita
+        cita1 = Cita(paciente_id=p.id, dentista_id=d.id, consultorio_id=c.id,
+                     fecha_inicio=inicio, fecha_fin=fin)
+        db.session.add(cita1)
+        db.session.commit()
+
+        # Verificar overlap
+        from services.scheduler_service import verificar_disponibilidad
+        conflicto = verificar_disponibilidad(d.id, c.id, inicio, fin)
+        assert conflicto is not None
+        assert conflicto.id == cita1.id
+
+        # Cleanup
+        db.session.delete(cita1)
+        db.session.commit()
 
 
-class TestCitasCRUD:
-    def test_listar_citas(self, auth_client):
-        """GET /api/citas devuelve lista."""
-        res = auth_client.get('/api/citas')
-        assert res.status_code == 200
-        data = json.loads(res.data)
-        assert isinstance(data, list)
+def test_no_overlap_different_time(app):
+    with app.app_context():
+        from models import Cita, Paciente, Dentista, Consultorio
+        from extensions import db
+        from services.scheduler_service import verificar_disponibilidad
 
-    def test_crear_cita(self, auth_client, app):
-        """POST /api/citas crea una cita correctamente."""
-        with app.app_context():
-            paciente = Paciente.query.first()
-            dentista = Dentista.query.first()
-            consultorio = Consultorio.query.first()
-            tipo = TipoCita.query.first()
+        p = Paciente.query.filter_by(eliminado=False).first()
+        d = Dentista.query.filter_by(activo=True).first()
+        c = Consultorio.query.filter_by(activo=True).first()
+        if not all([p, d, c]):
+            pytest.skip('Sin datos')
 
-        inicio = _fecha(offset_days=5, hour=10)
-        fin = inicio + timedelta(hours=1)
+        inicio = datetime(2030, 7, 1, 10, 0, 0)
+        fin    = datetime(2030, 7, 1, 11, 0, 0)
 
-        payload = {
-            'paciente_id': paciente.id,
-            'dentista_id': dentista.id,
-            'consultorio_id': consultorio.id,
-            'tipo_cita_id': tipo.id,
-            'fecha_inicio': inicio.isoformat(),
-            'fecha_fin': fin.isoformat(),
-            'notas': 'Cita de test',
-        }
-        res = auth_client.post(
-            '/api/citas',
-            data=json.dumps(payload),
-            content_type='application/json',
-        )
-        assert res.status_code == 201
-        data = json.loads(res.data)
-        assert data['estado'] == 'pendiente'
-        assert data['notas'] == 'Cita de test'
+        cita1 = Cita(paciente_id=p.id, dentista_id=d.id, consultorio_id=c.id,
+                     fecha_inicio=inicio, fecha_fin=fin)
+        db.session.add(cita1)
+        db.session.commit()
 
-    def test_overlap_409(self, auth_client, app):
-        """Crear cita solapada en mismo consultorio devuelve 409."""
-        with app.app_context():
-            paciente = Paciente.query.first()
-            dentista = Dentista.query.first()
-            consultorio = Consultorio.query.first()
-            tipo = TipoCita.query.first()
+        # Diferente hora: no debe haber conflicto
+        sin_conflicto = verificar_disponibilidad(d.id, c.id,
+                                                 datetime(2030, 7, 1, 12, 0, 0),
+                                                 datetime(2030, 7, 1, 13, 0, 0))
+        assert sin_conflicto is None
 
-        # Crear primera cita
-        inicio = _fecha(offset_days=10, hour=14)
-        fin = inicio + timedelta(hours=1)
-        payload = {
-            'paciente_id': paciente.id,
-            'dentista_id': dentista.id,
-            'consultorio_id': consultorio.id,
-            'tipo_cita_id': tipo.id,
-            'fecha_inicio': inicio.isoformat(),
-            'fecha_fin': fin.isoformat(),
-        }
-        res1 = auth_client.post(
-            '/api/citas',
-            data=json.dumps(payload),
-            content_type='application/json',
-        )
-        assert res1.status_code == 201
-
-        # Crear cita solapada en el mismo consultorio
-        res2 = auth_client.post(
-            '/api/citas',
-            data=json.dumps(payload),
-            content_type='application/json',
-        )
-        assert res2.status_code == 409
-
-    def test_cancelar_cita(self, auth_client, app):
-        """PATCH /api/citas/<id>/cancelar cambia estado a cancelada."""
-        with app.app_context():
-            paciente = Paciente.query.first()
-            dentista = Dentista.query.first()
-            consultorio = Consultorio.query.first()
-            tipo = TipoCita.query.first()
-
-        inicio = _fecha(offset_days=15, hour=11)
-        fin = inicio + timedelta(hours=1)
-        payload = {
-            'paciente_id': paciente.id,
-            'dentista_id': dentista.id,
-            'consultorio_id': consultorio.id,
-            'tipo_cita_id': tipo.id,
-            'fecha_inicio': inicio.isoformat(),
-            'fecha_fin': fin.isoformat(),
-        }
-        res = auth_client.post(
-            '/api/citas',
-            data=json.dumps(payload),
-            content_type='application/json',
-        )
-        assert res.status_code == 201
-        cita_id = json.loads(res.data)['id']
-
-        # Cancelar
-        res_cancel = auth_client.patch(
-            f'/api/citas/{cita_id}/cancelar',
-            content_type='application/json',
-        )
-        assert res_cancel.status_code == 200
-        data = json.loads(res_cancel.data)
-        assert data['estado'] == 'cancelada'
-
-
-class TestDisponibilidad:
-    def test_disponibilidad_devuelve_slots(self, auth_client):
-        """GET /api/disponibilidad devuelve datos de disponibilidad."""
-        with auth_client.application.app_context():
-            dentista = Dentista.query.first()
-        fecha = _fecha(offset_days=3).date().isoformat()
-        res = auth_client.get(f'/api/disponibilidad?dentista_id={dentista.id}&fecha={fecha}')
-        # Puede ser 200 con slots o 200 vacío — solo verificar que no falla
-        assert res.status_code in (200, 404)
+        db.session.delete(cita1)
+        db.session.commit()

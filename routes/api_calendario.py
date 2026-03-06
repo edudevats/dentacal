@@ -1,98 +1,62 @@
-from flask import Blueprint, request, jsonify, render_template
+from flask import Blueprint, jsonify, request
 from flask_login import login_required
-from models import Cita, Consultorio, Dentista, TipoCita
+from models import Cita, Consultorio, EstatusCita
 from datetime import datetime
-from extensions import cache
 
-bp_calendario = Blueprint('calendario', __name__)
+calendario_bp = Blueprint('calendario', __name__, url_prefix='/api/calendario')
 
 
-@bp_calendario.before_request
+@calendario_bp.route('/eventos', methods=['GET'])
 @login_required
-def require_login():
-    pass
+def eventos():
+    """Retorna eventos en formato FullCalendar con resourceId."""
+    start_str = request.args.get('start')
+    end_str = request.args.get('end')
+    dentista_id = request.args.get('dentista_id', type=int)
+    consultorio_id = request.args.get('consultorio_id', type=int)
 
+    if not start_str or not end_str:
+        return jsonify(error='start y end son requeridos'), 400
 
-@bp_calendario.route('/calendario')
-def view_calendario():
-    dentistas = Dentista.query.filter_by(activo=True).order_by(Dentista.nombre).all()
-    consultorios = Consultorio.query.filter_by(activo=True).all()
-    tipos = TipoCita.query.filter_by(activo=True).order_by(TipoCita.nombre).all()
-    dentistas_json = [d.to_dict() for d in dentistas]
-    tipos_json = [t.to_dict() for t in tipos]
-    return render_template('calendario.html',
-                           dentistas=dentistas,
-                           consultorios=consultorios,
-                           tipos=tipos,
-                           dentistas_json=dentistas_json,
-                           tipos_json=tipos_json)
+    try:
+        # FullCalendar envia fechas en formato ISO (puede tener timezone)
+        start = _parse_dt(start_str)
+        end = _parse_dt(end_str)
+    except ValueError:
+        return jsonify(error='Formato de fecha invalido'), 400
 
+    q = Cita.query.filter(
+        Cita.fecha_inicio < end,
+        Cita.fecha_fin > start,
+        Cita.status != EstatusCita.cancelada,
+        Cita.paciente.has(eliminado=False),
+    )
 
-@bp_calendario.route('/api/calendario/eventos')
-def api_eventos():
-    """Devuelve eventos en formato FullCalendar con resources (consultorios)."""
-    start = request.args.get('start')
-    end = request.args.get('end')
-    dentista_ids = request.args.getlist('dentista_id', type=int)
-
-    q = Cita.query.filter(Cita.estado != 'cancelada')
-
-    if start:
-        try:
-            q = q.filter(Cita.fecha_inicio >= datetime.fromisoformat(start.replace('Z', '')))
-        except ValueError:
-            pass
-    if end:
-        try:
-            q = q.filter(Cita.fecha_fin <= datetime.fromisoformat(end.replace('Z', '')))
-        except ValueError:
-            pass
-    if dentista_ids:
-        q = q.filter(Cita.dentista_id.in_(dentista_ids))
+    if dentista_id:
+        q = q.filter_by(dentista_id=dentista_id)
+    if consultorio_id:
+        q = q.filter_by(consultorio_id=consultorio_id)
 
     citas = q.all()
-    eventos = []
-    for c in citas:
-        color = c.dentista.color if c.dentista else '#3788d8'
-        estado_label = {
-            'pendiente': '⏳',
-            'confirmada': '✅',
-            'no_asistio': '❌',
-            'cancelada': '🚫',
-        }.get(c.estado, '')
-
-        eventos.append({
-            'id': c.id,
-            'resourceId': str(c.consultorio_id),
-            'title': f"{estado_label} {c.paciente.nombre if c.paciente else 'Sin paciente'}",
-            'start': c.fecha_inicio.isoformat(),
-            'end': c.fecha_fin.isoformat(),
-            'backgroundColor': color,
-            'borderColor': color,
-            'textColor': '#fff',
-            'extendedProps': {
-                'cita_id': c.id,
-                'paciente_id': c.paciente_id,
-                'paciente_nombre': c.paciente.nombre if c.paciente else '',
-                'paciente_telefono': c.paciente.telefono if c.paciente else '',
-                'dentista_nombre': c.dentista.nombre if c.dentista else '',
-                'dentista_color': color,
-                'consultorio': c.consultorio.nombre if c.consultorio else '',
-                'tipo_cita': c.tipo_cita.nombre if c.tipo_cita else '',
-                'estado': c.estado,
-                'anticipo': c.anticipo_registrado,
-                'notas': c.notas or '',
-            },
-        })
-    return jsonify(eventos)
+    return jsonify([c.to_calendar_event() for c in citas])
 
 
-@bp_calendario.route('/api/calendario/resources')
-@cache.cached(timeout=600, key_prefix='calendario_resources')  # 10 min
-def api_resources():
-    """Consultorios como resources para FullCalendar."""
-    consultorios = Consultorio.query.filter_by(activo=True).all()
-    return jsonify([
-        {'id': str(c.id), 'title': c.nombre}
-        for c in consultorios
-    ])
+@calendario_bp.route('/recursos', methods=['GET'])
+@login_required
+def recursos():
+    """Retorna los 3 consultorios como resources para FullCalendar."""
+    consultorios = Consultorio.query.filter_by(activo=True).order_by(Consultorio.id).all()
+    return jsonify([c.to_dict() for c in consultorios])
+
+
+def _parse_dt(s):
+    """Parsea datetime ISO, removiendo timezone info para comparar con DB (UTC naive)."""
+    # Remover timezone suffix si existe
+    if s.endswith('Z'):
+        s = s[:-1]
+    elif '+' in s[10:]:
+        s = s[:s.rfind('+')]
+    elif s.count('-') > 2:
+        # ISO con offset negativo ej 2026-03-10T00:00:00-06:00
+        s = s[:19]
+    return datetime.fromisoformat(s[:19])

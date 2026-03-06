@@ -1,126 +1,100 @@
 {% extends 'base.html' %}
-{% block title %}Gestión de Usuarios{% endblock %}
-{% block page_title %}Gestión de Usuarios{% endblock %}
-
-{% block topbar_actions %}
-<button class="btn btn-primary btn-sm" onclick="showModalCrear()">
-  <i class="bi bi-person-plus me-1"></i> Nuevo Usuario
-</button>
-{% endblock %}
+{% block title %}Usuarios{% endblock %}
+{% block page_title %}<i class="bi bi-person-lock me-2"></i>Usuarios del Sistema{% endblock %}
 
 {% block content %}
-<div class="table-responsive">
-  <table class="table table-hover align-middle">
-    <thead class="table-light">
-      <tr>
-        <th>Usuario</th>
-        <th>Email</th>
-        <th>Rol</th>
-        <th>Último acceso</th>
-        <th>Estado</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for u in usuarios %}
-      <tr>
-        <td><i class="bi bi-person-circle me-1 text-secondary"></i>{{ u.username }}</td>
-        <td>{{ u.email }}</td>
-        <td>
-          <span class="badge {% if u.role == 'admin' %}bg-danger{% else %}bg-info{% endif %}">
-            {{ u.role }}
-          </span>
-        </td>
-        <td>{{ u.last_login.strftime('%d/%m/%Y %H:%M') if u.last_login else 'Nunca' }}</td>
-        <td>
-          <span class="badge {% if u.activo %}bg-success{% else %}bg-secondary{% endif %}">
-            {{ 'Activo' if u.activo else 'Inactivo' }}
-          </span>
-        </td>
-        <td>
-          <button class="btn btn-sm btn-outline-secondary"
-                  onclick="toggleActivo({{ u.id }}, {{ u.activo | lower }})">
-            {{ 'Desactivar' if u.activo else 'Activar' }}
+<div class="container-fluid p-4">
+  <div class="row">
+    <div class="col-md-8">
+      <div class="card shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span><i class="bi bi-people me-2"></i>Usuarios</span>
+          <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoUsuario">
+            <i class="bi bi-plus-lg me-1"></i>Nuevo Usuario
           </button>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<!-- Modal crear usuario -->
-<div class="modal fade" id="modalCrear" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Nuevo Usuario</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="mb-3">
-          <label class="form-label">Usuario</label>
-          <input type="text" class="form-control" id="newUsername">
         </div>
-        <div class="mb-3">
-          <label class="form-label">Email</label>
-          <input type="email" class="form-control" id="newEmail">
+        <div class="card-body p-0">
+          <table class="table table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Usuario</th><th>Email</th><th>Rol</th><th>Estado</th><th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for u in usuarios %}
+              <tr>
+                <td>
+                  <div class="fw-semibold">{{ u.username }}</div>
+                  <small class="text-muted">Creado {{ u.created_at.strftime('%d/%m/%Y') }}</small>
+                </td>
+                <td>{{ u.email }}</td>
+                <td>
+                  <span class="badge bg-{{ 'danger' if u.is_admin() else 'info' }}">
+                    {{ u.rol.value }}
+                  </span>
+                </td>
+                <td>
+                  <span class="badge bg-{{ 'success' if u.activo else 'secondary' }}">
+                    {{ 'Activo' if u.activo else 'Inactivo' }}
+                  </span>
+                </td>
+                <td>
+                  {% if u.id != current_user.id %}
+                  <form method="POST" action="{{ url_for('auth.toggle_usuario', user_id=u.id) }}" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-outline-{{ 'danger' if u.activo else 'success' }}">
+                      {{ 'Desactivar' if u.activo else 'Activar' }}
+                    </button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
-        <div class="mb-3">
-          <label class="form-label">Contraseña</label>
-          <input type="password" class="form-control" id="newPassword">
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Rol</label>
-          <select class="form-select" id="newRole">
-            <option value="recepcionista">Recepcionista</option>
-            <option value="admin">Administrador</option>
-          </select>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-primary" onclick="crearUsuario()">Crear</button>
       </div>
     </div>
   </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
-<script>
-const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-
-function showModalCrear() {
-  new bootstrap.Modal(document.getElementById('modalCrear')).show();
-}
-
-async function crearUsuario() {
-  const data = {
-    username: document.getElementById('newUsername').value,
-    email: document.getElementById('newEmail').value,
-    password: document.getElementById('newPassword').value,
-    role: document.getElementById('newRole').value,
-  };
-  const res = await fetch('/admin/usuarios', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-    body: JSON.stringify(data),
-  });
-  if (res.ok) location.reload();
-  else {
-    const err = await res.json();
-    alert(err.error || 'Error al crear usuario');
-  }
-}
-
-async function toggleActivo(userId, activo) {
-  const res = await fetch(`/admin/usuarios/${userId}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-    body: JSON.stringify({ activo: !activo }),
-  });
-  if (res.ok) location.reload();
-}
-</script>
+<!-- Modal Nuevo Usuario -->
+<div class="modal fade" id="modalNuevoUsuario" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('auth.crear_usuario') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="bi bi-person-plus me-2"></i>Nuevo Usuario</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Usuario</label>
+            <input type="text" name="username" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input type="email" name="email" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Contrasena</label>
+            <input type="password" name="password" class="form-control" required minlength="8">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Rol</label>
+            <select name="rol" class="form-select">
+              <option value="recepcionista">Recepcionista</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Crear Usuario</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endblock %}
