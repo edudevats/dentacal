@@ -32,8 +32,8 @@ class Config:
     LOG_LEVEL = logging.INFO
 
     # Bot IA
-    ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
-    AI_MODEL = 'claude-haiku-4-5-20251001'
+    GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+    AI_MODEL = 'gemini-1.5-flash'
 
     # Twilio
     TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
@@ -74,7 +74,7 @@ class TestingConfig(Config):
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
     WTF_CSRF_ENABLED = False
     SCHEDULER_ENABLED = False
-    ANTHROPIC_API_KEY = 'test_key'
+    GEMINI_API_KEY = 'test_key'
     TWILIO_ACCOUNT_SID = 'test_sid'
     TWILIO_AUTH_TOKEN = 'test_token'
 

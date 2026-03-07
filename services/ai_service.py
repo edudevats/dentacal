@@ -221,20 +221,23 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
     Procesa un mensaje entrante de WhatsApp con el bot IA.
     Retorna la respuesta en texto.
     """
-    api_key = current_app.config.get('ANTHROPIC_API_KEY', '')
-    model = current_app.config.get('AI_MODEL', 'claude-haiku-4-5-20251001')
+    api_key = current_app.config.get('GEMINI_API_KEY', '')
+    model_name = current_app.config.get('AI_MODEL', 'gemini-1.5-flash')
 
-    if not api_key or api_key.startswith('test'):
+    if not api_key or api_key.startswith('test') or api_key.startswith('AIzaSy'):
         return 'Hola! Gracias por contactarnos. En este momento el bot no esta disponible. Por favor llama al consultorio.'
 
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
     except ImportError:
         return 'Servicio no disponible temporalmente. Por favor contacta al consultorio directamente.'
 
     historial = _cargar_historial(numero_telefono)
-    historial.append({'role': 'user', 'content': mensaje_usuario})
+    gemini_history = []
+    for msg in historial:
+        role = 'model' if msg['role'] == 'assistant' else 'user'
+        gemini_history.append({'role': role, 'parts': [msg['content']]})
 
     # Contexto del paciente si ya lo tenemos
     contexto_paciente = ''
@@ -243,42 +246,58 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
 
     system_prompt = _get_system_prompt() + contexto_paciente
 
-    max_iteraciones = 5  # Evitar loops infinitos
-    for _ in range(max_iteraciones):
-        response = client.messages.create(
-            model=model,
-            max_tokens=1024,
-            system=system_prompt,
-            tools=BOT_TOOLS,
-            messages=historial,
+    gemini_tools = {
+        "function_declarations": [
+            {
+                "name": t['name'],
+                "description": t['description'],
+                "parameters": t['input_schema']
+            } for t in BOT_TOOLS
+        ]
+    }
+
+    try:
+        model = genai.GenerativeModel(
+            model_name=model_name,
+            system_instruction=system_prompt,
+            tools=[gemini_tools]
         )
+        chat = model.start_chat(history=gemini_history)
 
-        if response.stop_reason == 'tool_use':
-            # Ejecutar tools
-            tool_results = []
-            assistant_content = response.content
+        max_iteraciones = 5  # Evitar loops infinitos
+        response = chat.send_message(mensaje_usuario)
 
-            for block in response.content:
-                if block.type == 'tool_use':
-                    result = _ejecutar_tool(block.name, block.input)
-                    tool_results.append({
-                        'type': 'tool_result',
-                        'tool_use_id': block.id,
-                        'content': json.dumps(result, ensure_ascii=False),
-                    })
-
-            # Agregar respuesta del asistente y resultados al historial
-            historial.append({'role': 'assistant', 'content': assistant_content})
-            historial.append({'role': 'user', 'content': tool_results})
-
-        else:
-            # Respuesta final de texto
-            for block in response.content:
-                if hasattr(block, 'text'):
-                    return block.text
-            return 'Gracias por tu mensaje. Te atenderemos en breve.'
+        for _ in range(max_iteraciones):
+            if response.parts and any(hasattr(part, 'function_call') and part.function_call for part in response.parts):
+                # El modelo quiere usar herramientas
+                function_responses = []
+                for part in response.parts:
+                    if hasattr(part, 'function_call') and part.function_call:
+                        func_call = part.function_call
+                        nombre = func_call.name
+                        # Convertir argumentos a dict
+                        arg_dict = {key: val for key, val in type(func_call.args)(func_call.args).items()}
+                        result = _ejecutar_tool(nombre, arg_dict)
+                        function_responses.append(
+                            genai.types.Part.from_function_response(
+                                name=nombre,
+                                response={"result": result}
+                            )
+                        )
+                # Enviar los resultados de vuelta al modelo
+                response = chat.send_message(function_responses)
+            else:
+                # Respuesta de texto final
+                if response.text:
+                    return response.text
+                return 'Gracias por tu mensaje. Te atenderemos en breve.'
+                
+    except Exception as e:
+        logger.error(f'Error procesando mensaje con Gemini: {e}')
+        return 'Lo siento, no pude procesar tu solicitud. Por favor contacta al consultorio directamente.'
 
     return 'Lo siento, no pude procesar tu solicitud. Por favor contacta al consultorio directamente.'
+
 
 
 def _ejecutar_tool(nombre, args):
