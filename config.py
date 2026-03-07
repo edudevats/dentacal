@@ -10,7 +10,13 @@ class Config:
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
         'sqlite:///' + os.path.join(BASE_DIR, 'app.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {'pool_pre_ping': True}
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_pre_ping': True,
+        'pool_recycle': 280,   # Evita "MySQL server has gone away" (timeout 5min)
+        'pool_size': 3,        # Máx conexiones permanentes
+        'max_overflow': 2,     # Conexiones extra bajo carga
+        'pool_timeout': 20,    # Segundos antes de error si no hay conexión libre
+    }
 
     WTF_CSRF_ENABLED = True
     WTF_CSRF_TIME_LIMIT = 3600
