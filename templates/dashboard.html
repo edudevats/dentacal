@@ -17,60 +17,6 @@
   .fc-license-message {
     display: none;
   }
-
-    {
-    % for c in consultorios %
-  }
-
-    {
-    % if c.nombre=='Consultorio 1' %
-  }
-
-  .fc-col-header-cell[data-resource-id="{{ c.id }}"] {
-    background-color: #d1e7dd !important;
-    border-color: #a3cfbb !important;
-  }
-
-  .fc-col-header-cell[data-resource-id="{{ c.id }}"] .fc-col-header-cell-cushion {
-    color: #0f5132 !important;
-    font-weight: bold;
-  }
-
-    {
-    % elif c.nombre=='Consultorio 2' %
-  }
-
-  .fc-col-header-cell[data-resource-id="{{ c.id }}"] {
-    background-color: #cfe2ff !important;
-    border-color: #9ec5fe !important;
-  }
-
-  .fc-col-header-cell[data-resource-id="{{ c.id }}"] .fc-col-header-cell-cushion {
-    color: #084298 !important;
-    font-weight: bold;
-  }
-
-    {
-    % elif c.nombre=='Consultorio 3' %
-  }
-
-  .fc-col-header-cell[data-resource-id="{{ c.id }}"] {
-    background-color: #ffe5d0 !important;
-    border-color: #fecba1 !important;
-  }
-
-  .fc-col-header-cell[data-resource-id="{{ c.id }}"] .fc-col-header-cell-cushion {
-    color: #d9480f !important;
-    font-weight: bold;
-  }
-
-    {
-    % endif %
-  }
-
-    {
-    % endfor %
-  }
 </style>
 {% endblock %}
 
@@ -257,11 +203,24 @@
 <script>
   // Datos para el calendario (pasados desde Jinja)
   const baseConsultorios = {{ consultorios_json | tojson }};
+  const dynamicStyles = document.createElement('style');
+
   baseConsultorios.forEach(c => {
-    if (c.title === 'Consultorio 1') c.title = 'unidad verde';
-    else if (c.title === 'Consultorio 2') c.title = 'unidad azul';
-    else if (c.title === 'Consultorio 3') c.title = 'unidad naranja';
+    if (c.title === 'Consultorio 1') {
+      c.title = 'unidad verde';
+      dynamicStyles.innerHTML += `.fc-col-header-cell[data-resource-id="${c.id}"] { background-color: #d1e7dd !important; border-color: #a3cfbb !important; } .fc-col-header-cell[data-resource-id="${c.id}"] .fc-col-header-cell-cushion { color: #0f5132 !important; font-weight: bold; }`;
+    }
+    else if (c.title === 'Consultorio 2') {
+      c.title = 'unidad azul';
+      dynamicStyles.innerHTML += `.fc-col-header-cell[data-resource-id="${c.id}"] { background-color: #cfe2ff !important; border-color: #9ec5fe !important; } .fc-col-header-cell[data-resource-id="${c.id}"] .fc-col-header-cell-cushion { color: #084298 !important; font-weight: bold; }`;
+    }
+    else if (c.title === 'Consultorio 3') {
+      c.title = 'unidad naranja';
+      dynamicStyles.innerHTML += `.fc-col-header-cell[data-resource-id="${c.id}"] { background-color: #ffe5d0 !important; border-color: #fecba1 !important; } .fc-col-header-cell[data-resource-id="${c.id}"] .fc-col-header-cell-cushion { color: #d9480f !important; font-weight: bold; }`;
+    }
   });
+
+  document.head.appendChild(dynamicStyles);
   window.CONSULTORIOS = baseConsultorios;
   window.DENTISTAS = {{ dentistas_json | tojson }};
 </script>
