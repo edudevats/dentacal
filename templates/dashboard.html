@@ -5,9 +5,72 @@
 {% block extra_css %}
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar-scheduler@6.1.15/index.global.min.css" rel="stylesheet">
 <style>
-  .calendar-wrapper { height: calc(100vh - var(--topbar-h) - 110px); min-height: 500px; }
-  #calendar { height: 100%; }
-  .fc-license-message { display: none; }
+  .calendar-wrapper {
+    height: calc(100vh - var(--topbar-h) - 110px);
+    min-height: 500px;
+  }
+
+  #calendar {
+    height: 100%;
+  }
+
+  .fc-license-message {
+    display: none;
+  }
+
+    {
+    % for c in consultorios %
+  }
+
+    {
+    % if c.nombre=='Consultorio 1' %
+  }
+
+  .fc-col-header-cell[data-resource-id="{{ c.id }}"] {
+    background-color: #d1e7dd !important;
+    border-color: #a3cfbb !important;
+  }
+
+  .fc-col-header-cell[data-resource-id="{{ c.id }}"] .fc-col-header-cell-cushion {
+    color: #0f5132 !important;
+    font-weight: bold;
+  }
+
+    {
+    % elif c.nombre=='Consultorio 2' %
+  }
+
+  .fc-col-header-cell[data-resource-id="{{ c.id }}"] {
+    background-color: #cfe2ff !important;
+    border-color: #9ec5fe !important;
+  }
+
+  .fc-col-header-cell[data-resource-id="{{ c.id }}"] .fc-col-header-cell-cushion {
+    color: #084298 !important;
+    font-weight: bold;
+  }
+
+    {
+    % elif c.nombre=='Consultorio 3' %
+  }
+
+  .fc-col-header-cell[data-resource-id="{{ c.id }}"] {
+    background-color: #ffe5d0 !important;
+    border-color: #fecba1 !important;
+  }
+
+  .fc-col-header-cell[data-resource-id="{{ c.id }}"] .fc-col-header-cell-cushion {
+    color: #d9480f !important;
+    font-weight: bold;
+  }
+
+    {
+    % endif %
+  }
+
+    {
+    % endfor %
+  }
 </style>
 {% endblock %}
 
@@ -28,7 +91,12 @@
     <select id="filtro-consultorio" class="form-select form-select-sm" style="max-width:180px">
       <option value="">Todos los consultorios</option>
       {% for c in consultorios %}
-      <option value="{{ c.id }}">{{ c.nombre }}</option>
+      {% set c_nombre = c.nombre %}
+      {% if c.nombre == 'Consultorio 1' %}{% set c_nombre = 'unidad verde' %}
+      {% elif c.nombre == 'Consultorio 2' %}{% set c_nombre = 'unidad azul' %}
+      {% elif c.nombre == 'Consultorio 3' %}{% set c_nombre = 'unidad naranja' %}
+      {% endif %}
+      <option value="{{ c.id }}">{{ c_nombre }}</option>
       {% endfor %}
     </select>
 
@@ -71,14 +139,15 @@
               <label class="form-label fw-semibold">Paciente <span class="text-danger">*</span></label>
               <div class="input-group">
                 <input type="text" id="paciente_search" class="form-control"
-                       placeholder="Buscar por nombre o telefono..." autocomplete="off">
+                  placeholder="Buscar por nombre o telefono..." autocomplete="off">
                 <button class="btn btn-outline-primary" type="button" id="btnBuscarPaciente">
                   <i class="bi bi-search"></i>
                 </button>
               </div>
               <input type="hidden" id="paciente_id">
               <div id="paciente_info" class="mt-1 text-success small"></div>
-              <div id="paciente_results" class="list-group mt-1 d-none" style="position:absolute;z-index:9999;max-width:400px"></div>
+              <div id="paciente_results" class="list-group mt-1 d-none"
+                style="position:absolute;z-index:9999;max-width:400px"></div>
             </div>
 
             <!-- Tipo de cita -->
@@ -111,7 +180,12 @@
               <select id="consultorio_id" class="form-select">
                 <option value="">-- Seleccionar --</option>
                 {% for c in consultorios %}
-                <option value="{{ c.id }}">{{ c.nombre }}</option>
+                {% set c_nombre = c.nombre %}
+                {% if c.nombre == 'Consultorio 1' %}{% set c_nombre = 'unidad verde' %}
+                {% elif c.nombre == 'Consultorio 2' %}{% set c_nombre = 'unidad azul' %}
+                {% elif c.nombre == 'Consultorio 3' %}{% set c_nombre = 'unidad naranja' %}
+                {% endif %}
+                <option value="{{ c.id }}">{{ c_nombre }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -137,7 +211,7 @@
                 <label class="form-check-label" for="anticipo_pagado">Anticipo pagado</label>
               </div>
               <input type="number" id="anticipo_monto" class="form-control form-control-sm mt-1"
-                     placeholder="Monto del anticipo ($)" step="50" min="0">
+                placeholder="Monto del anticipo ($)" step="50" min="0">
             </div>
 
             <!-- Status (solo edicion) -->
@@ -155,7 +229,7 @@
             <div class="col-12">
               <label class="form-label fw-semibold">Notas</label>
               <textarea id="notas_cita" class="form-control" rows="2"
-                        placeholder="Motivo, observaciones, indicaciones..."></textarea>
+                placeholder="Motivo, observaciones, indicaciones..."></textarea>
             </div>
           </div>
 
@@ -181,8 +255,14 @@
 <script src="{{ url_for('static', filename='js/calendario.js') }}"></script>
 
 <script>
-// Datos para el calendario (pasados desde Jinja)
-window.CONSULTORIOS = {{ consultorios_json | tojson }};
-window.DENTISTAS    = {{ dentistas_json | tojson }};
+  // Datos para el calendario (pasados desde Jinja)
+  const baseConsultorios = {{ consultorios_json | tojson }};
+  baseConsultorios.forEach(c => {
+    if (c.title === 'Consultorio 1') c.title = 'unidad verde';
+    else if (c.title === 'Consultorio 2') c.title = 'unidad azul';
+    else if (c.title === 'Consultorio 3') c.title = 'unidad naranja';
+  });
+  window.CONSULTORIOS = baseConsultorios;
+  window.DENTISTAS = {{ dentistas_json | tojson }};
 </script>
 {% endblock %}
