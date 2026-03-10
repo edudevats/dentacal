@@ -5,7 +5,9 @@
 {% block extra_css %}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/intl-tel-input@23.0.4/build/css/intlTelInput.css">
 <style>
-  .iti { width: 100%; }
+  .iti {
+    width: 100%;
+  }
 </style>
 {% endblock %}
 
@@ -14,7 +16,7 @@
   <div class="card shadow-sm">
     <div class="card-header d-flex align-items-center gap-2">
       <input type="search" id="searchInput" class="form-control form-control-sm" style="max-width:300px"
-             placeholder="Buscar por nombre, telefono...">
+        placeholder="Buscar por nombre, telefono...">
       <select id="filtroEstatus" class="form-select form-select-sm" style="max-width:160px">
         <option value="">Todos los status</option>
         <option value="alta">Alta</option>
@@ -30,12 +32,18 @@
       <table class="table table-hover mb-0" id="tablaPacientes">
         <thead class="table-light">
           <tr>
-            <th>Paciente</th><th>WhatsApp</th><th>Tutor</th>
-            <th>Status CRM</th><th>Ultima cita</th><th>Acciones</th>
+            <th>Paciente</th>
+            <th>WhatsApp</th>
+            <th>Tutor</th>
+            <th>Status CRM</th>
+            <th>Ultima cita</th>
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody id="pacientesTbody">
-          <tr><td colspan="6" class="text-center text-muted py-4">Cargando...</td></tr>
+          <tr>
+            <td colspan="6" class="text-center text-muted py-4">Cargando...</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -139,12 +147,11 @@
         <div class="mb-3">
           <label class="form-label fw-semibold">Tratamiento realizado <span class="text-danger">*</span></label>
           <textarea id="j_tratamiento" class="form-control" rows="3"
-                    placeholder="Ej: consulta de primera vez, extraccion de pieza..."></textarea>
+            placeholder="Ej: consulta de primera vez, extraccion de pieza..."></textarea>
         </div>
         <div class="mb-3">
           <label class="form-label">Doctor firmante</label>
-          <input type="text" id="j_doctor" class="form-control"
-                 value="C.D.E.O. Paulina Mendoza Ordonez">
+          <input type="text" id="j_doctor" class="form-control" value="C.D.E.O. Paulina Mendoza Ordonez">
         </div>
       </div>
       <div class="modal-footer">
@@ -160,5 +167,5 @@
 
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/intl-tel-input@23.0.4/build/js/intlTelInput.min.js"></script>
-<script src="{{ url_for('static', filename='js/pacientes.js') }}"></script>
+<script src="{{ url_for('static', filename='js/pacientes.js') }}?v=1.1"></script>
 {% endblock %}
