@@ -117,6 +117,7 @@ def crear():
         escuela=data.get('escuela', ''),
         notas=data.get('notas', ''),
         estatus_crm=EstatusCRM[data.get('estatus_crm', 'prospecto')],
+        doctor_id=data.get('doctor_id'),
     )
     db.session.add(p)
     db.session.commit()
@@ -157,6 +158,8 @@ def actualizar(paciente_id):
             p.estatus_crm = EstatusCRM[data['estatus_crm']]
         except KeyError:
             pass
+    if 'doctor_id' in data:
+        p.doctor_id = data['doctor_id']
 
     db.session.commit()
     return jsonify(p.to_dict())

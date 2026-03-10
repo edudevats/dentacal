@@ -3,6 +3,9 @@
  */
 let paginaActual = 1;
 let pacienteEditandoId = null;
+let itiTelefono = null;
+let itiWhatsapp = null;
+window._waModifiedByUser = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   cargarPacientes();
@@ -16,7 +19,51 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnGuardarPaciente')?.addEventListener('click', guardarPaciente);
   document.getElementById('btnEliminarPaciente')?.addEventListener('click', eliminarPaciente);
   document.getElementById('btnGenerarJustificante')?.addEventListener('click', generarJustificante);
+
+  cargarDoctores();
+
+  const inputTel = document.querySelector("#p_telefono");
+  const inputWa = document.querySelector("#p_whatsapp");
+  if (inputTel && window.intlTelInput) {
+    itiTelefono = window.intlTelInput(inputTel, {
+      initialCountry: "mx",
+      preferredCountries: ["mx", "us", "co", "ar", "es"],
+      utilsScript: "https://cdn.jsdelivr.net/npm/intl-tel-input@23.0.4/build/js/utils.js",
+    });
+    inputTel.addEventListener('input', () => {
+      if (!window._waModifiedByUser && itiWhatsapp) {
+        itiWhatsapp.setNumber(itiTelefono.getNumber());
+      }
+    });
+  }
+  if (inputWa && window.intlTelInput) {
+    itiWhatsapp = window.intlTelInput(inputWa, {
+      initialCountry: "mx",
+      preferredCountries: ["mx", "us", "co", "ar", "es"],
+      utilsScript: "https://cdn.jsdelivr.net/npm/intl-tel-input@23.0.4/build/js/utils.js",
+    });
+    inputWa.addEventListener('input', () => {
+      window._waModifiedByUser = true;
+    });
+  }
 });
+
+async function cargarDoctores() {
+  const select = document.getElementById('p_doctor');
+  if (!select) return;
+  try {
+    const resp = await apiFetch('/api/dentistas?activos=true');
+    const data = await resp.json();
+    data.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = `${d.nombre} ${d.especialidad ? `(${d.especialidad})` : ''}`;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    console.error('Error cargando doctores:', e);
+  }
+}
 
 function mkEl(tag, props = {}) {
   const el = document.createElement(tag);
@@ -30,12 +77,12 @@ function mkEl(tag, props = {}) {
 }
 
 async function cargarPacientes() {
-  const q       = document.getElementById('searchInput')?.value.trim() || '';
+  const q = document.getElementById('searchInput')?.value.trim() || '';
   const estatus = document.getElementById('filtroEstatus')?.value || '';
-  const tbody   = document.getElementById('pacientesTbody');
+  const tbody = document.getElementById('pacientesTbody');
 
   let url = `/api/pacientes?page=${paginaActual}&per_page=50`;
-  if (q)       url += `&q=${encodeURIComponent(q)}`;
+  if (q) url += `&q=${encodeURIComponent(q)}`;
   if (estatus) url += `&estatus=${estatus}`;
 
   try {
@@ -73,8 +120,8 @@ function crearFilaPaciente(p) {
     tdNombre.appendChild(mkEl('div', { text: 'Nac: ' + p.fecha_nacimiento, cls: 'text-muted small' }));
   }
 
-  const tdWa     = mkEl('td', { text: p.whatsapp || p.telefono || '\u2014' });
-  const tdTutor  = mkEl('td', { text: p.nombre_tutor || '\u2014' });
+  const tdWa = mkEl('td', { text: p.whatsapp || p.telefono || '\u2014' });
+  const tdTutor = mkEl('td', { text: p.nombre_tutor || '\u2014' });
 
   const tdStatus = document.createElement('td');
   const badge = mkEl('span', { text: p.estatus_crm, cls: `badge badge-${p.estatus_crm}` });
@@ -82,7 +129,7 @@ function crearFilaPaciente(p) {
 
   const tdCita = mkEl('td', { text: p.ultima_cita ? p.ultima_cita.slice(0, 10) : '\u2014' });
 
-  const tdAcc  = document.createElement('td');
+  const tdAcc = document.createElement('td');
   const btnEdit = mkEl('button', { cls: 'btn btn-sm btn-outline-primary me-1', title: 'Editar' });
   btnEdit.appendChild(mkEl('i', { cls: 'bi bi-pencil' }));
   btnEdit.addEventListener('click', () => abrirModalEditarPaciente(p));
@@ -105,11 +152,11 @@ function renderPaginacion(totalPages) {
   if (totalPages <= 1) return;
 
   const nav = document.createElement('nav');
-  const ul  = mkEl('ul', { cls: 'pagination pagination-sm mb-0' });
+  const ul = mkEl('ul', { cls: 'pagination pagination-sm mb-0' });
 
   const addPage = (label, page, disabled = false) => {
     const li = mkEl('li', { cls: `page-item${disabled ? ' disabled' : ''}${page === paginaActual ? ' active' : ''}` });
-    const a  = mkEl('a',  { text: label, cls: 'page-link', style: 'cursor:pointer' });
+    const a = mkEl('a', { text: label, cls: 'page-link', style: 'cursor:pointer' });
     a.addEventListener('click', () => { if (!disabled) { paginaActual = page; cargarPacientes(); } });
     li.appendChild(a);
     ul.appendChild(li);
@@ -137,58 +184,65 @@ function abrirModalEditarPaciente(p) {
   document.getElementById('p_id').value = p.id;
   document.getElementById('modalPacienteTitulo').textContent = 'Editar Paciente';
   document.getElementById('btnEliminarPaciente').classList.remove('d-none');
-  document.getElementById('p_nombre').value     = p.nombre || '';
-  document.getElementById('p_apellidos').value  = p.apellidos || '';
-  document.getElementById('p_fecha_nac').value  = p.fecha_nacimiento || '';
-  document.getElementById('p_telefono').value   = p.telefono || '';
-  document.getElementById('p_whatsapp').value   = p.whatsapp || '';
-  document.getElementById('p_tutor').value      = p.nombre_tutor || '';
-  document.getElementById('p_tel_tutor').value  = p.telefono_tutor || '';
-  document.getElementById('p_escuela').value    = p.escuela || '';
-  document.getElementById('p_email').value      = p.email || '';
-  document.getElementById('p_estatus').value    = p.estatus_crm || 'prospecto';
-  document.getElementById('p_notas').value      = p.notas || '';
+  document.getElementById('p_nombre').value = p.nombre || '';
+  document.getElementById('p_apellidos').value = p.apellidos || '';
+  document.getElementById('p_fecha_nac').value = p.fecha_nacimiento || '';
+  document.getElementById('p_telefono').value = p.telefono || '';
+  document.getElementById('p_whatsapp').value = p.whatsapp || '';
+  if (itiTelefono) itiTelefono.setNumber(p.telefono || '');
+  if (itiWhatsapp) itiWhatsapp.setNumber(p.whatsapp || '');
+  window._waModifiedByUser = !!p.whatsapp && (p.whatsapp !== p.telefono);
+
+  document.getElementById('p_tutor').value = p.nombre_tutor || '';
+  document.getElementById('p_tel_tutor').value = p.telefono_tutor || '';
+  document.getElementById('p_escuela').value = p.escuela || '';
+  document.getElementById('p_doctor').value = p.doctor_id || '';
+  document.getElementById('p_estatus').value = p.estatus_crm || 'prospecto';
+  document.getElementById('p_notas').value = p.notas || '';
   new bootstrap.Modal(document.getElementById('modalPaciente')).show();
 }
 
 function limpiarFormPaciente() {
-  ['p_nombre','p_apellidos','p_fecha_nac','p_telefono','p_whatsapp',
-   'p_tutor','p_tel_tutor','p_escuela','p_email','p_notas'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
+  ['p_nombre', 'p_apellidos', 'p_fecha_nac', 'p_telefono', 'p_whatsapp',
+    'p_tutor', 'p_tel_tutor', 'p_escuela', 'p_doctor', 'p_notas'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+  if (itiTelefono) itiTelefono.setNumber('');
+  if (itiWhatsapp) itiWhatsapp.setNumber('');
+  window._waModifiedByUser = false;
   const est = document.getElementById('p_estatus');
   if (est) est.value = 'prospecto';
 }
 
 async function guardarPaciente() {
   const body = {
-    nombre:          document.getElementById('p_nombre').value.trim(),
-    apellidos:       document.getElementById('p_apellidos').value.trim(),
+    nombre: document.getElementById('p_nombre').value.trim(),
+    apellidos: document.getElementById('p_apellidos').value.trim(),
     fecha_nacimiento: document.getElementById('p_fecha_nac').value || null,
-    telefono:        document.getElementById('p_telefono').value.trim(),
-    whatsapp:        document.getElementById('p_whatsapp').value.trim(),
-    nombre_tutor:    document.getElementById('p_tutor').value.trim(),
-    telefono_tutor:  document.getElementById('p_tel_tutor').value.trim(),
-    escuela:         document.getElementById('p_escuela').value.trim(),
-    email:           document.getElementById('p_email').value.trim(),
-    estatus_crm:     document.getElementById('p_estatus').value,
-    notas:           document.getElementById('p_notas').value.trim(),
+    telefono: itiTelefono ? itiTelefono.getNumber() : document.getElementById('p_telefono').value.trim(),
+    whatsapp: itiWhatsapp ? itiWhatsapp.getNumber() : document.getElementById('p_whatsapp').value.trim(),
+    nombre_tutor: document.getElementById('p_tutor').value.trim(),
+    telefono_tutor: document.getElementById('p_tel_tutor').value.trim(),
+    escuela: document.getElementById('p_escuela').value.trim(),
+    doctor_id: document.getElementById('p_doctor').value || null,
+    estatus_crm: document.getElementById('p_estatus').value,
+    notas: document.getElementById('p_notas').value.trim(),
   };
   if (!body.nombre) {
     document.getElementById('pacienteMsg').textContent = 'El nombre es requerido.';
     return;
   }
-  const url    = pacienteEditandoId ? `/api/pacientes/${pacienteEditandoId}` : '/api/pacientes';
+  const url = pacienteEditandoId ? `/api/pacientes/${pacienteEditandoId}` : '/api/pacientes';
   const method = pacienteEditandoId ? 'PUT' : 'POST';
-  const resp   = await apiFetch(url, { method, body: JSON.stringify(body) });
-  const data   = await resp.json();
-  const msg    = document.getElementById('pacienteMsg');
+  const resp = await apiFetch(url, { method, body: JSON.stringify(body) });
+  const data = await resp.json();
+  const msg = document.getElementById('pacienteMsg');
   if (resp.ok) {
     bootstrap.Modal.getInstance(document.getElementById('modalPaciente'))?.hide();
     cargarPacientes();
   } else {
-    msg.className  = 'mt-2 text-danger small';
+    msg.className = 'mt-2 text-danger small';
     msg.textContent = data.error || 'Error al guardar';
   }
 }
@@ -203,18 +257,18 @@ async function eliminarPaciente() {
 }
 
 function abrirModalJustificante(p) {
-  document.getElementById('j_paciente_id').value  = p.id;
-  document.getElementById('j_escuela').value       = p.escuela || '';
-  document.getElementById('j_tratamiento').value   = '';
+  document.getElementById('j_paciente_id').value = p.id;
+  document.getElementById('j_escuela').value = p.escuela || '';
+  document.getElementById('j_tratamiento').value = '';
   new bootstrap.Modal(document.getElementById('modalJustificante')).show();
 }
 
 async function generarJustificante() {
   const body = {
-    paciente_id:           parseInt(document.getElementById('j_paciente_id').value),
-    escuela:               document.getElementById('j_escuela').value,
+    paciente_id: parseInt(document.getElementById('j_paciente_id').value),
+    escuela: document.getElementById('j_escuela').value,
     tratamiento_realizado: document.getElementById('j_tratamiento').value.trim(),
-    doctor_firmante:       document.getElementById('j_doctor').value,
+    doctor_firmante: document.getElementById('j_doctor').value,
   };
   if (!body.tratamiento_realizado) { alert('Describe el tratamiento realizado.'); return; }
   const resp = await apiFetch('/api/justificantes', { method: 'POST', body: JSON.stringify(body) });

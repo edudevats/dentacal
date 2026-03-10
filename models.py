@@ -197,6 +197,7 @@ class Paciente(db.Model):
     telefono = db.Column(db.String(20))
     whatsapp = db.Column(db.String(20), unique=True)
     email = db.Column(db.String(120))
+    doctor_id = db.Column(db.Integer, db.ForeignKey('dentistas.id'), nullable=True)
 
     # Tutor (pacientes pediatricos)
     nombre_tutor = db.Column(db.String(200))
@@ -214,6 +215,7 @@ class Paciente(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     citas = db.relationship('Cita', backref='paciente', lazy=True)
+    doctor = db.relationship('Dentista', backref='pacientes_asignados')
     conversaciones = db.relationship('ConversacionWhatsapp', backref='paciente', lazy=True)
     seguimientos = db.relationship('SeguimientoCRM', backref='paciente',
                                    lazy=True, order_by='SeguimientoCRM.fecha_programada')
@@ -241,6 +243,8 @@ class Paciente(db.Model):
             'telefono': self.telefono or '',
             'whatsapp': self.whatsapp or '',
             'email': self.email or '',
+            'doctor_id': self.doctor_id,
+            'doctor_nombre': self.doctor.nombre if self.doctor else None,
             'nombre_tutor': self.nombre_tutor or '',
             'telefono_tutor': self.telefono_tutor or '',
             'escuela': self.escuela or '',
