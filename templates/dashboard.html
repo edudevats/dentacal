@@ -203,24 +203,23 @@
 <script>
   // Datos para el calendario (pasados desde Jinja)
   const baseConsultorios = {{ consultorios_json | tojson }};
-  const dynamicStyles = document.createElement('style');
-
+  const colorMap = {
+    'Consultorio 1': { newName: 'unidad verde', bg: '#d1e7dd', border: '#a3cfbb', text: '#0f5132' },
+    'Consultorio 2': { newName: 'unidad azul', bg: '#cfe2ff', border: '#9ec5fe', text: '#084298' },
+    'Consultorio 3': { newName: 'unidad naranja', bg: '#ffe5d0', border: '#fecba1', text: '#d9480f' },
+  };
+  let cssText = '';
   baseConsultorios.forEach(c => {
-    if (c.title === 'Consultorio 1') {
-      c.title = 'unidad verde';
-      dynamicStyles.innerHTML += `.fc-col-header-cell[data-resource-id="${c.id}"] { background-color: #d1e7dd !important; border-color: #a3cfbb !important; } .fc-col-header-cell[data-resource-id="${c.id}"] .fc-col-header-cell-cushion { color: #0f5132 !important; font-weight: bold; }`;
-    }
-    else if (c.title === 'Consultorio 2') {
-      c.title = 'unidad azul';
-      dynamicStyles.innerHTML += `.fc-col-header-cell[data-resource-id="${c.id}"] { background-color: #cfe2ff !important; border-color: #9ec5fe !important; } .fc-col-header-cell[data-resource-id="${c.id}"] .fc-col-header-cell-cushion { color: #084298 !important; font-weight: bold; }`;
-    }
-    else if (c.title === 'Consultorio 3') {
-      c.title = 'unidad naranja';
-      dynamicStyles.innerHTML += `.fc-col-header-cell[data-resource-id="${c.id}"] { background-color: #ffe5d0 !important; border-color: #fecba1 !important; } .fc-col-header-cell[data-resource-id="${c.id}"] .fc-col-header-cell-cushion { color: #d9480f !important; font-weight: bold; }`;
+    const m = colorMap[c.title];
+    if (m) {
+      c.title = m.newName;
+      cssText += '.fc-col-header-cell[data-resource-id="' + c.id + '"]{ background-color:' + m.bg + ' !important; border-color:' + m.border + ' !important; }';
+      cssText += '.fc-col-header-cell[data-resource-id="' + c.id + '"] .fc-col-header-cell-cushion{ color:' + m.text + ' !important; font-weight:bold; }';
     }
   });
-
-  document.head.appendChild(dynamicStyles);
+  const styleEl = document.createElement('style');
+  styleEl.textContent = cssText;
+  document.head.appendChild(styleEl);
   window.CONSULTORIOS = baseConsultorios;
   window.DENTISTAS = {{ dentistas_json | tojson }};
 </script>
