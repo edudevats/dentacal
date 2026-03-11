@@ -76,6 +76,7 @@ def _register_blueprints(app):
     from routes.api_configuracion import configuracion_bp
     from routes.api_justificantes import justificantes_bp
     from routes.webhook_whatsapp import webhook_bp
+    from routes.api_bot import bot_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
@@ -87,6 +88,7 @@ def _register_blueprints(app):
     app.register_blueprint(configuracion_bp)
     app.register_blueprint(justificantes_bp)
     app.register_blueprint(webhook_bp)
+    app.register_blueprint(bot_bp)
 
 
 def _register_error_handlers(app):

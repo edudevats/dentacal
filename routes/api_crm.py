@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required
+from sqlalchemy import func
 from extensions import db
 from models import (Paciente, EstatusCRM, SeguimientoCRM, TipoSeguimiento,
                     ConversacionWhatsapp, Cita)
@@ -21,6 +22,15 @@ def listar():
             pass
 
     pacientes = q.order_by(Paciente.estatus_crm, Paciente.nombre).all()
+
+    # Última interacción bot por paciente (una sola query)
+    ultima_bot_rows = db.session.query(
+        ConversacionWhatsapp.paciente_id,
+        func.max(ConversacionWhatsapp.timestamp).label('ultima_bot')
+    ).filter(ConversacionWhatsapp.paciente_id.isnot(None))\
+     .group_by(ConversacionWhatsapp.paciente_id).all()
+    ultima_bot_map = {r.paciente_id: r.ultima_bot for r in ultima_bot_rows}
+
     resultado = []
     for p in pacientes:
         d = p.to_dict()
@@ -32,6 +42,9 @@ def listar():
             'tipo': siguiente.tipo.value,
             'fecha': siguiente.fecha_programada.isoformat() if siguiente.fecha_programada else None,
         } if siguiente else None
+        # Última interacción con el bot
+        ub = ultima_bot_map.get(p.id)
+        d['ultima_interaccion_bot'] = ub.isoformat() if ub else None
         resultado.append(d)
     return jsonify(resultado)
 

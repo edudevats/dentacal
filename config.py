@@ -39,7 +39,7 @@ class Config:
 
     # Bot IA
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
-    AI_MODEL = 'gemini-1.5-flash'
+    AI_MODEL = 'gemini-3-flash-preview'
 
     # Twilio
     TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
@@ -78,6 +78,8 @@ class ProductionConfig(Config):
 class TestingConfig(Config):
     TESTING = True
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+    # SQLite no soporta pool_size/max_overflow/pool_timeout
+    SQLALCHEMY_ENGINE_OPTIONS = {'pool_pre_ping': True}
     WTF_CSRF_ENABLED = False
     SCHEDULER_ENABLED = False
     GEMINI_API_KEY = 'test_key'

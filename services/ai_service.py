@@ -1,6 +1,6 @@
 """
 Bot IA Recepcionista - La Casa del Sr. Perez
-Usa Claude claude-haiku-4-5-20251001 con tool_use para gestionar citas via WhatsApp.
+Usa google-genai SDK con Gemini y function calling para gestionar citas via WhatsApp.
 """
 import json
 import logging
@@ -11,12 +11,12 @@ logger = logging.getLogger(__name__)
 
 MAX_HISTORIAL = 15  # mensajes de contexto en memoria
 
-# Definicion de tools (skills) del bot
-BOT_TOOLS = [
+# Definicion de tools (function declarations) del bot para el nuevo SDK
+BOT_FUNCTION_DECLARATIONS = [
     {
         "name": "buscar_paciente",
         "description": "Busca un paciente existente por numero de WhatsApp. Usar siempre al inicio de la conversacion.",
-        "input_schema": {
+        "parameters": {
             "type": "object",
             "properties": {
                 "numero_whatsapp": {
@@ -30,7 +30,7 @@ BOT_TOOLS = [
     {
         "name": "registrar_paciente",
         "description": "Registra un nuevo paciente en el sistema. Usar cuando el paciente no existe.",
-        "input_schema": {
+        "parameters": {
             "type": "object",
             "properties": {
                 "nombre": {"type": "string", "description": "Nombre del paciente"},
@@ -46,7 +46,7 @@ BOT_TOOLS = [
     {
         "name": "obtener_info_consultorio",
         "description": "Obtiene informacion del consultorio: ubicacion, precios, horarios, datos bancarios.",
-        "input_schema": {
+        "parameters": {
             "type": "object",
             "properties": {},
             "required": []
@@ -55,7 +55,7 @@ BOT_TOOLS = [
     {
         "name": "buscar_disponibilidad",
         "description": "Busca horarios disponibles para una cita en una fecha especifica.",
-        "input_schema": {
+        "parameters": {
             "type": "object",
             "properties": {
                 "fecha": {
@@ -68,8 +68,7 @@ BOT_TOOLS = [
                 },
                 "duracion_minutos": {
                     "type": "integer",
-                    "description": "Duracion de la cita en minutos (default 60)",
-                    "default": 60
+                    "description": "Duracion de la cita en minutos (default 60)"
                 }
             },
             "required": ["fecha"]
@@ -78,7 +77,7 @@ BOT_TOOLS = [
     {
         "name": "crear_solicitud_cita",
         "description": "Crea una cita pendiente en el sistema. Usar solo cuando el paciente confirme el horario.",
-        "input_schema": {
+        "parameters": {
             "type": "object",
             "properties": {
                 "paciente_id": {"type": "integer", "description": "ID del paciente"},
@@ -95,7 +94,7 @@ BOT_TOOLS = [
     {
         "name": "confirmar_anticipo",
         "description": "Marca el anticipo como pagado para una cita pendiente.",
-        "input_schema": {
+        "parameters": {
             "type": "object",
             "properties": {
                 "cita_id": {"type": "integer", "description": "ID de la cita"},
@@ -107,7 +106,7 @@ BOT_TOOLS = [
     {
         "name": "cancelar_cita",
         "description": "Cancela una cita del paciente.",
-        "input_schema": {
+        "parameters": {
             "type": "object",
             "properties": {
                 "cita_id": {"type": "integer", "description": "ID de la cita a cancelar"},
@@ -119,7 +118,7 @@ BOT_TOOLS = [
     {
         "name": "reagendar_cita",
         "description": "Reagenda (cambia fecha/hora) de una cita existente.",
-        "input_schema": {
+        "parameters": {
             "type": "object",
             "properties": {
                 "cita_id": {"type": "integer", "description": "ID de la cita a reagendar"},
@@ -219,25 +218,32 @@ def _cargar_historial(numero):
 def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
     """
     Procesa un mensaje entrante de WhatsApp con el bot IA.
+    Usa el nuevo SDK google-genai (from google import genai).
     Retorna la respuesta en texto.
     """
     api_key = current_app.config.get('GEMINI_API_KEY', '')
-    model_name = current_app.config.get('AI_MODEL', 'gemini-1.5-flash')
+    model_name = current_app.config.get('AI_MODEL', 'gemini-3-flash-preview')
 
     if not api_key or api_key.startswith('test') or api_key.startswith('AIzaSy'):
         return 'Hola! Gracias por contactarnos. En este momento el bot no esta disponible. Por favor llama al consultorio.'
 
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
+        from google import genai
+        from google.genai import types
     except ImportError:
         return 'Servicio no disponible temporalmente. Por favor contacta al consultorio directamente.'
 
+    # Crear cliente con API key
+    client = genai.Client(api_key=api_key)
+
+    # Cargar historial y construir contents con el nuevo formato
     historial = _cargar_historial(numero_telefono)
-    gemini_history = []
+    contents = []
     for msg in historial:
         role = 'model' if msg['role'] == 'assistant' else 'user'
-        gemini_history.append({'role': role, 'parts': [msg['content']]})
+        contents.append(
+            types.Content(role=role, parts=[types.Part(text=msg['content'])])
+        )
 
     # Contexto del paciente si ya lo tenemos
     contexto_paciente = ''
@@ -246,52 +252,64 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
 
     system_prompt = _get_system_prompt() + contexto_paciente
 
-    gemini_tools = {
-        "function_declarations": [
-            {
-                "name": t['name'],
-                "description": t['description'],
-                "parameters": t['input_schema']
-            } for t in BOT_TOOLS
-        ]
-    }
+    # Configurar tools y config para el nuevo SDK
+    tools = types.Tool(function_declarations=BOT_FUNCTION_DECLARATIONS)
+    gen_config = types.GenerateContentConfig(
+        system_instruction=system_prompt,
+        tools=[tools],
+    )
+
+    # Agregar el mensaje actual del usuario
+    contents.append(
+        types.Content(role='user', parts=[types.Part(text=mensaje_usuario)])
+    )
 
     try:
-        model = genai.GenerativeModel(
-            model_name=model_name,
-            system_instruction=system_prompt,
-            tools=[gemini_tools]
-        )
-        chat = model.start_chat(history=gemini_history)
-
         max_iteraciones = 5  # Evitar loops infinitos
-        response = chat.send_message(mensaje_usuario)
 
         for _ in range(max_iteraciones):
-            if response.parts and any(hasattr(part, 'function_call') and part.function_call for part in response.parts):
-                # El modelo quiere usar herramientas
-                function_responses = []
-                for part in response.parts:
-                    if hasattr(part, 'function_call') and part.function_call:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=gen_config,
+            )
+
+            # Verificar si hay function calls en la respuesta
+            candidate = response.candidates[0]
+            has_function_calls = any(
+                hasattr(part, 'function_call') and part.function_call and part.function_call.name
+                for part in candidate.content.parts
+            )
+
+            if has_function_calls:
+                # Agregar la respuesta del modelo al historial
+                contents.append(candidate.content)
+
+                # Ejecutar las funciones y construir respuestas
+                function_response_parts = []
+                for part in candidate.content.parts:
+                    if hasattr(part, 'function_call') and part.function_call and part.function_call.name:
                         func_call = part.function_call
                         nombre = func_call.name
-                        # Convertir argumentos a dict
-                        arg_dict = {key: val for key, val in type(func_call.args)(func_call.args).items()}
+                        arg_dict = dict(func_call.args) if func_call.args else {}
                         result = _ejecutar_tool(nombre, arg_dict)
-                        function_responses.append(
-                            genai.types.Part.from_function_response(
+                        function_response_parts.append(
+                            types.Part.from_function_response(
                                 name=nombre,
                                 response={"result": result}
                             )
                         )
-                # Enviar los resultados de vuelta al modelo
-                response = chat.send_message(function_responses)
+
+                # Agregar las respuestas de funciones al historial
+                contents.append(
+                    types.Content(role='user', parts=function_response_parts)
+                )
             else:
                 # Respuesta de texto final
                 if response.text:
                     return response.text
                 return 'Gracias por tu mensaje. Te atenderemos en breve.'
-                
+
     except Exception as e:
         logger.error(f'Error procesando mensaje con Gemini: {e}')
         return 'Lo siento, no pude procesar tu solicitud. Por favor contacta al consultorio directamente.'

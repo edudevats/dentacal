@@ -31,6 +31,12 @@ def crm():
     return render_template('crm.html')
 
 
+@main_bp.route('/bot')
+@login_required
+def bot_monitor():
+    return render_template('bot_conversaciones.html')
+
+
 @main_bp.route('/configuracion')
 @login_required
 def configuracion():

@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}Monitor Bot WhatsApp{% endblock %}
+{% block page_title %}<i class="bi bi-robot me-2" style="color:var(--primary)"></i>Monitor Bot WhatsApp{% endblock %}
+
+{% block content %}
+<div class="bot-container">
+
+  <!-- Panel izquierdo: lista de conversaciones -->
+  <div class="bot-sidebar">
+    <div class="bot-search">
+      <input type="text" id="botSearch" class="form-control form-control-sm"
+             placeholder="Buscar número o nombre...">
+      <div class="d-flex gap-2 mt-2">
+        <select id="botFiltro" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          <option value="conocido">Pacientes conocidos</option>
+          <option value="desconocido">Desconocidos</option>
+        </select>
+        <button class="btn btn-sm btn-outline-secondary" id="btnRefrescar" title="Refrescar">
+          <i class="bi bi-arrow-clockwise"></i>
+        </button>
+      </div>
+      <div class="mt-2 text-muted small" id="botStats">Cargando...</div>
+    </div>
+    <div id="botLista" class="bot-lista"></div>
+  </div>
+
+  <!-- Panel derecho: hilo de conversación -->
+  <div class="bot-chat">
+    <!-- Estado vacío -->
+    <div id="chatVacio" class="bot-empty">
+      <i class="bi bi-chat-dots-fill fs-1 mb-3" style="color:var(--primary); opacity:.4"></i>
+      <div class="fw-semibold text-muted">Selecciona una conversación</div>
+      <div class="text-muted small mt-1">Aquí verás el historial completo del bot</div>
+    </div>
+
+    <!-- Panel activo -->
+    <div id="chatPanel" class="d-none h-100 d-flex flex-column">
+
+      <!-- Header del chat -->
+      <div class="chat-header">
+        <div class="d-flex align-items-center gap-3 flex-grow-1 min-w-0">
+          <div id="chatAvatar" class="chat-avatar-lg">?</div>
+          <div class="min-w-0">
+            <div id="chatNombre" class="fw-bold fs-6 text-truncate"></div>
+            <div id="chatNumero" class="text-muted small font-monospace"></div>
+          </div>
+          <div id="chatCrmBadge"></div>
+        </div>
+        <div class="d-flex gap-2 flex-shrink-0">
+          <span id="chatMsgCount" class="badge bg-secondary align-self-center"></span>
+          <a id="btnVerCRM" href="/crm" class="btn btn-sm btn-outline-primary d-none">
+            <i class="bi bi-graph-up-arrow me-1"></i>Ver en CRM
+          </a>
+        </div>
+      </div>
+
+      <!-- Mensajes -->
+      <div id="chatMensajes" class="chat-messages"></div>
+
+      <!-- Footer con info -->
+      <div class="chat-footer">
+        <i class="bi bi-clock me-1"></i>
+        Última interacción: <strong id="chatUltimaFecha"></strong>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/bot_conversaciones.js') }}"></script>
+{% endblock %}

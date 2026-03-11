@@ -1,71 +1,93 @@
+import logging
 from flask import Blueprint, request, Response
 from extensions import db, csrf
 from models import ConversacionWhatsapp, Paciente
 
+log = logging.getLogger(__name__)
+
 webhook_bp = Blueprint('webhook', __name__, url_prefix='/webhook')
+
+MENSAJE_ADJUNTO = (
+    'Lo sentimos, no podemos recibir imágenes, videos ni archivos por este medio 🙏\n'
+    'Por favor escríbenos en texto y con gusto te atendemos 😊'
+)
 
 
 @webhook_bp.route('/whatsapp', methods=['POST'])
 @csrf.exempt
 def whatsapp_incoming():
     """Recibe mensajes entrantes de Twilio WhatsApp."""
-    # Validar firma de Twilio en produccion
     _validar_firma_twilio()
 
-    body = request.form.get('Body', '').strip()
-    from_number = request.form.get('From', '').strip()  # formato: whatsapp:+521...
-    # Normalizar numero
+    from_number = request.form.get('From', '').strip()
     numero = from_number.replace('whatsapp:', '').strip()
 
-    if not body or not numero:
+    if not numero:
         return Response('', status=200)
 
-    # Guardar mensaje del paciente
-    paciente = _buscar_o_registrar_paciente(numero)
-    _guardar_mensaje(numero, paciente.id if paciente else None, body, es_bot=False)
+    body      = request.form.get('Body', '').strip()
+    num_media = int(request.form.get('NumMedia', 0) or 0)
 
-    # Procesar con IA
+    paciente = _buscar_o_registrar_paciente(numero)
+    pid = paciente.id if paciente else None
+
+    # ── Filtro: rechazar cualquier mensaje con archivos adjuntos ────────────
+    if num_media > 0:
+        log.info(f'Adjunto rechazado de {numero} (NumMedia={num_media})')
+        # Guardamos una nota de texto (sin URL ni datos del archivo)
+        _guardar_mensaje(numero, pid, '[Archivo adjunto — no guardado]', es_bot=False)
+        _guardar_mensaje(numero, pid, MENSAJE_ADJUNTO, es_bot=True)
+        return _twiml_response(MENSAJE_ADJUNTO)
+
+    # ── Mensaje sin texto (raro, pero posible) ──────────────────────────────
+    if not body:
+        return Response('', status=200)
+
+    # ── Mensaje de texto normal → procesar con bot IA ──────────────────────
+    _guardar_mensaje(numero, pid, body, es_bot=False)
+
     try:
         from services.ai_service import procesar_mensaje_bot
         respuesta = procesar_mensaje_bot(body, numero, paciente)
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f'Error en bot IA: {e}')
-        respuesta = ('Lo siento, en este momento tengo un inconveniente tecnico. '
-                     'Por favor llama al consultorio directamente o intentalo en unos minutos.')
+        log.error(f'Error en bot IA: {e}')
+        respuesta = (
+            'Lo siento, en este momento tengo un inconveniente técnico. '
+            'Por favor llama al consultorio directamente o inténtalo en unos minutos.'
+        )
 
-    # Guardar respuesta del bot
-    _guardar_mensaje(numero, paciente.id if paciente else None, respuesta, es_bot=True)
+    _guardar_mensaje(numero, pid, respuesta, es_bot=True)
+    return _twiml_response(respuesta)
 
-    # Responder via TwiML
+
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+def _twiml_response(texto):
+    """Devuelve respuesta TwiML (o texto plano si Twilio no está instalado)."""
     try:
         from twilio.twiml.messaging_response import MessagingResponse
         resp = MessagingResponse()
-        resp.message(respuesta)
+        resp.message(texto)
         return Response(str(resp), mimetype='text/xml')
     except ImportError:
-        # Si Twilio no esta instalado (tests), devolver texto plano
-        return Response(respuesta, mimetype='text/plain')
+        return Response(texto, mimetype='text/plain')
 
 
 def _validar_firma_twilio():
-    """Valida la firma X-Twilio-Signature en produccion."""
+    """Valida la firma X-Twilio-Signature en producción."""
     from flask import current_app
     if current_app.config.get('TESTING'):
         return
 
     auth_token = current_app.config.get('TWILIO_AUTH_TOKEN', '')
     if not auth_token:
-        return  # Sin token configurado, omitir validacion (solo dev)
+        return  # Sin token configurado, omitir validación (solo dev)
 
     try:
         from twilio.request_validator import RequestValidator
         validator = RequestValidator(auth_token)
-        url = request.url
-        params = request.form.to_dict()
-        signature = request.headers.get('X-Twilio-Signature', '')
-
-        if not validator.validate(url, params, signature):
+        if not validator.validate(request.url, request.form.to_dict(),
+                                  request.headers.get('X-Twilio-Signature', '')):
             from flask import abort
             abort(403)
     except ImportError:
@@ -73,9 +95,9 @@ def _validar_firma_twilio():
 
 
 def _buscar_o_registrar_paciente(numero):
-    """Busca el paciente por whatsapp o retorna None si no existe."""
+    """Busca el paciente por whatsapp. Retorna None si no existe."""
     numero_limpio = numero.replace('+', '').replace(' ', '')
-    paciente = Paciente.query.filter(
+    return Paciente.query.filter(
         db.or_(
             Paciente.whatsapp == numero,
             Paciente.whatsapp == f'+{numero_limpio}',
@@ -83,7 +105,6 @@ def _buscar_o_registrar_paciente(numero):
         ),
         Paciente.eliminado == False
     ).first()
-    return paciente
 
 
 def _guardar_mensaje(numero, paciente_id, mensaje, es_bot=False):
@@ -97,6 +118,5 @@ def _guardar_mensaje(numero, paciente_id, mensaje, es_bot=False):
         db.session.add(conv)
         db.session.commit()
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f'Error guardando conversacion: {e}')
+        log.error(f'Error guardando conversacion: {e}')
         db.session.rollback()

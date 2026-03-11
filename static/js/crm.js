@@ -60,6 +60,18 @@ function crearTarjetaCRM(p) {
     div.appendChild(ult);
   }
 
+  if (p.ultima_interaccion_bot) {
+    const bot = document.createElement('div');
+    bot.className = 'patient-meta mt-1';
+    const icono = document.createElement('i');
+    icono.className = 'bi bi-robot me-1';
+    icono.style.color = 'var(--primary)';
+    const txt = document.createTextNode('Bot: ' + formatearFechaCorta(p.ultima_interaccion_bot));
+    bot.appendChild(icono);
+    bot.appendChild(txt);
+    div.appendChild(bot);
+  }
+
   if (p.siguiente_seguimiento) {
     const seg = document.createElement('div');
     seg.className = 'mt-1';
@@ -199,4 +211,19 @@ async function completarSeguimiento(segId) {
   await apiFetch(`/api/crm/seguimiento/${segId}/completar`, { method: 'POST', body: '{}' });
   const id = document.getElementById('crm_paciente_id').value;
   abrirDetalleCRM(id);
+}
+
+function formatearFechaCorta(isoStr) {
+  const ahora   = new Date();
+  const fecha   = new Date(isoStr);
+  const diffMs  = ahora - fecha;
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffH   = Math.floor(diffMs / 3600000);
+  const diffD   = Math.floor(diffMs / 86400000);
+
+  if (diffMin < 1)  return 'ahora';
+  if (diffMin < 60) return `hace ${diffMin}m`;
+  if (diffH   < 24) return `hace ${diffH}h`;
+  if (diffD   <  7) return `hace ${diffD}d`;
+  return fecha.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
 }
