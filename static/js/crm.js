@@ -3,11 +3,34 @@
  */
 document.addEventListener('DOMContentLoaded', () => {
   cargarCRM();
+  initCrmFilters();
 
   document.getElementById('btnGuardarCRM')?.addEventListener('click', guardarStatusCRM);
   document.getElementById('btnEnviarWA')?.addEventListener('click', enviarWhatsApp);
   document.getElementById('btnAgregarSeguimiento')?.addEventListener('click', agregarSeguimiento);
 });
+
+/* ── Filter buttons ── */
+function initCrmFilters() {
+  document.querySelectorAll('.crm-filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.classList.toggle('active');
+      aplicarFiltrosCRM();
+    });
+  });
+}
+
+function aplicarFiltrosCRM() {
+  const activos = new Set();
+  document.querySelectorAll('.crm-filter-btn.active').forEach(b => {
+    activos.add(b.dataset.status);
+  });
+
+  document.querySelectorAll('#crmKanban > .crm-col').forEach(col => {
+    const status = col.dataset.status;
+    col.style.display = activos.has(status) ? '' : 'none';
+  });
+}
 
 async function cargarCRM() {
   const resp = await apiFetch('/api/crm');

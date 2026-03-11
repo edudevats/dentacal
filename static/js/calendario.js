@@ -1,5 +1,5 @@
 /**
- * La Casa del Sr. Perez - Calendario de Citas
+ * La Casa del Sr. Perez - Agenda
  * FullCalendar 6 con resourceTimeGrid (3 consultorios en columnas)
  */
 
@@ -29,9 +29,9 @@ function initCalendario() {
     initialView: 'resourceTimeGridDay',
     locale: 'es',
     headerToolbar: {
-      left:   'prev,next today',
+      left: 'prev,next today',
       center: 'title',
-      right:  'resourceTimeGridDay,resourceTimeGridWeek,dayGridMonth',
+      right: 'resourceTimeGridDay,resourceTimeGridWeek,dayGridMonth',
     },
     resources: window.CONSULTORIOS || [],
     events: cargarEventos,
@@ -207,7 +207,7 @@ function abrirModalEditar(evento) {
   document.getElementById('anticipo_pagado').checked = ext.anticipo_pagado || false;
 
   const start = new Date(evento.start);
-  const end   = new Date(evento.end);
+  const end = new Date(evento.end);
   document.getElementById('fecha_cita').value = start.toISOString().slice(0, 10);
   document.getElementById('hora_inicio').value =
     `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`;
@@ -218,12 +218,12 @@ function abrirModalEditar(evento) {
 }
 
 function limpiarFormulario() {
-  ['paciente_id','paciente_search','dentista_id','consultorio_id',
-   'tipo_cita_id','notas_cita','anticipo_monto','fecha_cita',
-   'hora_inicio','hora_fin'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
+  ['paciente_id', 'paciente_search', 'dentista_id', 'consultorio_id',
+    'tipo_cita_id', 'notas_cita', 'anticipo_monto', 'fecha_cita',
+    'hora_inicio', 'hora_fin'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
   const ap = document.getElementById('anticipo_pagado');
   if (ap) ap.checked = false;
   const pi = document.getElementById('paciente_info');
@@ -235,12 +235,12 @@ async function guardarCita() {
   const msgEl = document.getElementById('formMsg');
   msgEl.textContent = '';
 
-  const fecha   = document.getElementById('fecha_cita').value;
+  const fecha = document.getElementById('fecha_cita').value;
   const hInicio = document.getElementById('hora_inicio').value;
-  const hFin    = document.getElementById('hora_fin').value;
-  const pId     = document.getElementById('paciente_id').value;
-  const dId     = document.getElementById('dentista_id').value;
-  const cId     = document.getElementById('consultorio_id').value;
+  const hFin = document.getElementById('hora_fin').value;
+  const pId = document.getElementById('paciente_id').value;
+  const dId = document.getElementById('dentista_id').value;
+  const cId = document.getElementById('consultorio_id').value;
 
   if (!fecha || !hInicio || !hFin || !pId || !dId || !cId) {
     msgEl.textContent = 'Completa los campos obligatorios.';
@@ -249,16 +249,16 @@ async function guardarCita() {
   }
 
   const body = {
-    paciente_id:    parseInt(pId),
-    dentista_id:    parseInt(dId),
+    paciente_id: parseInt(pId),
+    dentista_id: parseInt(dId),
     consultorio_id: parseInt(cId),
-    tipo_cita_id:   document.getElementById('tipo_cita_id').value
-                    ? parseInt(document.getElementById('tipo_cita_id').value) : null,
-    fecha_inicio:   `${fecha}T${hInicio}:00`,
-    fecha_fin:      `${fecha}T${hFin}:00`,
-    notas:          document.getElementById('notas_cita').value,
+    tipo_cita_id: document.getElementById('tipo_cita_id').value
+      ? parseInt(document.getElementById('tipo_cita_id').value) : null,
+    fecha_inicio: `${fecha}T${hInicio}:00`,
+    fecha_fin: `${fecha}T${hFin}:00`,
+    notas: document.getElementById('notas_cita').value,
     anticipo_pagado: document.getElementById('anticipo_pagado').checked,
-    anticipo_monto:  parseFloat(document.getElementById('anticipo_monto').value || 0),
+    anticipo_monto: parseFloat(document.getElementById('anticipo_monto').value || 0),
   };
 
   if (citaEditandoId) {
@@ -269,10 +269,10 @@ async function guardarCita() {
   btnGuardar.textContent = 'Guardando...';
 
   try {
-    const url    = citaEditandoId ? `/api/citas/${citaEditandoId}` : '/api/citas';
+    const url = citaEditandoId ? `/api/citas/${citaEditandoId}` : '/api/citas';
     const method = citaEditandoId ? 'PUT' : 'POST';
-    const resp   = await apiFetch(url, { method, body: JSON.stringify(body) });
-    const data   = await resp.json();
+    const resp = await apiFetch(url, { method, body: JSON.stringify(body) });
+    const data = await resp.json();
 
     if (!resp.ok) {
       const err = data.conflicto
@@ -377,7 +377,7 @@ async function onEventDrop(info) {
   if (!confirm('Confirmar cambio de horario?')) { info.revert(); return; }
   const body = {
     fecha_inicio: info.event.start.toISOString().slice(0, 19),
-    fecha_fin:    info.event.end.toISOString().slice(0, 19),
+    fecha_fin: info.event.end.toISOString().slice(0, 19),
   };
   if (info.newResource?.id) body.consultorio_id = parseInt(info.newResource.id);
   const resp = await apiFetch(`/api/citas/${info.event.id}`, { method: 'PUT', body: JSON.stringify(body) });
@@ -387,7 +387,7 @@ async function onEventDrop(info) {
 async function onEventResize(info) {
   const body = {
     fecha_inicio: info.event.start.toISOString().slice(0, 19),
-    fecha_fin:    info.event.end.toISOString().slice(0, 19),
+    fecha_fin: info.event.end.toISOString().slice(0, 19),
   };
   const resp = await apiFetch(`/api/citas/${info.event.id}`, { method: 'PUT', body: JSON.stringify(body) });
   if (!resp.ok) info.revert();

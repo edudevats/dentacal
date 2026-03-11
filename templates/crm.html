@@ -4,38 +4,34 @@
 
 {% block content %}
 <div class="p-3">
-  <!-- Stats row -->
-  <div class="row g-3 mb-3" id="crmStats">
-    <div class="col-6 col-md-3">
-      <div class="card text-center p-3">
-        <div class="fw-bold fs-4" id="stat-alta" style="color:#F9A825">0</div>
-        <div class="text-muted small">Alta</div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card text-center p-3">
-        <div class="fw-bold fs-4" id="stat-activo" style="color:#2E7D32">0</div>
-        <div class="text-muted small">Activo</div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card text-center p-3">
-        <div class="fw-bold fs-4" id="stat-prospecto" style="color:#E65100">0</div>
-        <div class="text-muted small">Prospecto</div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card text-center p-3">
-        <div class="fw-bold fs-4" id="stat-baja" style="color:#9E9E9E">0</div>
-        <div class="text-muted small">Baja</div>
-      </div>
-    </div>
+  <!-- Filter buttons -->
+  <div class="d-flex flex-wrap gap-2 mb-3" id="crmFilters">
+    <button type="button" class="btn crm-filter-btn active" data-status="alta"
+            style="--filter-bg:#FFF9C4;--filter-color:#F57F17;--filter-border:#F9A825">
+      <i class="bi bi-star-fill me-1"></i>Alta
+      <span class="badge ms-1" style="background:#F9A825;color:#fff" id="stat-alta">0</span>
+    </button>
+    <button type="button" class="btn crm-filter-btn active" data-status="activo"
+            style="--filter-bg:#E8F5E9;--filter-color:#2E7D32;--filter-border:#2E7D32">
+      <i class="bi bi-activity me-1"></i>Activo
+      <span class="badge ms-1 bg-success" id="stat-activo">0</span>
+    </button>
+    <button type="button" class="btn crm-filter-btn active" data-status="prospecto"
+            style="--filter-bg:#FFF3E0;--filter-color:#E65100;--filter-border:#FFA726">
+      <i class="bi bi-hourglass-split me-1"></i>Prospecto
+      <span class="badge ms-1" style="background:#FFA726;color:#fff" id="stat-prospecto">0</span>
+    </button>
+    <button type="button" class="btn crm-filter-btn active" data-status="baja"
+            style="--filter-bg:#F5F5F5;--filter-color:#757575;--filter-border:#9E9E9E">
+      <i class="bi bi-archive me-1"></i>Baja
+      <span class="badge ms-1 bg-secondary" id="stat-baja">0</span>
+    </button>
   </div>
 
   <!-- Kanban CRM -->
-  <div class="d-flex gap-3 overflow-auto pb-2">
+  <div class="d-flex gap-3 overflow-auto pb-2" id="crmKanban">
     <!-- ALTA -->
-    <div class="crm-col flex-shrink-0">
+    <div class="crm-col flex-shrink-0" data-status="alta">
       <div class="crm-col-header" style="background:#FFF9C4;color:#F57F17">
         <i class="bi bi-star-fill me-1"></i>ALTA
         <span class="badge ms-2" style="background:#F9A825;color:#fff" id="count-alta">0</span>
@@ -43,7 +39,7 @@
       <div id="col-alta" class="crm-cards"></div>
     </div>
     <!-- ACTIVO -->
-    <div class="crm-col flex-shrink-0">
+    <div class="crm-col flex-shrink-0" data-status="activo">
       <div class="crm-col-header" style="background:#E8F5E9;color:#2E7D32">
         <i class="bi bi-activity me-1"></i>ACTIVO
         <span class="badge ms-2 bg-success" id="count-activo">0</span>
@@ -51,7 +47,7 @@
       <div id="col-activo" class="crm-cards"></div>
     </div>
     <!-- PROSPECTO -->
-    <div class="crm-col flex-shrink-0">
+    <div class="crm-col flex-shrink-0" data-status="prospecto">
       <div class="crm-col-header" style="background:#FFF3E0;color:#E65100">
         <i class="bi bi-hourglass-split me-1"></i>PROSPECTO
         <span class="badge ms-2" style="background:#FFA726;color:#fff" id="count-prospecto">0</span>
@@ -59,7 +55,7 @@
       <div id="col-prospecto" class="crm-cards"></div>
     </div>
     <!-- BAJA -->
-    <div class="crm-col flex-shrink-0">
+    <div class="crm-col flex-shrink-0" data-status="baja">
       <div class="crm-col-header" style="background:#F5F5F5;color:#757575">
         <i class="bi bi-archive me-1"></i>BAJA
         <span class="badge ms-2 bg-secondary" id="count-baja">0</span>

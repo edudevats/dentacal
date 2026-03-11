@@ -157,6 +157,25 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text); backg
 .crm-card .patient-name { font-weight: 600; font-size: 14px; }
 .crm-card .patient-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
+/* ---- CRM FILTER BUTTONS ---- */
+.crm-filter-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 8px 16px; border-radius: 24px;
+  font-size: 13px; font-weight: 600;
+  border: 2px solid var(--border);
+  background: #fff; color: var(--muted);
+  cursor: pointer; transition: all .25s ease;
+  opacity: .55;
+}
+.crm-filter-btn:hover { opacity: .8; }
+.crm-filter-btn.active {
+  background: var(--filter-bg);
+  color: var(--filter-color);
+  border-color: var(--filter-border);
+  opacity: 1;
+  box-shadow: 0 2px 8px rgba(0,0,0,.08);
+}
+
 /* ---- TABLES ---- */
 .table th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .table td { vertical-align: middle; }

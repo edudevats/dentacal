@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}Calendario - La Casa del Sr. Perez{% endblock %}
-{% block page_title %}<i class="bi bi-calendar3 me-2" style="color:var(--primary)"></i>Calendario de Citas{% endblock %}
+{% block page_title %}<i class="bi bi-calendar3 me-2" style="color:var(--primary)"></i>Agenda{% endblock %}
 
 {% block extra_css %}
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar-scheduler@6.1.15/index.global.min.css" rel="stylesheet">
@@ -16,6 +16,12 @@
 
   .fc-license-message {
     display: none;
+  }
+
+  .fc-daygrid-day-number,
+  .fc-col-header-cell-cushion {
+    color: #000 !important;
+    text-decoration: none !important;
   }
 </style>
 {% endblock %}
