@@ -7,16 +7,9 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev_key_change_in_production')
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-        'sqlite:///' + os.path.join(BASE_DIR, 'app.db')
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(BASE_DIR, 'app.db')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        'pool_pre_ping': True,
-        'pool_recycle': 280,   # Evita "MySQL server has gone away" (timeout 5min)
-        'pool_size': 3,        # Máx conexiones permanentes
-        'max_overflow': 2,     # Conexiones extra bajo carga
-        'pool_timeout': 20,    # Segundos antes de error si no hay conexión libre
-    }
+    SQLALCHEMY_ENGINE_OPTIONS = {'pool_pre_ping': True}
 
     WTF_CSRF_ENABLED = True
     WTF_CSRF_TIME_LIMIT = 3600
@@ -70,9 +63,15 @@ class ProductionConfig(Config):
     SESSION_COOKIE_SECURE = True
     LOG_LEVEL = logging.WARNING
     RATELIMIT_DEFAULT = '100 per hour'
-
-    # En produccion usar PostgreSQL:
-    # SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
+        'sqlite:///' + os.path.join(BASE_DIR, 'app.db')
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'pool_pre_ping': True,
+        'pool_recycle': 280,
+        'pool_size': 3,
+        'max_overflow': 2,
+        'pool_timeout': 20,
+    }
 
 
 class TestingConfig(Config):
