@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import login_required
 from extensions import db
 from models import Paciente, EstatusCRM
-from datetime import datetime
+from datetime import datetime, date
 
 pacientes_bp = Blueprint('pacientes', __name__, url_prefix='/api/pacientes')
 
@@ -118,6 +118,7 @@ def crear():
         notas=data.get('notas', ''),
         estatus_crm=EstatusCRM[data.get('estatus_crm', 'prospecto')],
         doctor_id=data.get('doctor_id'),
+        tutor_id=data.get('tutor_id') or None,
     )
     db.session.add(p)
     db.session.commit()
@@ -160,9 +161,44 @@ def actualizar(paciente_id):
             pass
     if 'doctor_id' in data:
         p.doctor_id = data['doctor_id']
+    if 'tutor_id' in data:
+        p.tutor_id = data['tutor_id'] if data['tutor_id'] else None
 
     db.session.commit()
     return jsonify(p.to_dict())
+
+
+@pacientes_bp.route('/adultos', methods=['GET'])
+@login_required
+def buscar_adultos():
+    """Busca pacientes adultos (18+) para vincular como tutor."""
+    search = request.args.get('q', '').strip()
+    if not search or len(search) < 2:
+        return jsonify(pacientes=[])
+
+    hoy = date.today()
+    try:
+        fecha_limite = date(hoy.year - 18, hoy.month, hoy.day)
+    except ValueError:
+        # Feb 29 edge case
+        fecha_limite = date(hoy.year - 18, hoy.month, hoy.day - 1)
+
+    like = f'%{search}%'
+    q = Paciente.query.filter(
+        Paciente.eliminado == False,
+        db.or_(
+            Paciente.fecha_nacimiento == None,  # sin fecha = asumido adulto
+            Paciente.fecha_nacimiento <= fecha_limite,
+        ),
+        db.or_(
+            Paciente.nombre.ilike(like),
+            Paciente.apellidos.ilike(like),
+            Paciente.whatsapp.ilike(like),
+            Paciente.telefono.ilike(like),
+        ),
+    ).order_by(Paciente.nombre).limit(10).all()
+
+    return jsonify(pacientes=[p.to_dict() for p in q])
 
 
 @pacientes_bp.route('/<int:paciente_id>', methods=['DELETE'])

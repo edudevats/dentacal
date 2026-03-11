@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnGenerarJustificante')?.addEventListener('click', generarJustificante);
 
   cargarDoctores();
+  initTutor();
 
   const inputTel = document.querySelector("#p_telefono");
   const inputWa = document.querySelector("#p_whatsapp");
@@ -121,7 +122,17 @@ function crearFilaPaciente(p) {
   }
 
   const tdWa = mkEl('td', { text: p.whatsapp || p.telefono || '\u2014' });
-  const tdTutor = mkEl('td', { text: p.nombre_tutor || '\u2014' });
+
+  const tdTutor = document.createElement('td');
+  if (p.tutor_id && p.tutor_nombre) {
+    tdTutor.appendChild(mkEl('i', { cls: 'bi bi-link-45deg text-success me-1' }));
+    tdTutor.appendChild(document.createTextNode(p.tutor_nombre));
+  } else {
+    tdTutor.textContent = p.nombre_tutor || '\u2014';
+  }
+  if (p.es_menor_edad) {
+    tdNombre.appendChild(mkEl('span', { text: ' (menor)', cls: 'badge bg-warning text-dark ms-1 small' }));
+  }
 
   const tdStatus = document.createElement('td');
   const badge = mkEl('span', { text: p.estatus_crm, cls: `badge badge-${p.estatus_crm}` });
@@ -199,12 +210,28 @@ function abrirModalEditarPaciente(p) {
   document.getElementById('p_doctor').value = p.doctor_id || '';
   document.getElementById('p_estatus').value = p.estatus_crm || 'prospecto';
   document.getElementById('p_notas').value = p.notas || '';
+
+  // Tutor vinculado
+  document.getElementById('p_tutor_id').value = p.tutor_id || '';
+  document.getElementById('p_tutor_search').value = '';
+  const vinc = document.getElementById('tutorVinculado');
+  if (p.tutor_id && p.tutor_nombre) {
+    vinc.style.display = 'block';
+    document.getElementById('tutorVinculadoNombre').textContent =
+      `${p.tutor_nombre} (${p.tutor_whatsapp || 'sin WA'})`;
+  } else {
+    vinc.style.display = 'none';
+  }
+  // Calcular edad y mostrar/ocultar seccion tutor
+  onFechaNacChange();
+
   new bootstrap.Modal(document.getElementById('modalPaciente')).show();
 }
 
 function limpiarFormPaciente() {
   ['p_nombre', 'p_apellidos', 'p_fecha_nac', 'p_telefono', 'p_whatsapp',
-    'p_tutor', 'p_tel_tutor', 'p_escuela', 'p_doctor', 'p_notas'].forEach(id => {
+    'p_tutor', 'p_tel_tutor', 'p_escuela', 'p_doctor', 'p_notas',
+    'p_tutor_id', 'p_tutor_search'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -213,6 +240,14 @@ function limpiarFormPaciente() {
   window._waModifiedByUser = false;
   const est = document.getElementById('p_estatus');
   if (est) est.value = 'prospecto';
+
+  // Reset tutor UI
+  const edadEl = document.getElementById('edadDisplay');
+  if (edadEl) edadEl.textContent = '';
+  const card = document.getElementById('tutorCard');
+  if (card) card.style.display = 'none';
+  const vinc = document.getElementById('tutorVinculado');
+  if (vinc) vinc.style.display = 'none';
 }
 
 async function guardarPaciente() {
@@ -228,6 +263,7 @@ async function guardarPaciente() {
     doctor_id: document.getElementById('p_doctor').value || null,
     estatus_crm: document.getElementById('p_estatus').value,
     notas: document.getElementById('p_notas').value.trim(),
+    tutor_id: document.getElementById('p_tutor_id').value || null,
   };
   if (!body.nombre) {
     document.getElementById('pacienteMsg').textContent = 'El nombre es requerido.';
@@ -262,6 +298,130 @@ function abrirModalJustificante(p) {
   document.getElementById('j_tratamiento').value = '';
   new bootstrap.Modal(document.getElementById('modalJustificante')).show();
 }
+
+// ─── Tutor: edad, autocomplete, vincular/desvincular ──────────────────────
+
+function initTutor() {
+  document.getElementById('p_fecha_nac')?.addEventListener('change', onFechaNacChange);
+
+  // Autocomplete tutor
+  let tutorTimer;
+  document.getElementById('p_tutor_search')?.addEventListener('input', (e) => {
+    clearTimeout(tutorTimer);
+    const q = e.target.value.trim();
+    if (q.length < 2) {
+      document.getElementById('tutor_results').classList.add('d-none');
+      return;
+    }
+    tutorTimer = setTimeout(() => buscarTutores(q), 300);
+  });
+
+  // Click fuera cierra dropdown
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#p_tutor_search') && !e.target.closest('#tutor_results')) {
+      document.getElementById('tutor_results')?.classList.add('d-none');
+    }
+  });
+
+  // Desvincular tutor
+  document.getElementById('btnDesvincularTutor')?.addEventListener('click', () => {
+    document.getElementById('p_tutor_id').value = '';
+    document.getElementById('tutorVinculado').style.display = 'none';
+  });
+}
+
+function onFechaNacChange() {
+  const val = document.getElementById('p_fecha_nac').value;
+  const edadEl = document.getElementById('edadDisplay');
+  const badgeEdad = document.getElementById('badgeEdad');
+  const card = document.getElementById('tutorCard');
+
+  if (!val) {
+    if (edadEl) edadEl.textContent = '';
+    if (badgeEdad) badgeEdad.textContent = '';
+    actualizarVisibilidadTutor(false);
+    return;
+  }
+
+  const hoy = new Date();
+  const nac = new Date(val + 'T00:00:00');
+  let edad = hoy.getFullYear() - nac.getFullYear();
+  const m = hoy.getMonth() - nac.getMonth();
+  if (m < 0 || (m === 0 && hoy.getDate() < nac.getDate())) edad--;
+
+  const txt = edad + (edad === 1 ? ' anio' : ' anios');
+  if (edadEl) edadEl.textContent = txt;
+  if (badgeEdad) badgeEdad.textContent = txt;
+
+  actualizarVisibilidadTutor(edad < 18);
+}
+
+function actualizarVisibilidadTutor(esMenor) {
+  const card = document.getElementById('tutorCard');
+  if (!card) return;
+  const tieneData = document.getElementById('p_tutor').value
+    || document.getElementById('p_tel_tutor').value
+    || document.getElementById('p_tutor_id').value;
+  card.style.display = (esMenor || tieneData) ? 'block' : 'none';
+}
+
+async function buscarTutores(q) {
+  const listEl = document.getElementById('tutor_results');
+  try {
+    const resp = await apiFetch(`/api/pacientes/adultos?q=${encodeURIComponent(q)}`);
+    const data = await resp.json();
+    const pacs = data.pacientes || [];
+
+    while (listEl.firstChild) listEl.removeChild(listEl.firstChild);
+
+    if (pacs.length === 0) {
+      const a = document.createElement('a');
+      a.className = 'list-group-item list-group-item-action small text-muted';
+      a.textContent = 'Sin resultados. Llena el tutor manualmente.';
+      listEl.appendChild(a);
+    } else {
+      pacs.forEach(p => {
+        const a = document.createElement('a');
+        a.className = 'list-group-item list-group-item-action small';
+        a.style.cursor = 'pointer';
+
+        const strong = document.createElement('strong');
+        strong.textContent = p.nombre_completo;
+        a.appendChild(strong);
+
+        if (p.whatsapp || p.telefono) {
+          const span = document.createElement('span');
+          span.className = 'text-muted ms-2';
+          span.textContent = p.whatsapp || p.telefono;
+          a.appendChild(span);
+        }
+
+        a.addEventListener('click', () => seleccionarTutor(p));
+        listEl.appendChild(a);
+      });
+    }
+    listEl.classList.remove('d-none');
+  } catch (e) {
+    console.error('Error buscando tutores:', e);
+  }
+}
+
+function seleccionarTutor(p) {
+  document.getElementById('p_tutor_id').value = p.id;
+  document.getElementById('p_tutor').value = p.nombre_completo;
+  document.getElementById('p_tel_tutor').value = p.whatsapp || p.telefono || '';
+  document.getElementById('p_tutor_search').value = '';
+  document.getElementById('tutor_results').classList.add('d-none');
+
+  const vinc = document.getElementById('tutorVinculado');
+  if (vinc) {
+    vinc.style.display = 'block';
+    document.getElementById('tutorVinculadoNombre').textContent =
+      `${p.nombre_completo} (${p.whatsapp || p.telefono || 'sin WA'})`;
+  }
+}
+
+// ─── Justificantes ────────────────────────────────────────────────────────
 
 async function generarJustificante() {
   const body = {

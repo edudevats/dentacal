@@ -238,7 +238,7 @@ def _job_cumpleanos(app):
         plantilla = PlantillaMensaje.query.filter_by(tipo='cumpleanos', activo=True).first()
 
         for paciente in pacientes_cumple:
-            numero = paciente.whatsapp or paciente.telefono_tutor
+            numero = paciente.numero_contacto_wa
             if not numero:
                 continue
             tutor = paciente.nombre_tutor or 'Estimado padre/madre'

@@ -139,7 +139,7 @@ def enviar_whatsapp(paciente_id):
     p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
     data = request.get_json(force=True)
     mensaje = data.get('mensaje', '').strip()
-    numero = p.whatsapp or p.telefono_tutor or p.telefono
+    numero = p.numero_contacto_wa
 
     if not mensaje:
         return jsonify(error='El mensaje es requerido'), 400
@@ -160,7 +160,7 @@ def enviar_whatsapp(paciente_id):
 @login_required
 def conversacion(paciente_id):
     p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
-    numero = p.whatsapp or p.telefono_tutor or p.telefono
+    numero = p.numero_contacto_wa
 
     mensajes = ConversacionWhatsapp.query.filter(
         db.or_(

@@ -51,7 +51,7 @@ def enviar_recordatorio_cita(cita):
     Envia recordatorio de confirmacion 24h antes de la cita.
     """
     paciente = cita.paciente
-    numero = paciente.whatsapp or paciente.telefono_tutor or paciente.telefono
+    numero = paciente.numero_contacto_wa
 
     if not numero:
         logger.warning(f'Cita {cita.id}: paciente sin numero de WhatsApp')
@@ -88,7 +88,7 @@ def enviar_postconsulta(cita):
     Incluye link de resenas de Google.
     """
     paciente = cita.paciente
-    numero = paciente.whatsapp or paciente.telefono_tutor or paciente.telefono
+    numero = paciente.numero_contacto_wa
 
     if not numero:
         return False

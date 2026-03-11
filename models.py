@@ -200,6 +200,7 @@ class Paciente(db.Model):
     doctor_id = db.Column(db.Integer, db.ForeignKey('dentistas.id'), nullable=True)
 
     # Tutor (pacientes pediatricos)
+    tutor_id = db.Column(db.Integer, db.ForeignKey('pacientes.id'), nullable=True)
     nombre_tutor = db.Column(db.String(200))
     telefono_tutor = db.Column(db.String(20))
 
@@ -220,6 +221,9 @@ class Paciente(db.Model):
     seguimientos = db.relationship('SeguimientoCRM', backref='paciente',
                                    lazy=True, order_by='SeguimientoCRM.fecha_programada')
     justificantes = db.relationship('Justificante', backref='paciente', lazy=True)
+    tutor = db.relationship('Paciente', remote_side='Paciente.id',
+                            backref=db.backref('menores_a_cargo', lazy=True),
+                            foreign_keys=[tutor_id])
 
     @property
     def nombre_completo(self):
@@ -233,6 +237,25 @@ class Paciente(db.Model):
             return self.fecha_nacimiento.month
         return None
 
+    @property
+    def es_menor_edad(self):
+        """True si el paciente tiene menos de 18 anios."""
+        if not self.fecha_nacimiento:
+            return False
+        hoy = date.today()
+        edad = hoy.year - self.fecha_nacimiento.year - (
+            (hoy.month, hoy.day) < (self.fecha_nacimiento.month, self.fecha_nacimiento.day)
+        )
+        return edad < 18
+
+    @property
+    def numero_contacto_wa(self):
+        """Numero de WhatsApp de contacto. Para menores con tutor vinculado
+        usa el WA del tutor; sino fallback a telefono_tutor y luego propio."""
+        if self.tutor_id and self.tutor and self.tutor.whatsapp:
+            return self.tutor.whatsapp
+        return self.whatsapp or self.telefono_tutor or self.telefono
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -245,6 +268,10 @@ class Paciente(db.Model):
             'email': self.email or '',
             'doctor_id': self.doctor_id,
             'doctor_nombre': self.doctor.nombre if self.doctor else None,
+            'tutor_id': self.tutor_id,
+            'tutor_nombre': self.tutor.nombre_completo if self.tutor else None,
+            'tutor_whatsapp': self.tutor.whatsapp if self.tutor else None,
+            'es_menor_edad': self.es_menor_edad,
             'nombre_tutor': self.nombre_tutor or '',
             'telefono_tutor': self.telefono_tutor or '',
             'escuela': self.escuela or '',
