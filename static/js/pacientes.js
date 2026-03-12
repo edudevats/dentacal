@@ -196,7 +196,6 @@ function abrirModalEditarPaciente(p) {
   document.getElementById('modalPacienteTitulo').textContent = 'Editar Paciente';
   document.getElementById('btnEliminarPaciente').classList.remove('d-none');
   document.getElementById('p_nombre').value = p.nombre || '';
-  document.getElementById('p_apellidos').value = p.apellidos || '';
   document.getElementById('p_fecha_nac').value = p.fecha_nacimiento || '';
   document.getElementById('p_telefono').value = p.telefono || '';
   document.getElementById('p_whatsapp').value = p.whatsapp || '';
@@ -229,7 +228,7 @@ function abrirModalEditarPaciente(p) {
 }
 
 function limpiarFormPaciente() {
-  ['p_nombre', 'p_apellidos', 'p_fecha_nac', 'p_telefono', 'p_whatsapp',
+  ['p_nombre', 'p_fecha_nac', 'p_telefono', 'p_whatsapp',
     'p_tutor', 'p_tel_tutor', 'p_escuela', 'p_doctor', 'p_notas',
     'p_tutor_id', 'p_tutor_search'].forEach(id => {
       const el = document.getElementById(id);
@@ -253,7 +252,6 @@ function limpiarFormPaciente() {
 async function guardarPaciente() {
   const body = {
     nombre: document.getElementById('p_nombre').value.trim(),
-    apellidos: document.getElementById('p_apellidos').value.trim(),
     fecha_nacimiento: document.getElementById('p_fecha_nac').value || null,
     telefono: itiTelefono ? itiTelefono.getNumber() : document.getElementById('p_telefono').value.trim(),
     whatsapp: itiWhatsapp ? itiWhatsapp.getNumber() : document.getElementById('p_whatsapp').value.trim(),

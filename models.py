@@ -192,7 +192,6 @@ class Paciente(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(100), nullable=False)
-    apellidos = db.Column(db.String(100))
     fecha_nacimiento = db.Column(db.Date)
     telefono = db.Column(db.String(20))
     whatsapp = db.Column(db.String(20), unique=True)
@@ -227,8 +226,6 @@ class Paciente(db.Model):
 
     @property
     def nombre_completo(self):
-        if self.apellidos:
-            return f'{self.nombre} {self.apellidos}'
         return self.nombre
 
     @property
@@ -260,7 +257,6 @@ class Paciente(db.Model):
         return {
             'id': self.id,
             'nombre': self.nombre,
-            'apellidos': self.apellidos or '',
             'nombre_completo': self.nombre_completo,
             'fecha_nacimiento': self.fecha_nacimiento.isoformat() if self.fecha_nacimiento else None,
             'telefono': self.telefono or '',

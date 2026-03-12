@@ -19,7 +19,6 @@ def listar():
         q = q.filter(
             db.or_(
                 Paciente.nombre.ilike(like),
-                Paciente.apellidos.ilike(like),
                 Paciente.whatsapp.ilike(like),
                 Paciente.telefono.ilike(like),
             )
@@ -107,7 +106,7 @@ def crear():
 
     p = Paciente(
         nombre=data['nombre'],
-        apellidos=data.get('apellidos', ''),
+
         fecha_nacimiento=fecha_nac,
         telefono=data.get('telefono', ''),
         whatsapp=whatsapp or data.get('whatsapp', ''),
@@ -133,8 +132,6 @@ def actualizar(paciente_id):
 
     if 'nombre' in data:
         p.nombre = data['nombre']
-    if 'apellidos' in data:
-        p.apellidos = data['apellidos']
     if 'fecha_nacimiento' in data and data['fecha_nacimiento']:
         try:
             p.fecha_nacimiento = datetime.strptime(data['fecha_nacimiento'], '%Y-%m-%d').date()
@@ -192,7 +189,6 @@ def buscar_adultos():
         ),
         db.or_(
             Paciente.nombre.ilike(like),
-            Paciente.apellidos.ilike(like),
             Paciente.whatsapp.ilike(like),
             Paciente.telefono.ilike(like),
         ),

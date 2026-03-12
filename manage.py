@@ -47,7 +47,7 @@ def seed():
             return
         pacientes = [
             Paciente(
-                nombre='Maria', apellidos='Garcia Lopez',
+                nombre='Maria Garcia Lopez',
                 fecha_nacimiento=None,
                 telefono='5551234567', whatsapp='5551234567',
                 nombre_tutor='Rosa Lopez', telefono_tutor='5559876543',
@@ -55,12 +55,12 @@ def seed():
                 estatus_crm=EstatusCRM.activo,
             ),
             Paciente(
-                nombre='Carlos', apellidos='Martinez Perez',
+                nombre='Carlos Martinez Perez',
                 telefono='5552345678', whatsapp='5552345678',
                 estatus_crm=EstatusCRM.prospecto,
             ),
             Paciente(
-                nombre='Sofia', apellidos='Hernandez',
+                nombre='Sofia Hernandez',
                 telefono='5553456789', whatsapp='5553456789',
                 estatus_crm=EstatusCRM.alta,
             ),

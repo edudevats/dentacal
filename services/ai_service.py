@@ -33,8 +33,7 @@ BOT_FUNCTION_DECLARATIONS = [
         "parameters": {
             "type": "object",
             "properties": {
-                "nombre": {"type": "string", "description": "Nombre del paciente"},
-                "apellidos": {"type": "string", "description": "Apellidos del paciente"},
+                "nombre": {"type": "string", "description": "Nombre completo del paciente"},
                 "fecha_nacimiento": {"type": "string", "description": "Fecha nacimiento YYYY-MM-DD (opcional)"},
                 "nombre_tutor": {"type": "string", "description": "Nombre del padre/madre/tutor si es menor"},
                 "escuela": {"type": "string", "description": "Nombre de la escuela si es menor"},
@@ -374,7 +373,6 @@ def _tool_registrar_paciente(args):
     from extensions import db
     p = Paciente(
         nombre=args.get('nombre', ''),
-        apellidos=args.get('apellidos', ''),
         whatsapp=args.get('numero_whatsapp', ''),
         nombre_tutor=args.get('nombre_tutor', ''),
         escuela=args.get('escuela', ''),
