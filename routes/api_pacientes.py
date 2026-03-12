@@ -119,6 +119,13 @@ def crear():
         doctor_id=data.get('doctor_id'),
         tutor_id=data.get('tutor_id') or None,
     )
+    if data.get('proximo_recordatorio_fecha'):
+        try:
+            p.proximo_recordatorio_fecha = datetime.strptime(
+                data['proximo_recordatorio_fecha'], '%Y-%m-%d'
+            ).date()
+        except ValueError:
+            pass
     db.session.add(p)
     db.session.commit()
     return jsonify(p.to_dict()), 201
@@ -164,6 +171,16 @@ def actualizar(paciente_id):
         p.doctor_id = data['doctor_id']
     if 'tutor_id' in data:
         p.tutor_id = data['tutor_id'] if data['tutor_id'] else None
+    if 'proximo_recordatorio_fecha' in data:
+        if data['proximo_recordatorio_fecha']:
+            try:
+                p.proximo_recordatorio_fecha = datetime.strptime(
+                    data['proximo_recordatorio_fecha'], '%Y-%m-%d'
+                ).date()
+            except ValueError:
+                pass
+        else:
+            p.proximo_recordatorio_fecha = None
 
     db.session.commit()
     return jsonify(p.to_dict())

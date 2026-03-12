@@ -233,6 +233,20 @@ def _seed_initial_data():
         ]
         db.session.add_all(plantillas)
 
+    # Plantillas nuevas (agregar si no existen, para BDs existentes)
+    if not PlantillaMensaje.query.filter_by(tipo='no_asistencia_reagendar').first():
+        db.session.add(PlantillaMensaje(
+            nombre='Reagendar No Asistencia',
+            tipo='no_asistencia_reagendar',
+            contenido='Estimado/a, le escribimos de La Casa del Sr. Perez.\nLamentamos que {nombre_paciente} no haya podido asistir a su cita programada el {fecha}.\nNos encantaria poder atenderle en otra fecha. Responda a este mensaje y con gusto le ayudamos a reagendar su cita.',
+        ))
+    if not PlantillaMensaje.query.filter_by(tipo='proxima_visita').first():
+        db.session.add(PlantillaMensaje(
+            nombre='Recordatorio Proxima Visita',
+            tipo='proxima_visita',
+            contenido='Hola {nombre_tutor}! Le recordamos que ya es momento de programar la proxima cita de {nombre_paciente} en La Casa del Sr. Perez.\nEscribanos para buscarle un horario disponible :)',
+        ))
+
     db.session.commit()
 
 

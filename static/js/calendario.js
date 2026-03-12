@@ -60,6 +60,10 @@ function initCalendario() {
 
     eventDidMount(info) {
       const status = info.event.extendedProps.status;
+      if (status === 'completada') {
+        info.el.style.opacity = '0.85';
+        info.el.style.borderLeft = '4px solid #4CAF50';
+      }
       if (status === 'no_asistencia') {
         info.el.style.opacity = '0.6';
         info.el.style.textDecoration = 'line-through';
@@ -123,6 +127,37 @@ function initModal() {
   document.getElementById('btnNuevaCita')?.addEventListener('click', () => abrirModalNuevo());
   document.getElementById('btnGuardarCita')?.addEventListener('click', guardarCita);
   document.getElementById('btnCancelarCita')?.addEventListener('click', cancelarCitaActual);
+
+  // Mostrar/ocultar seccion proxima visita segun status
+  document.getElementById('status_cita')?.addEventListener('change', (e) => {
+    const wrapper = document.getElementById('proximaVisitaWrapper');
+    if (wrapper) {
+      wrapper.style.display = e.target.value === 'completada' ? 'block' : 'none';
+      if (e.target.value !== 'completada') {
+        document.getElementById('toggle_proxima_visita').checked = false;
+        document.getElementById('proxima_visita_input_wrapper').style.display = 'none';
+        document.getElementById('proxima_visita_mes').value = '';
+      }
+    }
+  });
+
+  // Toggle para mostrar/ocultar input de mes
+  document.getElementById('toggle_proxima_visita')?.addEventListener('change', (e) => {
+    const inputWrapper = document.getElementById('proxima_visita_input_wrapper');
+    if (inputWrapper) {
+      inputWrapper.style.display = e.target.checked ? 'block' : 'none';
+      if (!e.target.checked) {
+        document.getElementById('proxima_visita_mes').value = '';
+      }
+    }
+  });
+
+  // Setear min del month input
+  const monthInput = document.getElementById('proxima_visita_mes');
+  if (monthInput) {
+    const now = new Date();
+    monthInput.min = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
 
   document.getElementById('tipo_cita_id')?.addEventListener('change', (e) => {
     const opt = e.target.selectedOptions[0];
@@ -206,6 +241,13 @@ function abrirModalEditar(evento) {
   document.getElementById('status_cita').value = ext.status || 'pendiente';
   document.getElementById('anticipo_pagado').checked = ext.anticipo_pagado || false;
 
+  // Proxima visita: mostrar solo si completada
+  const pvw = document.getElementById('proximaVisitaWrapper');
+  if (pvw) pvw.style.display = ext.status === 'completada' ? 'block' : 'none';
+  document.getElementById('toggle_proxima_visita').checked = false;
+  document.getElementById('proxima_visita_input_wrapper').style.display = 'none';
+  document.getElementById('proxima_visita_mes').value = '';
+
   const start = new Date(evento.start);
   const end = new Date(evento.end);
   document.getElementById('fecha_cita').value = start.toISOString().slice(0, 10);
@@ -220,7 +262,7 @@ function abrirModalEditar(evento) {
 function limpiarFormulario() {
   ['paciente_id', 'paciente_search', 'dentista_id', 'consultorio_id',
     'tipo_cita_id', 'notas_cita', 'anticipo_monto', 'fecha_cita',
-    'hora_inicio', 'hora_fin'].forEach(id => {
+    'hora_inicio', 'hora_fin', 'proxima_visita_mes'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -228,6 +270,12 @@ function limpiarFormulario() {
   if (ap) ap.checked = false;
   const pi = document.getElementById('paciente_info');
   if (pi) pi.textContent = '';
+  const pvw = document.getElementById('proximaVisitaWrapper');
+  if (pvw) pvw.style.display = 'none';
+  const tpv = document.getElementById('toggle_proxima_visita');
+  if (tpv) tpv.checked = false;
+  const pviw = document.getElementById('proxima_visita_input_wrapper');
+  if (pviw) pviw.style.display = 'none';
 }
 
 async function guardarCita() {
@@ -263,6 +311,11 @@ async function guardarCita() {
 
   if (citaEditandoId) {
     body.status = document.getElementById('status_cita').value;
+    // Si marco completada y selecciono mes de proxima visita
+    const pvMes = document.getElementById('proxima_visita_mes').value;
+    if (body.status === 'completada' && pvMes) {
+      body.proximo_recordatorio_fecha = pvMes + '-01';
+    }
   }
 
   btnGuardar.disabled = true;

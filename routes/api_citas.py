@@ -144,7 +144,36 @@ def actualizar(cita_id):
 
     if 'status' in data:
         try:
-            cita.status = EstatusCita[data['status']]
+            new_status = EstatusCita[data['status']]
+            old_status = cita.status
+            cita.status = new_status
+
+            # Auto-set confirmacion_fecha al confirmar
+            if new_status == EstatusCita.confirmada and not cita.confirmacion_fecha:
+                cita.confirmacion_fecha = datetime.utcnow()
+
+            # Al completar: actualizar ultima_cita del paciente
+            if new_status == EstatusCita.completada:
+                paciente = cita.paciente
+                if paciente:
+                    paciente.ultima_cita = cita.fecha_inicio
+                # Guardar proximo_recordatorio_fecha si viene en el request
+                if data.get('proximo_recordatorio_fecha') and cita.paciente:
+                    try:
+                        cita.paciente.proximo_recordatorio_fecha = datetime.strptime(
+                            data['proximo_recordatorio_fecha'], '%Y-%m-%d'
+                        ).date()
+                    except ValueError:
+                        pass
+
+            # Al marcar no asistencia: enviar WA ofreciendo reagendar
+            if new_status == EstatusCita.no_asistencia and old_status != EstatusCita.no_asistencia:
+                try:
+                    from services.whatsapp_service import enviar_reagendar_no_asistencia
+                    enviar_reagendar_no_asistencia(cita)
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).error(f'Error enviando msg no-asistencia: {e}')
         except KeyError:
             return jsonify(error='Status invalido'), 400
 

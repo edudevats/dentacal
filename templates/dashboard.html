@@ -172,9 +172,24 @@
               <select id="status_cita" class="form-select">
                 <option value="pendiente">Pendiente</option>
                 <option value="confirmada">Confirmada</option>
+                <option value="completada">Completada (Asistio)</option>
                 <option value="no_asistencia">No Asistencia</option>
                 <option value="cancelada">Cancelada</option>
               </select>
+            </div>
+
+            <!-- Proxima visita (visible solo cuando status = completada) -->
+            <div class="col-md-6" id="proximaVisitaWrapper" style="display:none">
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" id="toggle_proxima_visita">
+                <label class="form-check-label fw-semibold" for="toggle_proxima_visita">
+                  <i class="bi bi-calendar-heart me-1"></i>Recordatorio proxima visita
+                </label>
+              </div>
+              <div id="proxima_visita_input_wrapper" style="display:none">
+                <input type="month" id="proxima_visita_mes" class="form-control">
+                <small class="text-muted">Se enviara un WhatsApp ese mes invitando a agendar</small>
+              </div>
             </div>
 
             <!-- Notas -->

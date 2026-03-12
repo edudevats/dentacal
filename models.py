@@ -15,6 +15,7 @@ class RolUsuario(PyEnum):
 class EstatusCita(PyEnum):
     pendiente = 'pendiente'
     confirmada = 'confirmada'
+    completada = 'completada'
     no_asistencia = 'no_asistencia'
     cancelada = 'cancelada'
 
@@ -213,6 +214,7 @@ class Paciente(db.Model):
 
     eliminado = db.Column(db.Boolean, default=False)  # soft delete
     es_problematico = db.Column(db.Boolean, default=False)
+    proximo_recordatorio_fecha = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     citas = db.relationship('Cita', backref='paciente', lazy=True)
@@ -277,6 +279,7 @@ class Paciente(db.Model):
             'ultima_cita': self.ultima_cita.isoformat() if self.ultima_cita else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'es_problematico': self.es_problematico,
+            'proximo_recordatorio_fecha': self.proximo_recordatorio_fecha.isoformat() if self.proximo_recordatorio_fecha else None,
         }
 
 
@@ -300,6 +303,7 @@ class Cita(db.Model):
 
     reminder_24h_sent = db.Column(db.Boolean, default=False)
     postconsulta_sent = db.Column(db.Boolean, default=False)
+    confirmacion_fecha = db.Column(db.DateTime, nullable=True)
 
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -327,6 +331,7 @@ class Cita(db.Model):
             'notas': self.notas or '',
             'anticipo_pagado': self.anticipo_pagado,
             'anticipo_monto': float(self.anticipo_monto) if self.anticipo_monto else 0,
+            'confirmacion_fecha': self.confirmacion_fecha.isoformat() if self.confirmacion_fecha else None,
         }
 
     def to_calendar_event(self):
@@ -334,6 +339,7 @@ class Cita(db.Model):
         status_colors = {
             EstatusCita.pendiente: None,  # usa color del dentista
             EstatusCita.confirmada: None,
+            EstatusCita.completada: '#4CAF50',
             EstatusCita.no_asistencia: '#9e9e9e',
             EstatusCita.cancelada: '#bdbdbd',
         }

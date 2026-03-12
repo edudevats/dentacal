@@ -163,6 +163,47 @@ async function abrirDetalleCRM(pacienteId) {
     citasDiv.appendChild(div);
   });
 
+  // Historial de asistencias
+  const asistDiv = document.getElementById('crm_historial_asistencias');
+  const statsDiv = document.getElementById('crm_stats_asistencia');
+  while (asistDiv.firstChild) asistDiv.removeChild(asistDiv.firstChild);
+
+  const stats = p.estadisticas_asistencia;
+  if (stats && stats.total > 0) {
+    statsDiv.textContent = `${stats.asistencias}/${stats.total} (${stats.tasa_asistencia}%)`;
+  } else {
+    statsDiv.textContent = '';
+  }
+
+  const historial = p.historial_asistencias || [];
+  if (historial.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'text-muted text-center';
+    empty.textContent = 'Sin registro de asistencias';
+    asistDiv.appendChild(empty);
+  } else {
+    historial.forEach(h => {
+      const row = document.createElement('div');
+      row.className = 'd-flex justify-content-between align-items-center mb-1 p-1 border rounded';
+
+      const info = document.createElement('span');
+      const fecha = h.fecha ? h.fecha.slice(0, 10) : '';
+      info.textContent = `${fecha} - ${h.tipo_cita} - ${h.dentista}`;
+      row.appendChild(info);
+
+      const badge = document.createElement('span');
+      if (h.status === 'completada') {
+        badge.className = 'badge bg-success';
+        badge.textContent = 'Asistio';
+      } else {
+        badge.className = 'badge bg-danger';
+        badge.textContent = 'No asistio';
+      }
+      row.appendChild(badge);
+      asistDiv.appendChild(row);
+    });
+  }
+
   // Seguimientos
   const segDiv = document.getElementById('crm_seguimientos');
   while (segDiv.firstChild) segDiv.removeChild(segDiv.firstChild);

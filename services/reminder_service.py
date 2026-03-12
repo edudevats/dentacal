@@ -76,6 +76,18 @@ def setup_scheduler_jobs(scheduler, app):
         kwargs={'app': app},
     )
 
+    # Recordatorio proxima visita - 1ro de cada mes a las 10:15am
+    scheduler.add_job(
+        func=_job_recordatorio_proxima_visita,
+        trigger='cron',
+        day=1,
+        hour=10,
+        minute=15,
+        id='recordatorio_proxima_visita',
+        replace_existing=True,
+        kwargs={'app': app},
+    )
+
     logger.info('Jobs del scheduler registrados.')
 
 
@@ -134,7 +146,7 @@ def _job_postconsulta(app):
         citas = Cita.query.filter(
             Cita.fecha_inicio >= hace_2_dias_inicio,
             Cita.fecha_inicio <= hace_2_dias_fin,
-            Cita.status == EstatusCita.confirmada,
+            Cita.status == EstatusCita.completada,
             Cita.postconsulta_sent == False,
         ).all()
 
@@ -266,3 +278,37 @@ def _job_cumpleanos(app):
                 logger.info(f'Mensaje cumpleanos enviado a {paciente.nombre_completo}')
             except Exception as e:
                 logger.error(f'Error cumpleanos {paciente.nombre_completo}: {e}')
+
+
+def _job_recordatorio_proxima_visita(app):
+    """Envia recordatorios de proxima visita a pacientes programados para este mes."""
+    with app.app_context():
+        from models import Paciente
+        from extensions import db
+
+        hoy = _ahora_local().date()
+
+        # Solo el primero de cada mes
+        if hoy.day != 1:
+            return
+
+        pacientes = Paciente.query.filter(
+            Paciente.proximo_recordatorio_fecha != None,
+            Paciente.eliminado == False,
+            Paciente.es_problematico == False,
+            db.extract('year', Paciente.proximo_recordatorio_fecha) == hoy.year,
+            db.extract('month', Paciente.proximo_recordatorio_fecha) == hoy.month,
+        ).all()
+
+        for paciente in pacientes:
+            try:
+                from services.whatsapp_service import enviar_recordatorio_proxima_visita
+                enviado = enviar_recordatorio_proxima_visita(paciente)
+                if enviado:
+                    paciente.proximo_recordatorio_fecha = None
+                    logger.info(f'Recordatorio proxima visita enviado a {paciente.nombre_completo}')
+            except Exception as e:
+                logger.error(f'Error recordatorio proxima visita {paciente.nombre_completo}: {e}')
+
+        db.session.commit()
+        logger.info(f'Recordatorios proxima visita procesados: {len(pacientes)} pacientes')

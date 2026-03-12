@@ -120,6 +120,72 @@ def enviar_postconsulta(cita):
         return False
 
 
+def enviar_reagendar_no_asistencia(cita):
+    """Envia mensaje ofreciendo reagendar cuando el paciente no asistio."""
+    paciente = cita.paciente
+    numero = paciente.numero_contacto_wa
+
+    if not numero:
+        logger.warning(f'Cita {cita.id}: paciente sin numero de WhatsApp para reagendar')
+        return False
+
+    from models import PlantillaMensaje
+    plantilla = PlantillaMensaje.query.filter_by(tipo='no_asistencia_reagendar', activo=True).first()
+
+    fecha_cita = cita.fecha_inicio.strftime('%d/%m/%Y')
+    if plantilla:
+        mensaje = plantilla.contenido.format(
+            nombre_paciente=paciente.nombre_completo,
+            fecha=fecha_cita,
+        )
+    else:
+        mensaje = (
+            f'Estimado/a, le escribimos de La Casa del Sr. Perez.\n'
+            f'Lamentamos que {paciente.nombre_completo} no haya podido asistir a su cita '
+            f'programada el {fecha_cita}.\n'
+            f'Nos encantaria poder atenderle en otra fecha. '
+            f'Responda a este mensaje y con gusto le ayudamos a reagendar su cita.'
+        )
+
+    try:
+        enviar_mensaje(numero, mensaje)
+        return True
+    except Exception as e:
+        logger.error(f'Error enviando reagendar no-asistencia cita {cita.id}: {e}')
+        return False
+
+
+def enviar_recordatorio_proxima_visita(paciente):
+    """Envia recordatorio mensual para agendar proxima visita."""
+    numero = paciente.numero_contacto_wa
+
+    if not numero:
+        return False
+
+    from models import PlantillaMensaje
+    plantilla = PlantillaMensaje.query.filter_by(tipo='proxima_visita', activo=True).first()
+
+    tutor = paciente.nombre_tutor or 'Estimado/a'
+    if plantilla:
+        mensaje = plantilla.contenido.format(
+            nombre_tutor=tutor,
+            nombre_paciente=paciente.nombre_completo,
+        )
+    else:
+        mensaje = (
+            f'Hola {tutor}! Le recordamos que ya es momento de programar '
+            f'la proxima cita de {paciente.nombre_completo} en La Casa del Sr. Perez.\n'
+            f'Escribanos para buscarle un horario disponible :)'
+        )
+
+    try:
+        enviar_mensaje(numero, mensaje)
+        return True
+    except Exception as e:
+        logger.error(f'Error enviando recordatorio proxima visita a {paciente.nombre_completo}: {e}')
+        return False
+
+
 def enviar_resumen_diario_doctor(dentista, citas, fecha_str):
     """
     Envia resumen diario al doctor con pacientes confirmados.

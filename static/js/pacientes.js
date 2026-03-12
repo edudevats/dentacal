@@ -141,7 +141,16 @@ function crearFilaPaciente(p) {
     tdStatus.appendChild(mkEl('span', { text: 'Problematico', cls: 'badge bg-danger ms-1' }));
   }
 
-  const tdCita = mkEl('td', { text: p.ultima_cita ? p.ultima_cita.slice(0, 10) : '\u2014' });
+  const tdCita = document.createElement('td');
+  tdCita.textContent = p.ultima_cita ? p.ultima_cita.slice(0, 10) : '\u2014';
+  if (p.proximo_recordatorio_fecha) {
+    const badge = mkEl('div', {
+      text: 'Prox. visita: ' + p.proximo_recordatorio_fecha.slice(0, 7),
+      cls: 'badge bg-info text-dark mt-1',
+      style: 'font-size:10px',
+    });
+    tdCita.appendChild(badge);
+  }
 
   const tdAcc = document.createElement('td');
   const btnEdit = mkEl('button', { cls: 'btn btn-sm btn-outline-primary me-1', title: 'Editar' });
@@ -221,6 +230,9 @@ function abrirModalEditarPaciente(p) {
   document.getElementById('p_doctor').value = p.doctor_id || '';
   document.getElementById('p_estatus').value = p.estatus_crm || 'prospecto';
   document.getElementById('p_notas').value = p.notas || '';
+  // Proxima visita: YYYY-MM-DD → YYYY-MM
+  const pv = document.getElementById('p_proxima_visita');
+  if (pv) pv.value = p.proximo_recordatorio_fecha ? p.proximo_recordatorio_fecha.slice(0, 7) : '';
 
   // Tutor vinculado
   document.getElementById('p_tutor_id').value = p.tutor_id || '';
@@ -242,7 +254,7 @@ function abrirModalEditarPaciente(p) {
 function limpiarFormPaciente() {
   ['p_nombre', 'p_fecha_nac', 'p_telefono', 'p_whatsapp',
     'p_tutor', 'p_tel_tutor', 'p_escuela', 'p_doctor', 'p_notas',
-    'p_tutor_id', 'p_tutor_search'].forEach(id => {
+    'p_tutor_id', 'p_tutor_search', 'p_proxima_visita'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
     });
@@ -274,6 +286,8 @@ async function guardarPaciente() {
     estatus_crm: document.getElementById('p_estatus').value,
     notas: document.getElementById('p_notas').value.trim(),
     tutor_id: document.getElementById('p_tutor_id').value || null,
+    proximo_recordatorio_fecha: document.getElementById('p_proxima_visita').value
+      ? document.getElementById('p_proxima_visita').value + '-01' : null,
   };
   if (!body.nombre) {
     document.getElementById('pacienteMsg').textContent = 'El nombre es requerido.';

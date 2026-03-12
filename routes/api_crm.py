@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import login_required
 from sqlalchemy import func
 from extensions import db
-from models import (Paciente, EstatusCRM, SeguimientoCRM, TipoSeguimiento,
+from models import (Paciente, EstatusCRM, EstatusCita, SeguimientoCRM, TipoSeguimiento,
                     ConversacionWhatsapp, Cita)
 from datetime import datetime, timedelta
 
@@ -70,6 +70,34 @@ def detalle_crm(paciente_id):
     citas = Cita.query.filter_by(paciente_id=paciente_id)\
         .order_by(Cita.fecha_inicio.desc()).limit(10).all()
     data['citas'] = [c.to_dict() for c in citas]
+
+    # Historial de asistencias (citas completadas o no_asistencia)
+    asistencias_query = Cita.query.filter(
+        Cita.paciente_id == paciente_id,
+        Cita.status.in_([EstatusCita.completada, EstatusCita.no_asistencia]),
+    ).order_by(Cita.fecha_inicio.desc()).all()
+
+    data['historial_asistencias'] = [
+        {
+            'id': c.id,
+            'fecha': c.fecha_inicio.isoformat(),
+            'tipo_cita': c.tipo_cita.nombre if c.tipo_cita else 'Cita',
+            'dentista': c.dentista.nombre if c.dentista else '',
+            'status': c.status.value,
+            'confirmacion_fecha': c.confirmacion_fecha.isoformat() if c.confirmacion_fecha else None,
+        }
+        for c in asistencias_query
+    ]
+
+    total_asist = len(asistencias_query)
+    asistio = sum(1 for c in asistencias_query if c.status == EstatusCita.completada)
+    no_asistio = total_asist - asistio
+    data['estadisticas_asistencia'] = {
+        'total': total_asist,
+        'asistencias': asistio,
+        'inasistencias': no_asistio,
+        'tasa_asistencia': round((asistio / total_asist * 100) if total_asist > 0 else 0, 1),
+    }
 
     return jsonify(data)
 

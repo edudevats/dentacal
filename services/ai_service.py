@@ -128,6 +128,18 @@ BOT_FUNCTION_DECLARATIONS = [
             "required": ["cita_id", "nueva_fecha_inicio", "nueva_fecha_fin"]
         }
     },
+    {
+        "name": "confirmar_asistencia_cita",
+        "description": "Confirma que el paciente asistira a su cita proxima. Usar cuando el paciente responde al recordatorio de 24h indicando que si asistira (ej: 'si', 'confirmo', 'ahi estaremos').",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "paciente_id": {"type": "integer", "description": "ID del paciente que confirma"},
+                "cita_id": {"type": "integer", "description": "ID de la cita a confirmar (opcional, si no se da busca la proxima)"}
+            },
+            "required": ["paciente_id"]
+        }
+    },
 ]
 
 
@@ -153,7 +165,8 @@ PROTOCOLO DE CITAS - PRIMERA VEZ:
 6. Cuando confirmen el pago, crea la cita con crear_solicitud_cita y confirma: "Nos vemos el dia [fecha] de [hora_inicio] a las [hora_fin]"
 
 PROTOCOLO RECORDATORIO DE CONFIRMACION (cuando el paciente responde al recordatorio de 24h):
-- Si confirma: actualiza el status de la cita
+- Si el paciente confirma asistencia (dice "si", "confirmo", "ahi estaremos", "si asistire", etc.): usar confirmar_asistencia_cita con el paciente_id para marcar la cita como confirmada
+- Si el paciente quiere cancelar o reagendar: usar cancelar_cita o reagendar_cita segun corresponda
 
 REGLAS IMPORTANTES:
 - Si el paciente esta marcado como PROBLEMATICO (es_problematico=True), NO agendar citas bajo ninguna circunstancia. Responder amablemente que por el momento no es posible atenderle por este medio y que contacte directamente al consultorio.
@@ -338,6 +351,8 @@ def _ejecutar_tool(nombre, args):
             return _tool_cancelar_cita(args)
         elif nombre == 'reagendar_cita':
             return _tool_reagendar_cita(args)
+        elif nombre == 'confirmar_asistencia_cita':
+            return _tool_confirmar_asistencia_cita(args)
         else:
             return {'error': f'Tool desconocida: {nombre}'}
     except Exception as e:
@@ -363,10 +378,17 @@ def _tool_buscar_paciente(args):
         from models import Cita, EstatusCita
         ultima_cita = Cita.query.filter_by(paciente_id=paciente.id)\
             .order_by(Cita.fecha_inicio.desc()).first()
+        # Proxima cita pendiente/confirmada
+        proxima_cita = Cita.query.filter(
+            Cita.paciente_id == paciente.id,
+            Cita.fecha_inicio >= datetime.utcnow(),
+            Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
+        ).order_by(Cita.fecha_inicio).first()
         result = {
             'encontrado': True,
             'paciente': paciente.to_dict(),
             'ultima_cita': ultima_cita.to_dict() if ultima_cita else None,
+            'proxima_cita': proxima_cita.to_dict() if proxima_cita else None,
         }
         if paciente.es_problematico:
             result['es_problematico'] = True
@@ -608,4 +630,49 @@ def _tool_reagendar_cita(args):
         'nueva_fecha': nueva_inicio.strftime('%d/%m/%Y'),
         'nueva_hora': nueva_inicio.strftime('%H:%M'),
         'mensaje': f'Cita reagendada para el {nueva_inicio.strftime("%d/%m/%Y")} a las {nueva_inicio.strftime("%H:%M")}.',
+    }
+
+
+def _tool_confirmar_asistencia_cita(args):
+    """Confirma la asistencia del paciente a su proxima cita."""
+    from models import Cita, EstatusCita
+    from extensions import db
+
+    cita_id = args.get('cita_id')
+    paciente_id = args.get('paciente_id')
+
+    if cita_id:
+        cita = Cita.query.get(cita_id)
+    elif paciente_id:
+        # Buscar la proxima cita pendiente del paciente
+        cita = Cita.query.filter(
+            Cita.paciente_id == paciente_id,
+            Cita.fecha_inicio >= datetime.utcnow() - timedelta(hours=1),
+            Cita.status == EstatusCita.pendiente,
+        ).order_by(Cita.fecha_inicio).first()
+    else:
+        return {'error': 'Se requiere cita_id o paciente_id'}
+
+    if not cita:
+        return {'error': 'No se encontro cita pendiente para este paciente'}
+
+    if cita.status == EstatusCita.confirmada:
+        return {
+            'ok': True,
+            'mensaje': 'La cita ya estaba confirmada.',
+            'cita_id': cita.id,
+            'fecha': cita.fecha_inicio.strftime('%d/%m/%Y'),
+            'hora': cita.fecha_inicio.strftime('%H:%M'),
+        }
+
+    cita.status = EstatusCita.confirmada
+    cita.confirmacion_fecha = datetime.utcnow()
+    db.session.commit()
+
+    return {
+        'ok': True,
+        'cita_id': cita.id,
+        'fecha': cita.fecha_inicio.strftime('%d/%m/%Y'),
+        'hora': cita.fecha_inicio.strftime('%H:%M'),
+        'mensaje': f'Cita confirmada para el {cita.fecha_inicio.strftime("%d/%m/%Y")} a las {cita.fecha_inicio.strftime("%H:%M")}.',
     }
