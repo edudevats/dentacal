@@ -52,19 +52,17 @@ def obtener_slots_disponibles(fecha, dentista_id, consultorio_id=None,
     if not horario:
         return []
 
-    # Verificar bloqueos del dentista
     inicio_dia = datetime(fecha.year, fecha.month, fecha.day,
                           horario.hora_inicio.hour, horario.hora_inicio.minute)
     fin_dia = datetime(fecha.year, fecha.month, fecha.day,
                        horario.hora_fin.hour, horario.hora_fin.minute)
 
-    bloqueo = BloqueoDentista.query.filter(
+    # Cargar bloqueos del dentista para ese dia (puede haber varios parciales)
+    bloqueos = BloqueoDentista.query.filter(
         BloqueoDentista.dentista_id == dentista_id,
         BloqueoDentista.fecha_inicio < fin_dia,
         BloqueoDentista.fecha_fin > inicio_dia,
-    ).first()
-    if bloqueo:
-        return []
+    ).all()
 
     # Generar slots
     consultorios = []
@@ -84,6 +82,22 @@ def obtener_slots_disponibles(fecha, dentista_id, consultorio_id=None,
         slot_fin = current + delta
         slot_disponible = False
         consultorio_disponible = None
+
+        # Verificar si el slot cae dentro de un bloqueo del dentista
+        bloqueado = any(b.fecha_inicio < slot_fin and b.fecha_fin > current
+                        for b in bloqueos)
+        if bloqueado:
+            slots.append({
+                'inicio': current.strftime('%H:%M'),
+                'fin': slot_fin.strftime('%H:%M'),
+                'inicio_iso': current.isoformat(),
+                'fin_iso': slot_fin.isoformat(),
+                'disponible': False,
+                'consultorio_id': None,
+                'consultorio': None,
+            })
+            current += timedelta(minutes=30)
+            continue
 
         for consultorio in consultorios:
             conflicto = verificar_disponibilidad(

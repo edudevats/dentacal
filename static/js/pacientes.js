@@ -137,6 +137,9 @@ function crearFilaPaciente(p) {
   const tdStatus = document.createElement('td');
   const badge = mkEl('span', { text: p.estatus_crm, cls: `badge badge-${p.estatus_crm}` });
   tdStatus.appendChild(badge);
+  if (p.es_problematico) {
+    tdStatus.appendChild(mkEl('span', { text: 'Problematico', cls: 'badge bg-danger ms-1' }));
+  }
 
   const tdCita = mkEl('td', { text: p.ultima_cita ? p.ultima_cita.slice(0, 10) : '\u2014' });
 
@@ -145,13 +148,22 @@ function crearFilaPaciente(p) {
   btnEdit.appendChild(mkEl('i', { cls: 'bi bi-pencil' }));
   btnEdit.addEventListener('click', () => abrirModalEditarPaciente(p));
 
+  const btnProb = mkEl('button', {
+    cls: `btn btn-sm ${p.es_problematico ? 'btn-danger' : 'btn-outline-danger'} me-1`,
+    title: p.es_problematico ? 'Desmarcar problematico' : 'Marcar como problematico',
+  });
+  btnProb.appendChild(mkEl('i', { cls: 'bi bi-exclamation-triangle' }));
+  btnProb.addEventListener('click', (e) => { e.stopPropagation(); toggleProblematico(p); });
+
   const btnJust = mkEl('button', { cls: 'btn btn-sm btn-outline-secondary', title: 'Justificante' });
   btnJust.appendChild(mkEl('i', { cls: 'bi bi-file-medical' }));
   btnJust.addEventListener('click', () => abrirModalJustificante(p));
 
   tdAcc.appendChild(btnEdit);
+  tdAcc.appendChild(btnProb);
   tdAcc.appendChild(btnJust);
 
+  if (p.es_problematico) tr.style.background = '#fff5f5';
   [tdNombre, tdWa, tdTutor, tdStatus, tdCita, tdAcc].forEach(td => tr.appendChild(td));
   return tr;
 }
@@ -416,6 +428,25 @@ function seleccionarTutor(p) {
     vinc.style.display = 'block';
     document.getElementById('tutorVinculadoNombre').textContent =
       `${p.nombre_completo} (${p.whatsapp || p.telefono || 'sin WA'})`;
+  }
+}
+
+// ─── Problematico toggle ──────────────────────────────────────────────────
+
+async function toggleProblematico(p) {
+  const accion = p.es_problematico ? 'desmarcar' : 'marcar';
+  const advertencia = !p.es_problematico
+    ? '\n\nSu estatus CRM cambiara a "baja", no recibira mensajes automaticos y no podra agendar citas por WhatsApp.'
+    : '';
+  if (!confirm(`Desea ${accion} a ${p.nombre} como paciente problematico?${advertencia}`)) return;
+  try {
+    const resp = await apiFetch(`/api/pacientes/${p.id}/problematico`, {
+      method: 'POST',
+      body: JSON.stringify({ es_problematico: !p.es_problematico }),
+    });
+    if (resp.ok) cargarPacientes();
+  } catch (e) {
+    console.error('Error toggle problematico:', e);
   }
 }
 

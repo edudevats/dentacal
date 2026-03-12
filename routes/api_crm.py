@@ -81,6 +81,9 @@ def cambiar_estatus(paciente_id):
     data = request.get_json(force=True)
     nuevo_estatus = data.get('estatus')
 
+    if p.es_problematico and nuevo_estatus != 'baja':
+        return jsonify(error='Este paciente esta marcado como problematico. Debe desmarcarlo primero antes de cambiar su estatus.'), 400
+
     try:
         p.estatus_crm = EstatusCRM[nuevo_estatus]
     except KeyError:

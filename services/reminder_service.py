@@ -7,8 +7,16 @@ Tareas programadas con APScheduler.
 """
 import logging
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+
+TIMEZONE = ZoneInfo('America/Mexico_City')
+
+
+def _ahora_local():
+    """Retorna datetime actual en la timezone del consultorio."""
+    return datetime.now(TIMEZONE).replace(tzinfo=None)
 
 
 def setup_scheduler_jobs(scheduler, app):
@@ -77,7 +85,7 @@ def _job_recordatorios_24h(app):
         from models import Cita, EstatusCita, Recordatorio, TipoRecordatorio, EstatusRecordatorio
         from extensions import db
 
-        ahora = datetime.utcnow()
+        ahora = _ahora_local()
         ventana_inicio = ahora + timedelta(hours=23)
         ventana_fin = ahora + timedelta(hours=25)
 
@@ -89,6 +97,9 @@ def _job_recordatorios_24h(app):
         ).all()
 
         for cita in citas:
+            if cita.paciente and cita.paciente.es_problematico:
+                logger.info(f'Saltando recordatorio para paciente problematico: cita {cita.id}')
+                continue
             try:
                 from services.whatsapp_service import enviar_recordatorio_cita
                 enviado = enviar_recordatorio_cita(cita)
@@ -97,7 +108,7 @@ def _job_recordatorios_24h(app):
                 recordatorio = Recordatorio(
                     cita_id=cita.id,
                     tipo=TipoRecordatorio.confirmacion_24h,
-                    fecha_envio=datetime.utcnow(),
+                    fecha_envio=_ahora_local(),
                     status=status,
                 )
                 db.session.add(recordatorio)
@@ -115,7 +126,7 @@ def _job_postconsulta(app):
         from models import Cita, EstatusCita
         from extensions import db
 
-        ahora = datetime.utcnow()
+        ahora = _ahora_local()
         # Citas de hace 2 dias (±2 horas)
         hace_2_dias_inicio = ahora - timedelta(days=2, hours=2)
         hace_2_dias_fin = ahora - timedelta(days=1, hours=22)
@@ -128,6 +139,9 @@ def _job_postconsulta(app):
         ).all()
 
         for cita in citas:
+            if cita.paciente and cita.paciente.es_problematico:
+                logger.info(f'Saltando postconsulta para paciente problematico: cita {cita.id}')
+                continue
             try:
                 from services.whatsapp_service import enviar_postconsulta
                 enviado = enviar_postconsulta(cita)
@@ -144,9 +158,8 @@ def _job_resumen_doctores(app):
     """Envia resumen de citas del siguiente dia a cada doctor."""
     with app.app_context():
         from models import Cita, Dentista, EstatusCita
-        from datetime import date
 
-        manana = date.today() + timedelta(days=1)
+        manana = _ahora_local().date() + timedelta(days=1)
         inicio = datetime(manana.year, manana.month, manana.day, 0, 0, 0)
         fin = datetime(manana.year, manana.month, manana.day, 23, 59, 59)
         fecha_str = manana.strftime('%d/%m/%Y')
@@ -173,15 +186,15 @@ def _job_seguimientos_crm(app):
     with app.app_context():
         from models import Paciente, EstatusCRM, SeguimientoCRM, TipoSeguimiento, Cita
         from extensions import db
-        from datetime import date
 
-        hoy = date.today()
+        hoy = _ahora_local().date()
 
         # Pacientes de alta sin cita en 4+ meses: programar sonrisas magicas
         limite = datetime(hoy.year, hoy.month, hoy.day) - timedelta(days=120)
         pacientes_alta = Paciente.query.filter(
             Paciente.estatus_crm == EstatusCRM.alta,
             Paciente.eliminado == False,
+            Paciente.es_problematico == False,
             db.or_(
                 Paciente.ultima_cita < limite,
                 Paciente.ultima_cita == None,
@@ -199,7 +212,7 @@ def _job_seguimientos_crm(app):
                 seg = SeguimientoCRM(
                     paciente_id=paciente.id,
                     tipo=TipoSeguimiento.whatsapp_1,
-                    fecha_programada=datetime.utcnow(),
+                    fecha_programada=_ahora_local(),
                     notas='Auto: Recordatorio Sonrisas Magicas',
                 )
                 db.session.add(seg)
@@ -213,23 +226,20 @@ def _job_cumpleanos(app):
     with app.app_context():
         from models import Paciente, PlantillaMensaje
         from services.whatsapp_service import enviar_mensaje
-        from datetime import date
+        from extensions import db
 
-        mes_actual = date.today().month
-
-        pacientes = Paciente.query.filter(
-            db.func.strftime('%m', Paciente.fecha_nacimiento) == f'{mes_actual:02d}',
-            Paciente.eliminado == False,
-        ).all() if False else []  # Solo ejecutar el 1ro del mes
+        hoy = _ahora_local().date()
 
         # Solo el primero de cada mes
-        if date.today().day != 1:
+        if hoy.day != 1:
             return
 
-        from extensions import db
+        mes_actual = hoy.month
+
         pacientes = Paciente.query.filter(
             Paciente.fecha_nacimiento != None,
             Paciente.eliminado == False,
+            Paciente.es_problematico == False,
         ).all()
         # Filtrar por mes de nacimiento
         pacientes_cumple = [p for p in pacientes

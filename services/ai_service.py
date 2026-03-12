@@ -156,6 +156,7 @@ PROTOCOLO RECORDATORIO DE CONFIRMACION (cuando el paciente responde al recordato
 - Si confirma: actualiza el status de la cita
 
 REGLAS IMPORTANTES:
+- Si el paciente esta marcado como PROBLEMATICO (es_problematico=True), NO agendar citas bajo ninguna circunstancia. Responder amablemente que por el momento no es posible atenderle por este medio y que contacte directamente al consultorio.
 - SIEMPRE usar buscar_paciente al inicio para saber si es paciente nuevo o recurrente
 - Si el paciente es nuevo, usar registrar_paciente con sus datos
 - NUNCA inventar disponibilidad, siempre usar buscar_disponibilidad
@@ -223,7 +224,7 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
     api_key = current_app.config.get('GEMINI_API_KEY', '')
     model_name = current_app.config.get('AI_MODEL', 'gemini-3-flash-preview')
 
-    if not api_key or api_key.startswith('test') or api_key.startswith('AIzaSy'):
+    if not api_key or api_key.startswith('test'):
         return 'Hola! Gracias por contactarnos. En este momento el bot no esta disponible. Por favor llama al consultorio.'
 
     try:
@@ -247,7 +248,8 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
     # Contexto del paciente si ya lo tenemos
     contexto_paciente = ''
     if paciente:
-        contexto_paciente = f'\n[CONTEXTO: Paciente identificado: {paciente.nombre_completo}, ID={paciente.id}, estatus={paciente.estatus_crm.value}]'
+        problematico_ctx = ', PROBLEMATICO=SI - NO AGENDAR CITAS' if paciente.es_problematico else ''
+        contexto_paciente = f'\n[CONTEXTO: Paciente identificado: {paciente.nombre_completo}, ID={paciente.id}, estatus={paciente.estatus_crm.value}{problematico_ctx}]'
 
     system_prompt = _get_system_prompt() + contexto_paciente
 
@@ -352,6 +354,7 @@ def _tool_buscar_paciente(args):
         db.or_(
             Paciente.whatsapp == numero,
             Paciente.whatsapp == f'+{numero_limpio}',
+            Paciente.whatsapp == numero_limpio,
         ),
         Paciente.eliminado == False
     ).first()
@@ -360,17 +363,37 @@ def _tool_buscar_paciente(args):
         from models import Cita, EstatusCita
         ultima_cita = Cita.query.filter_by(paciente_id=paciente.id)\
             .order_by(Cita.fecha_inicio.desc()).first()
-        return {
+        result = {
             'encontrado': True,
             'paciente': paciente.to_dict(),
             'ultima_cita': ultima_cita.to_dict() if ultima_cita else None,
         }
+        if paciente.es_problematico:
+            result['es_problematico'] = True
+            result['mensaje'] = 'Este paciente esta marcado como problematico. NO se le pueden agendar citas.'
+        return result
     return {'encontrado': False}
 
 
 def _tool_registrar_paciente(args):
     from models import Paciente, EstatusCRM
     from extensions import db
+
+    # Verificar que no exista ya un paciente con ese WhatsApp
+    numero = args.get('numero_whatsapp', '')
+    numero_limpio = numero.replace('+', '').replace(' ', '')
+    existente = Paciente.query.filter(
+        db.or_(
+            Paciente.whatsapp == numero,
+            Paciente.whatsapp == f'+{numero_limpio}',
+            Paciente.whatsapp == numero_limpio,
+        ),
+        Paciente.eliminado == False
+    ).first()
+    if existente:
+        return {'ok': False, 'error': 'Ya existe un paciente con ese numero de WhatsApp',
+                'paciente_id': existente.id, 'nombre': existente.nombre_completo}
+
     p = Paciente(
         nombre=args.get('nombre', ''),
         whatsapp=args.get('numero_whatsapp', ''),
@@ -468,6 +491,11 @@ def _tool_crear_cita(args):
     from extensions import db
     from services.scheduler_service import verificar_disponibilidad
 
+    # Verificar que el paciente no sea problematico
+    paciente_check = Paciente.query.get(args['paciente_id'])
+    if paciente_check and paciente_check.es_problematico:
+        return {'error': 'No se pueden crear citas para este paciente. Favor de contactar al consultorio directamente.'}
+
     try:
         inicio = datetime.fromisoformat(args['fecha_inicio'])
         fin = datetime.fromisoformat(args['fecha_fin'])
@@ -546,6 +574,9 @@ def _tool_reagendar_cita(args):
     cita = Cita.query.get(args.get('cita_id'))
     if not cita:
         return {'error': 'Cita no encontrada'}
+
+    if cita.paciente and cita.paciente.es_problematico:
+        return {'error': 'No se puede reagendar. Favor de contactar al consultorio directamente.'}
 
     try:
         nueva_inicio = datetime.fromisoformat(args['nueva_fecha_inicio'])

@@ -212,6 +212,7 @@ class Paciente(db.Model):
     ultima_cita = db.Column(db.DateTime)
 
     eliminado = db.Column(db.Boolean, default=False)  # soft delete
+    es_problematico = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     citas = db.relationship('Cita', backref='paciente', lazy=True)
@@ -275,6 +276,7 @@ class Paciente(db.Model):
             'estatus_crm': self.estatus_crm.value if self.estatus_crm else 'prospecto',
             'ultima_cita': self.ultima_cita.isoformat() if self.ultima_cita else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'es_problematico': self.es_problematico,
         }
 
 

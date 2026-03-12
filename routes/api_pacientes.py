@@ -151,6 +151,10 @@ def actualizar(paciente_id):
         p.escuela = data['escuela']
     if 'notas' in data:
         p.notas = data['notas']
+    if 'es_problematico' in data:
+        p.es_problematico = bool(data['es_problematico'])
+        if p.es_problematico:
+            p.estatus_crm = EstatusCRM.baja
     if 'estatus_crm' in data:
         try:
             p.estatus_crm = EstatusCRM[data['estatus_crm']]
@@ -204,6 +208,18 @@ def eliminar(paciente_id):
     p.eliminado = True
     db.session.commit()
     return jsonify(ok=True)
+
+
+@pacientes_bp.route('/<int:paciente_id>/problematico', methods=['POST'])
+@login_required
+def toggle_problematico(paciente_id):
+    p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
+    data = request.get_json(force=True)
+    p.es_problematico = bool(data.get('es_problematico', not p.es_problematico))
+    if p.es_problematico:
+        p.estatus_crm = EstatusCRM.baja
+    db.session.commit()
+    return jsonify(p.to_dict())
 
 
 def _normalizar_numero(numero):

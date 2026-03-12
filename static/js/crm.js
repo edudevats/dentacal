@@ -68,6 +68,13 @@ function crearTarjetaCRM(p) {
   const nombre = document.createElement('div');
   nombre.className = 'patient-name';
   nombre.textContent = p.nombre_completo || p.nombre;
+  if (p.es_problematico) {
+    const warn = document.createElement('span');
+    warn.className = 'badge bg-danger ms-1';
+    warn.style.fontSize = '10px';
+    warn.textContent = 'PROBLEMATICO';
+    nombre.appendChild(warn);
+  }
   div.appendChild(nombre);
 
   const meta = document.createElement('div');
