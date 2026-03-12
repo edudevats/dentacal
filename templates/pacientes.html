@@ -142,9 +142,16 @@
               </select>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Recordatorio proxima visita</label>
-              <input type="month" id="p_proxima_visita" class="form-control">
-              <small class="text-muted">Se enviara un WhatsApp ese mes invitando a agendar</small>
+              <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" id="p_toggle_proxima_visita">
+                <label class="form-check-label fw-semibold" for="p_toggle_proxima_visita">
+                  <i class="bi bi-calendar-heart me-1"></i>Recordatorio proxima visita
+                </label>
+              </div>
+              <div id="p_proxima_visita_input_wrapper" style="display:none">
+                <input type="month" id="p_proxima_visita" class="form-control">
+                <small class="text-muted">Se enviara un WhatsApp ese mes invitando a agendar</small>
+              </div>
             </div>
             <div class="col-12">
               <label class="form-label">Notas</label>

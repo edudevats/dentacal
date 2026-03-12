@@ -4,11 +4,37 @@
 document.addEventListener('DOMContentLoaded', () => {
   cargarCRM();
   initCrmFilters();
+  initCrmBuscar();
 
   document.getElementById('btnGuardarCRM')?.addEventListener('click', guardarStatusCRM);
   document.getElementById('btnEnviarWA')?.addEventListener('click', enviarWhatsApp);
   document.getElementById('btnAgregarSeguimiento')?.addEventListener('click', agregarSeguimiento);
 });
+
+/* ── Search ── */
+function initCrmBuscar() {
+  const input = document.getElementById('crmBuscar');
+  if (!input) return;
+  input.addEventListener('input', () => filtrarTarjetasCRM());
+}
+
+function filtrarTarjetasCRM() {
+  const query = (document.getElementById('crmBuscar')?.value || '').toLowerCase().trim();
+  document.querySelectorAll('#crmKanban .crm-card').forEach(card => {
+    const texto = card.textContent.toLowerCase();
+    card.style.display = (!query || texto.includes(query)) ? '' : 'none';
+  });
+  // Update visible counts
+  ['alta', 'activo', 'prospecto', 'baja'].forEach(status => {
+    const col = document.getElementById(`col-${status}`);
+    if (!col) return;
+    const visible = col.querySelectorAll('.crm-card:not([style*="display: none"])').length;
+    const cnt = document.getElementById(`count-${status}`);
+    const stat = document.getElementById(`stat-${status}`);
+    if (cnt) cnt.textContent = visible;
+    if (stat) stat.textContent = visible;
+  });
+}
 
 /* ── Filter buttons ── */
 function initCrmFilters() {
@@ -58,6 +84,9 @@ async function cargarCRM() {
       col.appendChild(card);
     });
   });
+
+  // Re-apply search filter if there's text in the search box
+  filtrarTarjetasCRM();
 }
 
 function crearTarjetaCRM(p) {

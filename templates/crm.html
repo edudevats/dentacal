@@ -4,6 +4,14 @@
 
 {% block content %}
 <div class="p-3">
+  <!-- Search bar -->
+  <div class="mb-3">
+    <div class="input-group" style="max-width:400px">
+      <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+      <input type="text" id="crmBuscar" class="form-control" placeholder="Buscar paciente por nombre o telefono...">
+    </div>
+  </div>
+
   <!-- Filter buttons -->
   <div class="d-flex flex-wrap gap-2 mb-3" id="crmFilters">
     <button type="button" class="btn crm-filter-btn active" data-status="alta"

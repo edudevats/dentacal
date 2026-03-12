@@ -23,6 +23,15 @@ document.addEventListener('DOMContentLoaded', () => {
   cargarDoctores();
   initTutor();
 
+  // Toggle para mostrar/ocultar input de proxima visita
+  document.getElementById('p_toggle_proxima_visita')?.addEventListener('change', (e) => {
+    const iw = document.getElementById('p_proxima_visita_input_wrapper');
+    if (iw) {
+      iw.style.display = e.target.checked ? 'block' : 'none';
+      if (!e.target.checked) document.getElementById('p_proxima_visita').value = '';
+    }
+  });
+
   const inputTel = document.querySelector("#p_telefono");
   const inputWa = document.querySelector("#p_whatsapp");
   if (inputTel && window.intlTelInput) {
@@ -230,9 +239,19 @@ function abrirModalEditarPaciente(p) {
   document.getElementById('p_doctor').value = p.doctor_id || '';
   document.getElementById('p_estatus').value = p.estatus_crm || 'prospecto';
   document.getElementById('p_notas').value = p.notas || '';
-  // Proxima visita: YYYY-MM-DD → YYYY-MM
+  // Proxima visita: toggle + YYYY-MM-DD → YYYY-MM
+  const pvToggle = document.getElementById('p_toggle_proxima_visita');
+  const pvInputW = document.getElementById('p_proxima_visita_input_wrapper');
   const pv = document.getElementById('p_proxima_visita');
-  if (pv) pv.value = p.proximo_recordatorio_fecha ? p.proximo_recordatorio_fecha.slice(0, 7) : '';
+  if (p.proximo_recordatorio_fecha) {
+    if (pvToggle) pvToggle.checked = true;
+    if (pvInputW) pvInputW.style.display = 'block';
+    if (pv) pv.value = p.proximo_recordatorio_fecha.slice(0, 7);
+  } else {
+    if (pvToggle) pvToggle.checked = false;
+    if (pvInputW) pvInputW.style.display = 'none';
+    if (pv) pv.value = '';
+  }
 
   // Tutor vinculado
   document.getElementById('p_tutor_id').value = p.tutor_id || '';
@@ -263,6 +282,11 @@ function limpiarFormPaciente() {
   window._waModifiedByUser = false;
   const est = document.getElementById('p_estatus');
   if (est) est.value = 'prospecto';
+  // Reset toggle proxima visita
+  const pvt = document.getElementById('p_toggle_proxima_visita');
+  if (pvt) pvt.checked = false;
+  const pviw = document.getElementById('p_proxima_visita_input_wrapper');
+  if (pviw) pviw.style.display = 'none';
 
   // Reset tutor UI
   const edadEl = document.getElementById('edadDisplay');
