@@ -179,7 +179,7 @@ def actualizar(paciente_id):
         if nuevo_whatsapp and nuevo_whatsapp != p.whatsapp:
             existentes = Paciente.query.filter_by(whatsapp=nuevo_whatsapp, eliminado=False).all()
             existentes = [e for e in existentes if e.id != p.id]
-            if existentes and not data.get('grupo_familiar_id') and not p.grupo_familiar_id:
+            if existentes and not data.get('grupo_familiar_id') and not p.grupo_familiar_id and not data.get('crear_grupo_familiar'):
                 grupo = existentes[0].grupo_familiar
                 return jsonify(
                     error='duplicate_whatsapp',
@@ -187,6 +187,18 @@ def actualizar(paciente_id):
                     pacientes_existentes=[e.to_dict() for e in existentes],
                     grupo_familiar=grupo.to_dict() if grupo else None,
                 ), 409
+            # Crear grupo familiar si se confirmo desde el frontend
+            if existentes and data.get('crear_grupo_familiar'):
+                apellido = p.nombre.split()[-1] if p.nombre else 'Sin nombre'
+                grupo = GrupoFamiliar(nombre=f'Familia {apellido}', telefono_principal=nuevo_whatsapp)
+                db.session.add(grupo)
+                db.session.flush()
+                p.grupo_familiar_id = grupo.id
+                for e in existentes:
+                    if not e.grupo_familiar_id:
+                        e.grupo_familiar_id = grupo.id
+            elif data.get('grupo_familiar_id'):
+                p.grupo_familiar_id = data['grupo_familiar_id']
         p.whatsapp = nuevo_whatsapp
     if 'email' in data:
         p.email = data['email']

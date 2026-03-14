@@ -148,7 +148,7 @@ BOT_FUNCTION_DECLARATIONS = [
 ]
 
 
-def _get_system_prompt():
+def _get_system_prompt(numero_whatsapp=None):
     config = _get_config()
 
     # Fecha/hora actual en zona horaria de Mexico
@@ -165,11 +165,47 @@ def _get_system_prompt():
     fecha_legible = f"{dias_semana[ahora.weekday()]} {ahora.day} de {meses[ahora.month - 1]} de {ahora.year}"
     hora_legible = ahora.strftime('%H:%M')
     fecha_iso = ahora.strftime('%Y-%m-%d')
+    
+    # Inyectar contexto de familia si hay numero
+    contexto_familia = ""
+    if numero_whatsapp:
+        from models import Paciente, Cita, EstatusCita
+        variantes = _variantes_numero_mx(numero_whatsapp)
+        familia = Paciente.query.filter(
+            Paciente.whatsapp.in_(variantes),
+            Paciente.eliminado == False
+        ).all()
+        
+        if familia:
+            info_pacientes = []
+            es_problematico = False
+            for p in familia:
+                if p.es_problematico: es_problematico = True
+                proxima = Cita.query.filter(
+                    Cita.paciente_id == p.id,
+                    Cita.fecha_inicio >= datetime.utcnow(),
+                    Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada])
+                ).order_by(Cita.fecha_inicio).first()
+                
+                if proxima:
+                    estado_pago = "(Anticipo PAGADO)" if proxima.anticipo_pagado else "(Anticipo PENDIENTE DE PAGO)"
+                    str_proxima = f"Proxima cita: {proxima.fecha_inicio.strftime('%Y-%m-%d %H:%M')} {estado_pago}"
+                else:
+                    str_proxima = "Sin citas proximas"
+                    
+                info_pacientes.append(f"- {p.nombre_completo} (ID: {p.id}) | {str_proxima}")
+            
+            pacientes_str = "\n".join(info_pacientes)
+            contexto_familia = f"\n\nINFORMACION DEL CONTACTO ({numero_whatsapp}):\nTiene {len(familia)} paciente(s) registrado(s):\n{pacientes_str}"
+            if es_problematico:
+                contexto_familia += "\nALERTA IMPORTANTE: Este paciente (o alguien en su familia) esta marcado como PROBLEMATICO. NO AGENDES NINGUNA CITA por este medio. Pide amablemente que llame directamente al consultorio."
+        else:
+            contexto_familia = "\n\nINFORMACION DEL CONTACTO: Numero nuevo, no hay pacientes registrados todavia."
 
     return f"""Eres la recepcionista virtual de {config['nombre_consultorio']}, un consultorio dental pediatrico y de adultos ubicado en {config['direccion']}.
 
 FECHA Y HORA ACTUAL: Hoy es {fecha_legible}, son las {hora_legible} (fecha ISO: {fecha_iso}).
-Usa esta informacion para interpretar correctamente expresiones como "manana", "el proximo lunes", "esta semana", etc.
+Usa esta informacion para interpretar correctamente expresiones como "manana", "el proximo lunes", "esta semana", etc.{contexto_familia}
 
 PERSONALIDAD: Amable, profesional, con lenguaje calido y uso de emojis apropiados. Siempre en Espanol.
 
@@ -187,6 +223,18 @@ PROTOCOLO DE CITAS - PRIMERA VEZ:
    Tarjeta: {config['tarjeta']}
    CLABE: {config['clabe']}
 6. Cuando confirmen el pago, crea la cita con crear_solicitud_cita y confirma: "Nos vemos el dia [fecha] de [hora_inicio] a las [hora_fin]"
+
+MANEJO DE ANTICIPOS Y PAGOS:
+- Al ver el perfil del paciente suministrado al inicio, revisa el estado de su proxima cita.
+- Si dice "(Anticipo PENDIENTE DE PAGO)", recuerda amablemente que es necesario enviar el comprobante de pago con 24 hrs de anticipacion para garantizar el espacio. Si lo solicitan, proporcionales los datos bancarios nuevamente.
+- Si dice "(Anticipo PAGADO)", confirma al paciente alegremente que su cita esta 100% confirmada y asegurada.
+
+MANEJO DE FAMILIAS Y MULTIPLES PACIENTES:
+- Es muy comun que un padre/madre use su mismo numero de WhatsApp para agendar citas de varios hijos.
+- Al usar buscar_paciente, el sistema te devolvera TODOS los pacientes asociados a ese numero, junto con las proximas citas de CADA UNO.
+- Si ves multiples pacientes en la respuesta, SIEMPRE pregunta amablemente para que miembro de la familia es la cita o consulta que desean realizar (ej: "Veo que tengo registrados a Juanito y a Pedrito, para quien seria la cita?").
+- Usa el paciente_id correcto de ese miembro especifico al agendar o buscar historial.
+- Si el padre/madre pregunta si tienen cita, revisa las proximas citas de TODOS los pacientes listados bajo ese numero.
 
 AGENDAMIENTO AUTOMATICO DE CONSULTORIO Y SUGERENCIAS:
 - NUNCA preguntes al paciente en que consultorio quiere su cita. El consultorio se asigna automaticamente segun disponibilidad.
@@ -292,9 +340,9 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
     contexto_paciente = ''
     if paciente:
         problematico_ctx = ', PROBLEMATICO=SI - NO AGENDAR CITAS' if paciente.es_problematico else ''
-        contexto_paciente = f'\n[CONTEXTO: Paciente identificado: {paciente.nombre_completo}, ID={paciente.id}, estatus={paciente.estatus_crm.value}{problematico_ctx}]'
+        contexto_paciente = f'\n[CONTEXTO: Paciente identificado que inicio chat: {paciente.nombre_completo}, ID={paciente.id}, estatus={paciente.estatus_crm.value}{problematico_ctx}]'
 
-    system_prompt = _get_system_prompt() + contexto_paciente
+    system_prompt = _get_system_prompt(numero_whatsapp=numero_telefono) + contexto_paciente
 
     # Configurar tools y config para el nuevo SDK
     tools = types.Tool(function_declarations=BOT_FUNCTION_DECLARATIONS)
@@ -429,32 +477,42 @@ def _tool_buscar_paciente(args):
     if not pacientes:
         return {'encontrado': False}
 
-    paciente = pacientes[0]
-
     from models import Cita, EstatusCita
-    ultima_cita = Cita.query.filter_by(paciente_id=paciente.id)\
-        .order_by(Cita.fecha_inicio.desc()).first()
-    proxima_cita = Cita.query.filter(
-        Cita.paciente_id == paciente.id,
-        Cita.fecha_inicio >= datetime.utcnow(),
-        Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
-    ).order_by(Cita.fecha_inicio).first()
+    
+    familia_info = []
+    for paciente in pacientes:
+        ultima_cita = Cita.query.filter_by(paciente_id=paciente.id)\
+            .order_by(Cita.fecha_inicio.desc()).first()
+        proxima_cita = Cita.query.filter(
+            Cita.paciente_id == paciente.id,
+            Cita.fecha_inicio >= datetime.utcnow(),
+            Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
+        ).order_by(Cita.fecha_inicio).first()
+
+        info = {
+            'id': paciente.id,
+            'nombre': paciente.nombre_completo,
+            'es_menor': paciente.es_menor_edad,
+            'problema': paciente.es_problematico,
+            'ultima_cita': ultima_cita.to_dict() if ultima_cita else None,
+            'proxima_cita': proxima_cita.to_dict() if proxima_cita else None,
+        }
+        familia_info.append(info)
+
     result = {
         'encontrado': True,
-        'paciente': paciente.to_dict(),
-        'ultima_cita': ultima_cita.to_dict() if ultima_cita else None,
-        'proxima_cita': proxima_cita.to_dict() if proxima_cita else None,
+        'mensaje': f'Se encontraron {len(pacientes)} pacientes asociados a este numero.',
+        'pacientes': familia_info,
     }
-    if paciente.es_problematico:
-        result['es_problematico'] = True
-        result['mensaje'] = 'Este paciente esta marcado como problematico. NO se le pueden agendar citas.'
-    # Informar al bot si hay multiples pacientes (grupo familiar)
+
+    # Mantener retrocompatibilidad agregando la info del paciente principal en la raiz
+    paciente_principal = pacientes[0]
+    result['paciente'] = paciente_principal.to_dict()
+    result['es_problematico'] = any(p['problema'] for p in familia_info)
+    
     if len(pacientes) > 1:
-        result['familia'] = [
-            {'id': p.id, 'nombre': p.nombre_completo, 'es_menor_edad': p.es_menor_edad}
-            for p in pacientes
-        ]
-        result['mensaje_familia'] = f'Hay {len(pacientes)} pacientes registrados con este numero. Pregunta para quien es la cita.'
+        result['mensaje_familia'] = f'Hay {len(pacientes)} pacientes usando este numero. Revisa la lista de pacientes devuelta para ver quien tiene citas proximas y pregunta al usuario para quien es la cita o accion que desea realizar.'
+
     return result
 
 
