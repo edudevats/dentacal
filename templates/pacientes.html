@@ -34,7 +34,7 @@
           <tr>
             <th>Paciente</th>
             <th>WhatsApp</th>
-            <th>Tutor</th>
+            <th>Familia / Tutor</th>
             <th>Status CRM</th>
             <th>Ultima cita</th>
             <th>Acciones</th>
@@ -82,6 +82,18 @@
             <div class="col-md-4">
               <label class="form-label">WhatsApp</label>
               <input type="tel" id="p_whatsapp" class="form-control" placeholder="+521XXXXXXXXXX">
+            </div>
+            <!-- Seccion Grupo Familiar -->
+            <div class="col-12" id="familiaSection" style="display:none;">
+              <div class="card border-info">
+                <div class="card-header bg-info bg-opacity-10 py-2 d-flex align-items-center">
+                  <i class="bi bi-people me-1"></i>
+                  <strong id="familiaGrupoNombre">Grupo Familiar</strong>
+                </div>
+                <div class="card-body py-2">
+                  <div id="familiaMiembros" class="small"></div>
+                </div>
+              </div>
             </div>
             <!-- Seccion Tutor (visible para menores o si ya tiene datos de tutor) -->
             <div class="col-12" id="tutorSection">

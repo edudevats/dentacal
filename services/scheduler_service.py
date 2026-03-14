@@ -67,7 +67,6 @@ def obtener_slots_disponibles(fecha, dentista_id, consultorio_id=None,
     # Generar slots
     consultorios = []
     if consultorio_id:
-        from models import Consultorio
         c = Consultorio.query.filter_by(id=consultorio_id, activo=True).first()
         if c:
             consultorios = [c]

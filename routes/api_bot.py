@@ -34,27 +34,29 @@ def listar_conversaciones():
 
     ultimo_por_numero = {m.numero_telefono: m for m in ultimos}
 
-    # Mapa de pacientes por variantes del número
-    pacientes_map = {}
+    # Mapa de pacientes por variantes del número (soporta multiples por numero)
+    from routes.webhook_whatsapp import _variantes_numero_mx
+    pacientes_map = {}  # numero -> list[Paciente]
     for p in Paciente.query.filter(
         Paciente.eliminado == False,
         Paciente.whatsapp.isnot(None)
     ).all():
-        wa = p.whatsapp
-        wa_limpio = wa.replace('+', '').replace(' ', '')
-        for variante in {wa, wa_limpio, f'+{wa_limpio}'}:
-            if variante:
-                pacientes_map[variante] = p
+        for variante in _variantes_numero_mx(p.whatsapp):
+            pacientes_map.setdefault(variante, []).append(p)
 
     resultado = []
     for r in sorted(stats, key=lambda x: x.ultima_interaccion or '', reverse=True):
-        paciente = pacientes_map.get(r.numero_telefono)
-        if not paciente:
-            n_limpio = r.numero_telefono.replace('+', '').replace(' ', '')
-            paciente = pacientes_map.get(n_limpio) or pacientes_map.get(f'+{n_limpio}')
+        # Buscar paciente usando todas las variantes del número de la conversación
+        pacientes = pacientes_map.get(r.numero_telefono, [])
+        if not pacientes:
+            for v in _variantes_numero_mx(r.numero_telefono):
+                pacientes = pacientes_map.get(v, [])
+                if pacientes:
+                    break
 
+        paciente = pacientes[0] if pacientes else None
         ultimo = ultimo_por_numero.get(r.numero_telefono)
-        resultado.append({
+        item = {
             'numero_telefono': r.numero_telefono,
             'ultima_interaccion': r.ultima_interaccion.isoformat() if r.ultima_interaccion else None,
             'total_mensajes': r.total_mensajes,
@@ -63,7 +65,15 @@ def listar_conversaciones():
             'paciente_id': paciente.id if paciente else None,
             'paciente_nombre': paciente.nombre_completo if paciente else None,
             'paciente_estatus_crm': paciente.estatus_crm.value if paciente and paciente.estatus_crm else None,
-        })
+        }
+        if len(pacientes) > 1:
+            grupo = paciente.grupo_familiar if paciente else None
+            item['grupo_familiar'] = grupo.nombre if grupo else None
+            item['familia'] = [
+                {'id': p.id, 'nombre': p.nombre_completo}
+                for p in pacientes
+            ]
+        resultado.append(item)
 
     return jsonify(resultado)
 

@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from flask import Blueprint, request, Response
 from extensions import db, csrf
 from models import ConversacionWhatsapp, Paciente
@@ -94,17 +95,64 @@ def _validar_firma_twilio():
         pass
 
 
+def _variantes_numero_mx(numero):
+    """Genera todas las variantes posibles de un numero mexicano.
+    Twilio envia +521XXXXXXXXXX pero en la BD puede estar como
+    +52XXXXXXXXXX, 52XXXXXXXXXX, XXXXXXXXXX, +521XXXXXXXXXX, etc.
+    """
+    limpio = numero.replace('+', '').replace(' ', '').replace('-', '')
+    # Extraer los 10 digitos base del numero mexicano
+    if limpio.startswith('521') and len(limpio) == 13:
+        base10 = limpio[3:]  # quitar 521
+    elif limpio.startswith('52') and len(limpio) == 12:
+        base10 = limpio[2:]  # quitar 52
+    elif len(limpio) == 10:
+        base10 = limpio
+    else:
+        # Numero no mexicano o formato desconocido, retornar variantes basicas
+        return list(set([numero, f'+{limpio}', limpio]))
+
+    return list(set([
+        base10,                # 5512345678
+        f'52{base10}',         # 5252345678  (12 digitos)
+        f'+52{base10}',        # +5252345678
+        f'521{base10}',        # 52152345678 (13 digitos)
+        f'+521{base10}',       # +52152345678
+        numero,                # valor original tal cual
+    ]))
+
+
 def _buscar_o_registrar_paciente(numero):
-    """Busca el paciente por whatsapp. Retorna None si no existe."""
-    numero_limpio = numero.replace('+', '').replace(' ', '')
-    return Paciente.query.filter(
-        db.or_(
-            Paciente.whatsapp == numero,
-            Paciente.whatsapp == f'+{numero_limpio}',
-            Paciente.whatsapp == numero_limpio,
-        ),
+    """Busca el paciente por whatsapp. Si hay multiples (grupo familiar),
+    retorna el mas recientemente activo."""
+    variantes = _variantes_numero_mx(numero)
+    pacientes = Paciente.query.filter(
+        Paciente.whatsapp.in_(variantes),
         Paciente.eliminado == False
-    ).first()
+    ).all()
+
+    if not pacientes:
+        return None
+    if len(pacientes) == 1:
+        return pacientes[0]
+
+    # Multiples pacientes comparten numero: elegir el mas recientemente activo
+    from sqlalchemy import func as sqlfunc
+    ultimo_msg = db.session.query(
+        ConversacionWhatsapp.paciente_id,
+        sqlfunc.max(ConversacionWhatsapp.timestamp).label('ultima')
+    ).filter(
+        ConversacionWhatsapp.paciente_id.in_([p.id for p in pacientes])
+    ).group_by(ConversacionWhatsapp.paciente_id).all()
+
+    if ultimo_msg:
+        mas_reciente_id = max(ultimo_msg, key=lambda x: x.ultima).paciente_id
+        for p in pacientes:
+            if p.id == mas_reciente_id:
+                return p
+
+    # Fallback: paciente mas reciente
+    return max(pacientes, key=lambda p: p.created_at or datetime.min)
 
 
 def _guardar_mensaje(numero, paciente_id, mensaje, es_bot=False):

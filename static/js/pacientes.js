@@ -130,10 +130,22 @@ function crearFilaPaciente(p) {
     tdNombre.appendChild(mkEl('div', { text: 'Nac: ' + p.fecha_nacimiento, cls: 'text-muted small' }));
   }
 
-  const tdWa = mkEl('td', { text: p.whatsapp || p.telefono || '\u2014' });
+  const tdWa = document.createElement('td');
+  tdWa.textContent = p.whatsapp || p.telefono || '\u2014';
+  if (p.grupo_familiar_nombre) {
+    tdWa.appendChild(mkEl('span', {
+      text: p.grupo_familiar_nombre,
+      cls: 'badge bg-info text-dark ms-1',
+      style: 'font-size:10px',
+    }));
+  }
 
   const tdTutor = document.createElement('td');
-  if (p.tutor_id && p.tutor_nombre) {
+  if (p.grupo_familiar_miembros && p.grupo_familiar_miembros.length > 0) {
+    tdTutor.appendChild(mkEl('i', { cls: 'bi bi-people text-info me-1' }));
+    const nombres = p.grupo_familiar_miembros.map(m => m.nombre).join(', ');
+    tdTutor.appendChild(document.createTextNode(nombres));
+  } else if (p.tutor_id && p.tutor_nombre) {
     tdTutor.appendChild(mkEl('i', { cls: 'bi bi-link-45deg text-success me-1' }));
     tdTutor.appendChild(document.createTextNode(p.tutor_nombre));
   } else {
@@ -253,6 +265,24 @@ function abrirModalEditarPaciente(p) {
     if (pv) pv.value = '';
   }
 
+  // Grupo familiar
+  const familiaSection = document.getElementById('familiaSection');
+  if (p.grupo_familiar_id && p.grupo_familiar_miembros && p.grupo_familiar_miembros.length > 0) {
+    familiaSection.style.display = 'block';
+    document.getElementById('familiaGrupoNombre').textContent = p.grupo_familiar_nombre || 'Grupo Familiar';
+    const miembrosDiv = document.getElementById('familiaMiembros');
+    while (miembrosDiv.firstChild) miembrosDiv.removeChild(miembrosDiv.firstChild);
+    p.grupo_familiar_miembros.forEach(m => {
+      const badge = mkEl('span', {
+        text: m.nombre + (m.es_menor_edad ? ' (menor)' : ''),
+        cls: 'badge bg-light text-dark border me-1 mb-1',
+      });
+      miembrosDiv.appendChild(badge);
+    });
+  } else {
+    familiaSection.style.display = 'none';
+  }
+
   // Tutor vinculado
   document.getElementById('p_tutor_id').value = p.tutor_id || '';
   document.getElementById('p_tutor_search').value = '';
@@ -295,6 +325,10 @@ function limpiarFormPaciente() {
   if (card) card.style.display = 'none';
   const vinc = document.getElementById('tutorVinculado');
   if (vinc) vinc.style.display = 'none';
+
+  // Reset grupo familiar
+  const familiaSection = document.getElementById('familiaSection');
+  if (familiaSection) familiaSection.style.display = 'none';
 }
 
 async function guardarPaciente() {
@@ -322,12 +356,38 @@ async function guardarPaciente() {
   const resp = await apiFetch(url, { method, body: JSON.stringify(body) });
   const data = await resp.json();
   const msg = document.getElementById('pacienteMsg');
+
+  if (resp.status === 409 && data.error === 'duplicate_whatsapp') {
+    const nombres = (data.pacientes_existentes || []).map(p => p.nombre).join(', ');
+    const confirmar = confirm(
+      `Ya existe(n) paciente(s) con ese WhatsApp: ${nombres}.\n\n` +
+      `Desea agregar a "${body.nombre}" como miembro del grupo familiar?`
+    );
+    if (confirmar) {
+      if (data.grupo_familiar) {
+        body.grupo_familiar_id = data.grupo_familiar.id;
+      } else {
+        body.crear_grupo_familiar = true;
+      }
+      const resp2 = await apiFetch(url, { method, body: JSON.stringify(body) });
+      if (resp2.ok) {
+        bootstrap.Modal.getInstance(document.getElementById('modalPaciente'))?.hide();
+        cargarPacientes();
+      } else {
+        const data2 = await resp2.json();
+        msg.className = 'mt-2 text-danger small';
+        msg.textContent = data2.error || 'Error al guardar';
+      }
+    }
+    return;
+  }
+
   if (resp.ok) {
     bootstrap.Modal.getInstance(document.getElementById('modalPaciente'))?.hide();
     cargarPacientes();
   } else {
     msg.className = 'mt-2 text-danger small';
-    msg.textContent = data.error || 'Error al guardar';
+    msg.textContent = data.mensaje || data.error || 'Error al guardar';
   }
 }
 

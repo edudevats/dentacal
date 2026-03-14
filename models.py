@@ -184,7 +184,33 @@ class TipoCita(db.Model):
             'nombre': self.nombre,
             'duracion_minutos': self.duracion_minutos,
             'precio': float(self.precio),
+            'descripcion': self.descripcion or '',
+            'color': self.color,
             'requiere_anticipo': self.requiere_anticipo,
+        }
+
+
+class GrupoFamiliar(db.Model):
+    __tablename__ = 'grupos_familiares'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(200), nullable=False)
+    telefono_principal = db.Column(db.String(20), index=True)
+    notas = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    miembros = db.relationship('Paciente', backref='grupo_familiar', lazy=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'nombre': self.nombre,
+            'telefono_principal': self.telefono_principal,
+            'total_miembros': sum(1 for m in self.miembros if not m.eliminado),
+            'miembros': [
+                {'id': m.id, 'nombre': m.nombre_completo, 'es_menor_edad': m.es_menor_edad}
+                for m in self.miembros if not m.eliminado
+            ],
         }
 
 
@@ -195,9 +221,10 @@ class Paciente(db.Model):
     nombre = db.Column(db.String(100), nullable=False)
     fecha_nacimiento = db.Column(db.Date)
     telefono = db.Column(db.String(20))
-    whatsapp = db.Column(db.String(20), unique=True)
+    whatsapp = db.Column(db.String(20), index=True)
     email = db.Column(db.String(120))
     doctor_id = db.Column(db.Integer, db.ForeignKey('dentistas.id'), nullable=True)
+    grupo_familiar_id = db.Column(db.Integer, db.ForeignKey('grupos_familiares.id'), nullable=True)
 
     # Tutor (pacientes pediatricos)
     tutor_id = db.Column(db.Integer, db.ForeignKey('pacientes.id'), nullable=True)
@@ -280,6 +307,12 @@ class Paciente(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'es_problematico': self.es_problematico,
             'proximo_recordatorio_fecha': self.proximo_recordatorio_fecha.isoformat() if self.proximo_recordatorio_fecha else None,
+            'grupo_familiar_id': self.grupo_familiar_id,
+            'grupo_familiar_nombre': self.grupo_familiar.nombre if self.grupo_familiar else None,
+            'grupo_familiar_miembros': [
+                {'id': m.id, 'nombre': m.nombre_completo, 'es_menor_edad': m.es_menor_edad}
+                for m in self.grupo_familiar.miembros if not m.eliminado and m.id != self.id
+            ] if self.grupo_familiar else [],
         }
 
 

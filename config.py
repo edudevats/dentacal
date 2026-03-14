@@ -32,7 +32,7 @@ class Config:
 
     # Bot IA
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
-    AI_MODEL = 'gemini-3-flash-preview'
+    AI_MODEL = 'gemini-3.1-flash-lite-preview'
 
     # Twilio
     TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')

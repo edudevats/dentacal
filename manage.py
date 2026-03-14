@@ -83,6 +83,74 @@ def run_tests(path):
     raise SystemExit(result.returncode)
 
 
+@app.cli.command('migrar_grupos')
+def migrar_grupos():
+    """Crea grupos familiares a partir de relaciones tutor_id existentes
+    y pacientes que compartan numero de WhatsApp."""
+    from models import Paciente, GrupoFamiliar
+    with app.app_context():
+        grupos_creados = 0
+        pacientes_asignados = 0
+
+        # Paso 1: Agrupar por tutor_id
+        menores = Paciente.query.filter(
+            Paciente.tutor_id.isnot(None),
+            Paciente.eliminado == False,
+            Paciente.grupo_familiar_id == None,
+        ).all()
+
+        for menor in menores:
+            tutor = db.session.get(Paciente, menor.tutor_id)
+            if not tutor or tutor.eliminado:
+                continue
+
+            if tutor.grupo_familiar_id:
+                # Tutor ya tiene grupo: asignar menor al mismo
+                menor.grupo_familiar_id = tutor.grupo_familiar_id
+                pacientes_asignados += 1
+            else:
+                # Crear grupo nuevo
+                apellido = tutor.nombre.split()[-1] if tutor.nombre else 'Sin nombre'
+                tel = tutor.whatsapp or tutor.telefono or ''
+                grupo = GrupoFamiliar(nombre=f'Familia {apellido}', telefono_principal=tel)
+                db.session.add(grupo)
+                db.session.flush()
+                tutor.grupo_familiar_id = grupo.id
+                menor.grupo_familiar_id = grupo.id
+                grupos_creados += 1
+                pacientes_asignados += 2
+
+        # Paso 2: Agrupar pacientes que compartan mismo whatsapp (sin grupo aun)
+        from sqlalchemy import func
+        duplicados = db.session.query(
+            Paciente.whatsapp
+        ).filter(
+            Paciente.eliminado == False,
+            Paciente.whatsapp.isnot(None),
+            Paciente.whatsapp != '',
+            Paciente.grupo_familiar_id == None,
+        ).group_by(Paciente.whatsapp).having(func.count(Paciente.id) > 1).all()
+
+        for (wa_num,) in duplicados:
+            pacs = Paciente.query.filter_by(
+                whatsapp=wa_num, eliminado=False, grupo_familiar_id=None
+            ).all()
+            if len(pacs) < 2:
+                continue
+            apellido = pacs[0].nombre.split()[-1] if pacs[0].nombre else 'Sin nombre'
+            grupo = GrupoFamiliar(nombre=f'Familia {apellido}', telefono_principal=wa_num)
+            db.session.add(grupo)
+            db.session.flush()
+            for p in pacs:
+                p.grupo_familiar_id = grupo.id
+                pacientes_asignados += 1
+            grupos_creados += 1
+
+        db.session.commit()
+        click.echo(f'{grupos_creados} grupo(s) familiar(es) creado(s).')
+        click.echo(f'{pacientes_asignados} paciente(s) asignado(s) a grupos.')
+
+
 @app.cli.command('shell')
 def shell():
     """Shell interactivo con contexto de la app."""

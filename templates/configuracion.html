@@ -135,6 +135,12 @@
 
     <!-- Tab Tipos de Cita -->
     <div class="tab-pane fade" id="tabTipos">
+      <div class="d-flex mb-2">
+        <button class="btn btn-primary btn-sm ms-auto" data-bs-toggle="modal" data-bs-target="#modalTipoCita"
+          onclick="prepararNuevoTipoCita()">
+          <i class="bi bi-plus-circle me-1"></i>Nuevo tipo de cita
+        </button>
+      </div>
       <div class="card shadow-sm">
         <div class="card-body p-0">
           <table class="table mb-0">
@@ -245,6 +251,56 @@
     </div>
   </div>
 </div>
+<!-- Modal Tipo de Cita -->
+<div class="modal fade" id="modalTipoCita" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="tipoCitaTitulo">Nuevo Tipo de Cita</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="tc_id">
+        <div class="row g-3">
+          <div class="col-md-8">
+            <label class="form-label">Nombre <span class="text-danger">*</span></label>
+            <input type="text" id="tc_nombre" class="form-control" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Color</label>
+            <input type="color" id="tc_color" class="form-control form-control-color" value="#3788d8">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Duracion (min)</label>
+            <input type="number" id="tc_duracion" class="form-control" min="5" step="5" value="60">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Precio</label>
+            <div class="input-group">
+              <span class="input-group-text">$</span>
+              <input type="number" id="tc_precio" class="form-control" min="0" step="50" value="0">
+            </div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Descripcion</label>
+            <input type="text" id="tc_descripcion" class="form-control" maxlength="200">
+          </div>
+          <div class="col-12">
+            <div class="form-check">
+              <input type="checkbox" class="form-check-input" id="tc_anticipo">
+              <label class="form-check-label" for="tc_anticipo">Requiere anticipo</label>
+            </div>
+          </div>
+        </div>
+        <div id="tipoCitaMsg" class="mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarTipoCita()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -317,6 +373,66 @@
       const d = await resp.json();
       msg.className = 'mt-2 text-danger small';
       msg.textContent = d.error || 'Error al guardar';
+    }
+  }
+
+  // Tipos de Cita
+  function prepararNuevoTipoCita() {
+    document.getElementById('tc_id').value = '';
+    document.getElementById('tc_nombre').value = '';
+    document.getElementById('tc_color').value = '#3788d8';
+    document.getElementById('tc_duracion').value = '60';
+    document.getElementById('tc_precio').value = '0';
+    document.getElementById('tc_descripcion').value = '';
+    document.getElementById('tc_anticipo').checked = false;
+    document.getElementById('tipoCitaTitulo').textContent = 'Nuevo Tipo de Cita';
+    document.getElementById('tipoCitaMsg').textContent = '';
+  }
+
+  async function editarTipoCita(id) {
+    const resp = await apiFetch(`/api/configuracion/tipos-cita`);
+    const tipos = await resp.json();
+    const t = tipos.find(x => x.id === id);
+    if (!t) return;
+    document.getElementById('tc_id').value = t.id;
+    document.getElementById('tc_nombre').value = t.nombre;
+    document.getElementById('tc_color').value = t.color || '#3788d8';
+    document.getElementById('tc_duracion').value = t.duracion_minutos;
+    document.getElementById('tc_precio').value = t.precio;
+    document.getElementById('tc_descripcion').value = t.descripcion || '';
+    document.getElementById('tc_anticipo').checked = t.requiere_anticipo;
+    document.getElementById('tipoCitaTitulo').textContent = 'Editar Tipo de Cita';
+    document.getElementById('tipoCitaMsg').textContent = '';
+    new bootstrap.Modal(document.getElementById('modalTipoCita')).show();
+  }
+
+  async function guardarTipoCita() {
+    const id = document.getElementById('tc_id').value;
+    const nombre = document.getElementById('tc_nombre').value.trim();
+    const msg = document.getElementById('tipoCitaMsg');
+    if (!nombre) {
+      msg.className = 'mt-2 text-danger small';
+      msg.textContent = 'El nombre es requerido';
+      return;
+    }
+    const body = {
+      nombre,
+      duracion_minutos: parseInt(document.getElementById('tc_duracion').value) || 60,
+      precio: parseFloat(document.getElementById('tc_precio').value) || 0,
+      descripcion: document.getElementById('tc_descripcion').value,
+      color: document.getElementById('tc_color').value,
+      requiere_anticipo: document.getElementById('tc_anticipo').checked,
+    };
+    const url = id ? `/api/configuracion/tipos-cita/${id}` : '/api/configuracion/tipos-cita';
+    const method = id ? 'PUT' : 'POST';
+    const resp = await apiFetch(url, { method, body: JSON.stringify(body) });
+    if (resp.ok) {
+      bootstrap.Modal.getInstance(document.getElementById('modalTipoCita'))?.hide();
+      location.reload();
+    } else {
+      const data = await resp.json();
+      msg.className = 'mt-2 text-danger small';
+      msg.textContent = data.error || 'Error al guardar';
     }
   }
 

@@ -4,6 +4,7 @@ Usa google-genai SDK con Gemini y function calling para gestionar citas via What
 """
 import json
 import logging
+import traceback
 from datetime import datetime, timedelta
 from flask import current_app
 
@@ -53,13 +54,17 @@ BOT_FUNCTION_DECLARATIONS = [
     },
     {
         "name": "buscar_disponibilidad",
-        "description": "Busca horarios disponibles para una cita en una fecha especifica.",
+        "description": "Busca horarios disponibles para una cita en una fecha especifica. Si se indica hora_preferida y no esta disponible, devuelve la alternativa mas cercana en el mismo dia y en los siguientes dias.",
         "parameters": {
             "type": "object",
             "properties": {
                 "fecha": {
                     "type": "string",
                     "description": "Fecha en formato YYYY-MM-DD"
+                },
+                "hora_preferida": {
+                    "type": "string",
+                    "description": "Hora preferida del paciente en formato HH:MM (ej: 10:00). Si se proporciona y no esta disponible, el sistema sugerira la alternativa mas cercana."
                 },
                 "dentista_id": {
                     "type": "integer",
@@ -145,7 +150,26 @@ BOT_FUNCTION_DECLARATIONS = [
 
 def _get_system_prompt():
     config = _get_config()
+
+    # Fecha/hora actual en zona horaria de Mexico
+    try:
+        import pytz
+        tz = pytz.timezone('America/Mexico_City')
+        ahora = datetime.now(tz)
+    except Exception:
+        ahora = datetime.now()
+
+    dias_semana = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo']
+    meses = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+             'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+    fecha_legible = f"{dias_semana[ahora.weekday()]} {ahora.day} de {meses[ahora.month - 1]} de {ahora.year}"
+    hora_legible = ahora.strftime('%H:%M')
+    fecha_iso = ahora.strftime('%Y-%m-%d')
+
     return f"""Eres la recepcionista virtual de {config['nombre_consultorio']}, un consultorio dental pediatrico y de adultos ubicado en {config['direccion']}.
+
+FECHA Y HORA ACTUAL: Hoy es {fecha_legible}, son las {hora_legible} (fecha ISO: {fecha_iso}).
+Usa esta informacion para interpretar correctamente expresiones como "manana", "el proximo lunes", "esta semana", etc.
 
 PERSONALIDAD: Amable, profesional, con lenguaje calido y uso de emojis apropiados. Siempre en Espanol.
 
@@ -163,6 +187,12 @@ PROTOCOLO DE CITAS - PRIMERA VEZ:
    Tarjeta: {config['tarjeta']}
    CLABE: {config['clabe']}
 6. Cuando confirmen el pago, crea la cita con crear_solicitud_cita y confirma: "Nos vemos el dia [fecha] de [hora_inicio] a las [hora_fin]"
+
+AGENDAMIENTO AUTOMATICO DE CONSULTORIO Y SUGERENCIAS:
+- NUNCA preguntes al paciente en que consultorio quiere su cita. El consultorio se asigna automaticamente segun disponibilidad.
+- Cuando el paciente pregunte que horarios tienen disponibles un dia especifico, usa buscar_disponibilidad con esa fecha y muestrale TODOS los horarios libres que devuelva el sistema.
+- Si el paciente pide un horario especifico, usa buscar_disponibilidad con la fecha y hora_preferida. Si el horario solicitado NO esta disponible, el sistema te devolvera automaticamente la alternativa mas cercana. Presentala de forma profesional, por ejemplo: "Lamento informarle que ese horario no esta disponible, pero tengo un espacio libre el [dia] a las [hora]. Le gustaria agendar en este horario o prefiere que busquemos otra opcion?"
+- Al usar crear_solicitud_cita, SIEMPRE usa el consultorio_id que te devolvio buscar_disponibilidad en el slot elegido. El paciente NO necesita saber el nombre del consultorio.
 
 PROTOCOLO RECORDATORIO DE CONFIRMACION (cuando el paciente responde al recordatorio de 24h):
 - Si el paciente confirma asistencia (dice "si", "confirmo", "ahi estaremos", "si asistire", etc.): usar confirmar_asistencia_cita con el paciente_id para marcar la cita como confirmada
@@ -235,7 +265,7 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
     Retorna la respuesta en texto.
     """
     api_key = current_app.config.get('GEMINI_API_KEY', '')
-    model_name = current_app.config.get('AI_MODEL', 'gemini-3-flash-preview')
+    model_name = current_app.config.get('AI_MODEL', 'gemini-3.1-flash-lite-preview')
 
     if not api_key or api_key.startswith('test'):
         return 'Hola! Gracias por contactarnos. En este momento el bot no esta disponible. Por favor llama al consultorio.'
@@ -326,6 +356,7 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
 
     except Exception as e:
         logger.error(f'Error procesando mensaje con Gemini: {e}')
+        logger.error(f'Traceback completo:\n{traceback.format_exc()}')
         return 'Lo siento, no pude procesar tu solicitud. Por favor contacta al consultorio directamente.'
 
     return 'Lo siento, no pude procesar tu solicitud. Por favor contacta al consultorio directamente.'
@@ -360,61 +391,98 @@ def _ejecutar_tool(nombre, args):
         return {'error': str(e)}
 
 
+def _variantes_numero_mx(numero):
+    """Genera todas las variantes posibles de un numero mexicano.
+    Twilio envia +521XXXXXXXXXX pero en la BD puede estar como
+    +52XXXXXXXXXX, 52XXXXXXXXXX, XXXXXXXXXX, +521XXXXXXXXXX, etc.
+    """
+    limpio = numero.replace('+', '').replace(' ', '').replace('-', '')
+    if limpio.startswith('521') and len(limpio) == 13:
+        base10 = limpio[3:]
+    elif limpio.startswith('52') and len(limpio) == 12:
+        base10 = limpio[2:]
+    elif len(limpio) == 10:
+        base10 = limpio
+    else:
+        return list(set([numero, f'+{limpio}', limpio]))
+
+    return list(set([
+        base10,
+        f'52{base10}',
+        f'+52{base10}',
+        f'521{base10}',
+        f'+521{base10}',
+        numero,
+    ]))
+
+
 def _tool_buscar_paciente(args):
     from models import Paciente
     from extensions import db
     numero = args.get('numero_whatsapp', '')
-    numero_limpio = numero.replace('+', '').replace(' ', '')
-    paciente = Paciente.query.filter(
-        db.or_(
-            Paciente.whatsapp == numero,
-            Paciente.whatsapp == f'+{numero_limpio}',
-            Paciente.whatsapp == numero_limpio,
-        ),
+    variantes = _variantes_numero_mx(numero)
+    pacientes = Paciente.query.filter(
+        Paciente.whatsapp.in_(variantes),
         Paciente.eliminado == False
-    ).first()
+    ).all()
 
-    if paciente:
-        from models import Cita, EstatusCita
-        ultima_cita = Cita.query.filter_by(paciente_id=paciente.id)\
-            .order_by(Cita.fecha_inicio.desc()).first()
-        # Proxima cita pendiente/confirmada
-        proxima_cita = Cita.query.filter(
-            Cita.paciente_id == paciente.id,
-            Cita.fecha_inicio >= datetime.utcnow(),
-            Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
-        ).order_by(Cita.fecha_inicio).first()
-        result = {
-            'encontrado': True,
-            'paciente': paciente.to_dict(),
-            'ultima_cita': ultima_cita.to_dict() if ultima_cita else None,
-            'proxima_cita': proxima_cita.to_dict() if proxima_cita else None,
-        }
-        if paciente.es_problematico:
-            result['es_problematico'] = True
-            result['mensaje'] = 'Este paciente esta marcado como problematico. NO se le pueden agendar citas.'
-        return result
-    return {'encontrado': False}
+    if not pacientes:
+        return {'encontrado': False}
+
+    paciente = pacientes[0]
+
+    from models import Cita, EstatusCita
+    ultima_cita = Cita.query.filter_by(paciente_id=paciente.id)\
+        .order_by(Cita.fecha_inicio.desc()).first()
+    proxima_cita = Cita.query.filter(
+        Cita.paciente_id == paciente.id,
+        Cita.fecha_inicio >= datetime.utcnow(),
+        Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
+    ).order_by(Cita.fecha_inicio).first()
+    result = {
+        'encontrado': True,
+        'paciente': paciente.to_dict(),
+        'ultima_cita': ultima_cita.to_dict() if ultima_cita else None,
+        'proxima_cita': proxima_cita.to_dict() if proxima_cita else None,
+    }
+    if paciente.es_problematico:
+        result['es_problematico'] = True
+        result['mensaje'] = 'Este paciente esta marcado como problematico. NO se le pueden agendar citas.'
+    # Informar al bot si hay multiples pacientes (grupo familiar)
+    if len(pacientes) > 1:
+        result['familia'] = [
+            {'id': p.id, 'nombre': p.nombre_completo, 'es_menor_edad': p.es_menor_edad}
+            for p in pacientes
+        ]
+        result['mensaje_familia'] = f'Hay {len(pacientes)} pacientes registrados con este numero. Pregunta para quien es la cita.'
+    return result
 
 
 def _tool_registrar_paciente(args):
-    from models import Paciente, EstatusCRM
+    from models import Paciente, GrupoFamiliar, EstatusCRM
     from extensions import db
 
-    # Verificar que no exista ya un paciente con ese WhatsApp
     numero = args.get('numero_whatsapp', '')
-    numero_limpio = numero.replace('+', '').replace(' ', '')
-    existente = Paciente.query.filter(
-        db.or_(
-            Paciente.whatsapp == numero,
-            Paciente.whatsapp == f'+{numero_limpio}',
-            Paciente.whatsapp == numero_limpio,
-        ),
+    variantes = _variantes_numero_mx(numero)
+
+    # Buscar pacientes existentes con mismo numero
+    existentes = Paciente.query.filter(
+        Paciente.whatsapp.in_(variantes),
         Paciente.eliminado == False
-    ).first()
-    if existente:
-        return {'ok': False, 'error': 'Ya existe un paciente con ese numero de WhatsApp',
-                'paciente_id': existente.id, 'nombre': existente.nombre_completo}
+    ).all()
+
+    # Si hay existentes, crear/asignar grupo familiar automaticamente
+    grupo_familiar_id = None
+    if existentes:
+        grupo = existentes[0].grupo_familiar
+        if not grupo:
+            apellido = existentes[0].nombre.split()[-1] if existentes[0].nombre else 'Sin nombre'
+            grupo = GrupoFamiliar(nombre=f'Familia {apellido}', telefono_principal=numero)
+            db.session.add(grupo)
+            db.session.flush()
+            for e in existentes:
+                e.grupo_familiar_id = grupo.id
+        grupo_familiar_id = grupo.id
 
     p = Paciente(
         nombre=args.get('nombre', ''),
@@ -422,6 +490,7 @@ def _tool_registrar_paciente(args):
         nombre_tutor=args.get('nombre_tutor', ''),
         escuela=args.get('escuela', ''),
         estatus_crm=EstatusCRM.prospecto,
+        grupo_familiar_id=grupo_familiar_id,
     )
     if args.get('fecha_nacimiento'):
         try:
@@ -431,7 +500,10 @@ def _tool_registrar_paciente(args):
             pass
     db.session.add(p)
     db.session.commit()
-    return {'ok': True, 'paciente_id': p.id, 'nombre': p.nombre_completo}
+    result = {'ok': True, 'paciente_id': p.id, 'nombre': p.nombre_completo}
+    if grupo_familiar_id:
+        result['grupo_familiar'] = f'Agregado al grupo familiar (comparte numero con {len(existentes)} paciente(s))'
+    return result
 
 
 def _tool_info_consultorio():
@@ -467,13 +539,14 @@ def _tool_buscar_disponibilidad(args):
         return {'error': 'No se pueden buscar fechas pasadas'}
 
     if fecha.weekday() == 6:  # Domingo
-        return {'disponible': False, 'mensaje': 'El consultorio no atiende domingos'}
+        return {'disponible': False, 'mensaje': 'El consultorio no atiende domingos. Prueba con otro dia.'}
 
     from services.scheduler_service import obtener_slots_disponibles
     from models import Dentista
 
     dentista_id = args.get('dentista_id')
     duracion = args.get('duracion_minutos', 60)
+    hora_preferida = args.get('hora_preferida')  # formato HH:MM
 
     if dentista_id:
         dentistas = [Dentista.query.get(dentista_id)]
@@ -493,12 +566,59 @@ def _tool_buscar_disponibilidad(args):
                 'dentista_id': dentista.id,
                 'dentista': dentista.nombre,
                 'especialidad': dentista.especialidad,
-                'slots': disponibles[:8],  # Max 8 opciones por dentista
+                'slots': disponibles[:8],
             })
 
+    # Si no hay slots en la fecha pedida, buscar alternativas en los proximos dias
     if not todos_slots:
-        return {'disponible': False, 'fecha': args['fecha'],
-                'mensaje': f'No hay disponibilidad para el {fecha.strftime("%d/%m/%Y")}'}
+        alternativa = _buscar_alternativa_cercana(fecha, dentistas, duracion, hora_preferida)
+        result = {
+            'disponible': False,
+            'fecha': args['fecha'],
+            'mensaje': f'No hay disponibilidad para el {fecha.strftime("%d/%m/%Y")}.',
+        }
+        if alternativa:
+            result['alternativa_sugerida'] = alternativa
+            result['mensaje'] += f' La alternativa mas cercana es el {alternativa["fecha_formato"]} a las {alternativa["slot"]["inicio"]}.'
+        return result
+
+    # Si hay hora preferida, verificar si esa hora especifica esta libre
+    if hora_preferida:
+        slot_exacto = None
+        for opcion in todos_slots:
+            for s in opcion['slots']:
+                if s['inicio'] == hora_preferida:
+                    slot_exacto = {
+                        'dentista_id': opcion['dentista_id'],
+                        'dentista': opcion['dentista'],
+                        'especialidad': opcion['especialidad'],
+                        'slot': s,
+                    }
+                    break
+            if slot_exacto:
+                break
+
+        if slot_exacto:
+            return {
+                'disponible': True,
+                'hora_solicitada_disponible': True,
+                'fecha': args['fecha'],
+                'fecha_formato': fecha.strftime('%A %d de %B de %Y'),
+                'horario_confirmado': slot_exacto,
+                'todas_las_opciones': todos_slots,
+            }
+        else:
+            # La hora preferida no esta disponible, buscar la mas cercana en el mismo dia
+            mejor = _encontrar_slot_mas_cercano(todos_slots, hora_preferida)
+            return {
+                'disponible': True,
+                'hora_solicitada_disponible': False,
+                'fecha': args['fecha'],
+                'fecha_formato': fecha.strftime('%A %d de %B de %Y'),
+                'mensaje': f'El horario de las {hora_preferida} no esta disponible.',
+                'alternativa_sugerida': mejor,
+                'todas_las_opciones': todos_slots,
+            }
 
     return {
         'disponible': True,
@@ -506,6 +626,66 @@ def _tool_buscar_disponibilidad(args):
         'fecha_formato': fecha.strftime('%A %d de %B de %Y'),
         'opciones': todos_slots,
     }
+
+
+def _encontrar_slot_mas_cercano(todos_slots, hora_preferida):
+    """Encuentra el slot disponible mas cercano a la hora preferida."""
+    try:
+        h, m = map(int, hora_preferida.split(':'))
+        minutos_pref = h * 60 + m
+    except (ValueError, AttributeError):
+        return None
+
+    mejor = None
+    menor_diff = float('inf')
+    for opcion in todos_slots:
+        for s in opcion['slots']:
+            sh, sm = map(int, s['inicio'].split(':'))
+            diff = abs((sh * 60 + sm) - minutos_pref)
+            if diff < menor_diff:
+                menor_diff = diff
+                mejor = {
+                    'dentista_id': opcion['dentista_id'],
+                    'dentista': opcion['dentista'],
+                    'especialidad': opcion['especialidad'],
+                    'slot': s,
+                }
+    return mejor
+
+
+def _buscar_alternativa_cercana(fecha_original, dentistas, duracion, hora_preferida=None):
+    """Busca el slot disponible mas cercano en los proximos 5 dias habiles."""
+    from datetime import timedelta
+    from services.scheduler_service import obtener_slots_disponibles
+
+    for i in range(1, 8):  # buscar hasta 7 dias adelante
+        fecha_alt = fecha_original + timedelta(days=i)
+        if fecha_alt.weekday() == 6:  # saltar domingos
+            continue
+
+        for dentista in dentistas:
+            if not dentista:
+                continue
+            slots = obtener_slots_disponibles(fecha_alt, dentista.id, duracion_minutos=duracion)
+            disponibles = [s for s in slots if s['disponible']]
+            if disponibles:
+                # Si hay hora preferida, buscar el mas cercano a esa hora
+                if hora_preferida:
+                    try:
+                        h, m = map(int, hora_preferida.split(':'))
+                        minutos_pref = h * 60 + m
+                        disponibles.sort(key=lambda s: abs((int(s['inicio'].split(':')[0]) * 60 + int(s['inicio'].split(':')[1])) - minutos_pref))
+                    except (ValueError, AttributeError):
+                        pass
+                return {
+                    'fecha': fecha_alt.strftime('%Y-%m-%d'),
+                    'fecha_formato': fecha_alt.strftime('%A %d de %B de %Y'),
+                    'dentista_id': dentista.id,
+                    'dentista': dentista.nombre,
+                    'especialidad': dentista.especialidad,
+                    'slot': disponibles[0],
+                }
+    return None
 
 
 def _tool_crear_cita(args):

@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required
 from extensions import db
-from models import Paciente, EstatusCRM
+from models import Paciente, GrupoFamiliar, EstatusCRM
 from datetime import datetime, date
 
 pacientes_bp = Blueprint('pacientes', __name__, url_prefix='/api/pacientes')
@@ -59,16 +59,22 @@ def buscar_por_whatsapp():
     else:
         numero_con_plus = numero
 
-    paciente = Paciente.query.filter(
+    pacientes = Paciente.query.filter(
         db.or_(
             Paciente.whatsapp == numero,
             Paciente.whatsapp == numero_con_plus,
         ),
         Paciente.eliminado == False
-    ).first()
+    ).all()
 
-    if paciente:
-        return jsonify(encontrado=True, paciente=paciente.to_dict())
+    if pacientes:
+        grupo = pacientes[0].grupo_familiar
+        return jsonify(
+            encontrado=True,
+            paciente=pacientes[0].to_dict(),
+            pacientes=[p.to_dict() for p in pacientes],
+            grupo_familiar=grupo.to_dict() if grupo else None,
+        )
     return jsonify(encontrado=False)
 
 
@@ -92,10 +98,20 @@ def crear():
     if not data.get('nombre'):
         return jsonify(error='El nombre es requerido'), 400
 
-    # Verificar duplicado por whatsapp
+    # Verificar duplicado por whatsapp — ofrecer grupo familiar
     whatsapp = _normalizar_numero(data.get('whatsapp', ''))
-    if whatsapp and Paciente.query.filter_by(whatsapp=whatsapp, eliminado=False).first():
-        return jsonify(error='Ya existe un paciente con ese numero de WhatsApp'), 409
+    grupo_familiar_id = data.get('grupo_familiar_id')
+
+    if whatsapp and not grupo_familiar_id and not data.get('crear_grupo_familiar'):
+        existentes = Paciente.query.filter_by(whatsapp=whatsapp, eliminado=False).all()
+        if existentes:
+            grupo = existentes[0].grupo_familiar
+            return jsonify(
+                error='duplicate_whatsapp',
+                mensaje='Ya existe un paciente con ese numero de WhatsApp',
+                pacientes_existentes=[p.to_dict() for p in existentes],
+                grupo_familiar=grupo.to_dict() if grupo else None,
+            ), 409
 
     fecha_nac = None
     if data.get('fecha_nacimiento'):
@@ -104,9 +120,20 @@ def crear():
         except ValueError:
             pass
 
+    # Crear/asignar grupo familiar si se solicita
+    if data.get('crear_grupo_familiar') and whatsapp:
+        apellido = data['nombre'].split()[-1] if data['nombre'] else 'Sin nombre'
+        grupo = GrupoFamiliar(nombre=f'Familia {apellido}', telefono_principal=whatsapp)
+        db.session.add(grupo)
+        db.session.flush()
+        grupo_familiar_id = grupo.id
+        # Asignar pacientes existentes con este numero al grupo
+        for existente in Paciente.query.filter_by(whatsapp=whatsapp, eliminado=False).all():
+            if not existente.grupo_familiar_id:
+                existente.grupo_familiar_id = grupo.id
+
     p = Paciente(
         nombre=data['nombre'],
-
         fecha_nacimiento=fecha_nac,
         telefono=data.get('telefono', ''),
         whatsapp=whatsapp or data.get('whatsapp', ''),
@@ -118,6 +145,7 @@ def crear():
         estatus_crm=EstatusCRM[data.get('estatus_crm', 'prospecto')],
         doctor_id=data.get('doctor_id'),
         tutor_id=data.get('tutor_id') or None,
+        grupo_familiar_id=grupo_familiar_id,
     )
     if data.get('proximo_recordatorio_fecha'):
         try:
@@ -147,7 +175,19 @@ def actualizar(paciente_id):
     if 'telefono' in data:
         p.telefono = data['telefono']
     if 'whatsapp' in data:
-        p.whatsapp = _normalizar_numero(data['whatsapp'])
+        nuevo_whatsapp = _normalizar_numero(data['whatsapp'])
+        if nuevo_whatsapp and nuevo_whatsapp != p.whatsapp:
+            existentes = Paciente.query.filter_by(whatsapp=nuevo_whatsapp, eliminado=False).all()
+            existentes = [e for e in existentes if e.id != p.id]
+            if existentes and not data.get('grupo_familiar_id') and not p.grupo_familiar_id:
+                grupo = existentes[0].grupo_familiar
+                return jsonify(
+                    error='duplicate_whatsapp',
+                    mensaje='Ya existe un paciente con ese numero de WhatsApp',
+                    pacientes_existentes=[e.to_dict() for e in existentes],
+                    grupo_familiar=grupo.to_dict() if grupo else None,
+                ), 409
+        p.whatsapp = nuevo_whatsapp
     if 'email' in data:
         p.email = data['email']
     if 'nombre_tutor' in data:
@@ -171,6 +211,8 @@ def actualizar(paciente_id):
         p.doctor_id = data['doctor_id']
     if 'tutor_id' in data:
         p.tutor_id = data['tutor_id'] if data['tutor_id'] else None
+    if 'grupo_familiar_id' in data:
+        p.grupo_familiar_id = data['grupo_familiar_id'] if data['grupo_familiar_id'] else None
     if 'proximo_recordatorio_fecha' in data:
         if data['proximo_recordatorio_fecha']:
             try:
@@ -237,6 +279,31 @@ def toggle_problematico(paciente_id):
         p.estatus_crm = EstatusCRM.baja
     db.session.commit()
     return jsonify(p.to_dict())
+
+
+@pacientes_bp.route('/grupos-familiares', methods=['GET'])
+@login_required
+def listar_grupos():
+    grupos = GrupoFamiliar.query.order_by(GrupoFamiliar.nombre).all()
+    return jsonify([g.to_dict() for g in grupos])
+
+
+@pacientes_bp.route('/grupos-familiares/<int:grupo_id>', methods=['GET'])
+@login_required
+def detalle_grupo(grupo_id):
+    grupo = GrupoFamiliar.query.get_or_404(grupo_id)
+    return jsonify(grupo.to_dict())
+
+
+@pacientes_bp.route('/grupos-familiares/<int:grupo_id>', methods=['PUT'])
+@login_required
+def actualizar_grupo(grupo_id):
+    grupo = GrupoFamiliar.query.get_or_404(grupo_id)
+    data = request.get_json(force=True)
+    if 'nombre' in data:
+        grupo.nombre = data['nombre']
+    db.session.commit()
+    return jsonify(grupo.to_dict())
 
 
 def _normalizar_numero(numero):
