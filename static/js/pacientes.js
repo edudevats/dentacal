@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnGenerarJustificante')?.addEventListener('click', generarJustificante);
 
   cargarDoctores();
+  cargarOrigenes();
   initTutor();
 
   // Toggle para mostrar/ocultar input de proxima visita
@@ -72,6 +73,23 @@ async function cargarDoctores() {
     });
   } catch (e) {
     console.error('Error cargando doctores:', e);
+  }
+}
+
+async function cargarOrigenes() {
+  const select = document.getElementById('p_origen');
+  if (!select) return;
+  try {
+    const resp = await apiFetch('/api/configuracion/origenes');
+    const data = await resp.json();
+    data.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.id;
+      opt.textContent = o.nombre;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    console.error('Error cargando origenes:', e);
   }
 }
 
@@ -247,7 +265,7 @@ function abrirModalEditarPaciente(p) {
 
   document.getElementById('p_tutor').value = p.nombre_tutor || '';
   document.getElementById('p_tel_tutor').value = p.telefono_tutor || '';
-  document.getElementById('p_escuela').value = p.escuela || '';
+  document.getElementById('p_origen').value = p.origen_paciente_id || '';
   document.getElementById('p_doctor').value = p.doctor_id || '';
   document.getElementById('p_estatus').value = p.estatus_crm || 'prospecto';
   document.getElementById('p_notas').value = p.notas || '';
@@ -302,7 +320,7 @@ function abrirModalEditarPaciente(p) {
 
 function limpiarFormPaciente() {
   ['p_nombre', 'p_fecha_nac', 'p_telefono', 'p_whatsapp',
-    'p_tutor', 'p_tel_tutor', 'p_escuela', 'p_doctor', 'p_notas',
+    'p_tutor', 'p_tel_tutor', 'p_origen', 'p_doctor', 'p_notas',
     'p_tutor_id', 'p_tutor_search', 'p_proxima_visita'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.value = '';
@@ -339,7 +357,7 @@ async function guardarPaciente() {
     whatsapp: itiWhatsapp ? itiWhatsapp.getNumber() : document.getElementById('p_whatsapp').value.trim(),
     nombre_tutor: document.getElementById('p_tutor').value.trim(),
     telefono_tutor: document.getElementById('p_tel_tutor').value.trim(),
-    escuela: document.getElementById('p_escuela').value.trim(),
+    origen_paciente_id: document.getElementById('p_origen').value || null,
     doctor_id: document.getElementById('p_doctor').value || null,
     estatus_crm: document.getElementById('p_estatus').value,
     notas: document.getElementById('p_notas').value.trim(),
@@ -402,7 +420,7 @@ async function eliminarPaciente() {
 
 function abrirModalJustificante(p) {
   document.getElementById('j_paciente_id').value = p.id;
-  document.getElementById('j_escuela').value = p.escuela || '';
+  document.getElementById('j_escuela').value = '';
   document.getElementById('j_tratamiento').value = '';
   new bootstrap.Modal(document.getElementById('modalJustificante')).show();
 }

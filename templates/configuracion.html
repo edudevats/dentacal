@@ -9,6 +9,7 @@
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabDentistas">Doctores</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabTipos">Tipos de Cita</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabPlantillas">Plantillas</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabOrigenes">Origen Paciente</a></li>
   </ul>
 
   <div class="tab-content">
@@ -199,6 +200,45 @@
         </div>
       </div>
       {% endfor %}
+    </div>
+
+    <!-- Tab Origenes -->
+    <div class="tab-pane fade" id="tabOrigenes">
+      <div class="small text-muted mb-2">
+        Categorias para registrar como llego el paciente al consultorio (redes sociales, recomendaciones, etc.)
+      </div>
+      <div class="d-flex mb-2">
+        <button class="btn btn-primary btn-sm ms-auto" onclick="prepararNuevoOrigen()">
+          <i class="bi bi-plus-circle me-1"></i>Nueva categoria
+        </button>
+      </div>
+      <div class="card shadow-sm">
+        <div class="card-body p-0">
+          <table class="table mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Nombre</th>
+                <th class="text-end" style="width:120px">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="origenesBody">
+              {% for o in origenes %}
+              <tr id="origen-row-{{ o.id }}">
+                <td>{{ o.nombre }}</td>
+                <td class="text-end">
+                  <button class="btn btn-sm btn-outline-secondary me-1" onclick="editarOrigen({{ o.id }}, '{{ o.nombre }}')">
+                    <i class="bi bi-pencil"></i>
+                  </button>
+                  <button class="btn btn-sm btn-outline-danger" onclick="eliminarOrigen({{ o.id }})">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -447,6 +487,56 @@
     if (resp.ok) {
       const el = document.getElementById('plantilla-preview-' + id);
       if (el) el.textContent = nuevoContenido;
+    }
+  }
+
+  // Origenes de paciente
+  function prepararNuevoOrigen() {
+    const nombre = prompt('Nombre de la nueva categoria de origen:');
+    if (!nombre || !nombre.trim()) return;
+    guardarNuevoOrigen(nombre.trim());
+  }
+
+  async function guardarNuevoOrigen(nombre) {
+    const resp = await apiFetch('/api/configuracion/origenes', {
+      method: 'POST',
+      body: JSON.stringify({ nombre }),
+    });
+    if (resp.ok) {
+      location.reload();
+    } else {
+      const data = await resp.json();
+      alert(data.error || 'Error al crear categoria');
+    }
+  }
+
+  function editarOrigen(id, nombreActual) {
+    const nuevoNombre = prompt('Editar nombre de categoria:', nombreActual);
+    if (nuevoNombre === null || !nuevoNombre.trim()) return;
+    actualizarOrigen(id, nuevoNombre.trim());
+  }
+
+  async function actualizarOrigen(id, nombre) {
+    const resp = await apiFetch(`/api/configuracion/origenes/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ nombre }),
+    });
+    if (resp.ok) {
+      location.reload();
+    } else {
+      const data = await resp.json();
+      alert(data.error || 'Error al actualizar');
+    }
+  }
+
+  async function eliminarOrigen(id) {
+    if (!confirm('Desactivar esta categoria de origen?')) return;
+    const resp = await apiFetch(`/api/configuracion/origenes/${id}`, { method: 'DELETE' });
+    if (resp.ok) {
+      const row = document.getElementById('origen-row-' + id);
+      if (row) row.remove();
+    } else {
+      alert('Error al eliminar');
     }
   }
 </script>

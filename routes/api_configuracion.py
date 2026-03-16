@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from extensions import db
-from models import TipoCita, PlantillaMensaje, ConfiguracionConsultorio
+from models import TipoCita, PlantillaMensaje, ConfiguracionConsultorio, OrigenPaciente
 
 configuracion_bp = Blueprint('configuracion', __name__, url_prefix='/api/configuracion')
 
@@ -127,3 +127,62 @@ def actualizar_plantilla(plantilla_id):
         p.nombre = data['nombre']
     db.session.commit()
     return jsonify(p.to_dict())
+
+
+# --- Origenes de paciente ---
+
+@configuracion_bp.route('/origenes', methods=['GET'])
+@login_required
+def listar_origenes():
+    origenes = OrigenPaciente.query.filter_by(activo=True).order_by(OrigenPaciente.nombre).all()
+    return jsonify([o.to_dict() for o in origenes])
+
+
+@configuracion_bp.route('/origenes', methods=['POST'])
+@login_required
+def crear_origen():
+    if not current_user.is_admin():
+        return jsonify(error='Sin permisos'), 403
+    data = request.get_json(force=True)
+    nombre = (data.get('nombre') or '').strip()
+    if not nombre:
+        return jsonify(error='nombre requerido'), 400
+    existente = OrigenPaciente.query.filter_by(nombre=nombre).first()
+    if existente:
+        if not existente.activo:
+            existente.activo = True
+            db.session.commit()
+            return jsonify(existente.to_dict()), 200
+        return jsonify(error='Ya existe una categoria con ese nombre'), 409
+    o = OrigenPaciente(nombre=nombre)
+    db.session.add(o)
+    db.session.commit()
+    return jsonify(o.to_dict()), 201
+
+
+@configuracion_bp.route('/origenes/<int:origen_id>', methods=['PUT'])
+@login_required
+def actualizar_origen(origen_id):
+    if not current_user.is_admin():
+        return jsonify(error='Sin permisos'), 403
+    o = OrigenPaciente.query.get_or_404(origen_id)
+    data = request.get_json(force=True)
+    if 'nombre' in data:
+        nombre = data['nombre'].strip()
+        if nombre:
+            o.nombre = nombre
+    if 'activo' in data:
+        o.activo = bool(data['activo'])
+    db.session.commit()
+    return jsonify(o.to_dict())
+
+
+@configuracion_bp.route('/origenes/<int:origen_id>', methods=['DELETE'])
+@login_required
+def eliminar_origen(origen_id):
+    if not current_user.is_admin():
+        return jsonify(error='Sin permisos'), 403
+    o = OrigenPaciente.query.get_or_404(origen_id)
+    o.activo = False
+    db.session.commit()
+    return jsonify(ok=True)

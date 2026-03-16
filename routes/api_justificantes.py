@@ -19,7 +19,7 @@ def crear():
     p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
 
     cita_id = data.get('cita_id')
-    escuela = data.get('escuela') or p.escuela or ''
+    escuela = data.get('escuela') or ''
     tratamiento = data.get('tratamiento_realizado', '')
     doctor = data.get('doctor_firmante', 'C.D.E.O. Paulina Mendoza Ordonez')
 

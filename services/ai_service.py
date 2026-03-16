@@ -37,7 +37,6 @@ BOT_FUNCTION_DECLARATIONS = [
                 "nombre": {"type": "string", "description": "Nombre completo del paciente"},
                 "fecha_nacimiento": {"type": "string", "description": "Fecha nacimiento YYYY-MM-DD (opcional)"},
                 "nombre_tutor": {"type": "string", "description": "Nombre del padre/madre/tutor si es menor"},
-                "escuela": {"type": "string", "description": "Nombre de la escuela si es menor"},
                 "numero_whatsapp": {"type": "string", "description": "Numero de WhatsApp"}
             },
             "required": ["nombre", "numero_whatsapp"]
@@ -546,7 +545,6 @@ def _tool_registrar_paciente(args):
         nombre=args.get('nombre', ''),
         whatsapp=args.get('numero_whatsapp', ''),
         nombre_tutor=args.get('nombre_tutor', ''),
-        escuela=args.get('escuela', ''),
         estatus_crm=EstatusCRM.prospecto,
         grupo_familiar_id=grupo_familiar_id,
     )

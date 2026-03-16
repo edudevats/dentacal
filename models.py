@@ -231,8 +231,8 @@ class Paciente(db.Model):
     nombre_tutor = db.Column(db.String(200))
     telefono_tutor = db.Column(db.String(20))
 
-    # Datos escolares (para justificantes)
-    escuela = db.Column(db.String(200))
+    # Origen del paciente (como nos conocio)
+    origen_paciente_id = db.Column(db.Integer, db.ForeignKey('origenes_paciente.id'), nullable=True)
 
     notas = db.Column(db.Text)
     estatus_crm = db.Column(db.Enum(EstatusCRM), default=EstatusCRM.prospecto)
@@ -300,7 +300,8 @@ class Paciente(db.Model):
             'es_menor_edad': self.es_menor_edad,
             'nombre_tutor': self.nombre_tutor or '',
             'telefono_tutor': self.telefono_tutor or '',
-            'escuela': self.escuela or '',
+            'origen_paciente_id': self.origen_paciente_id,
+            'origen_paciente_nombre': self.origen.nombre if self.origen else '',
             'notas': self.notas or '',
             'estatus_crm': self.estatus_crm.value if self.estatus_crm else 'prospecto',
             'ultima_cita': self.ultima_cita.isoformat() if self.ultima_cita else None,
@@ -466,6 +467,25 @@ class PlantillaMensaje(db.Model):
             'nombre': self.nombre,
             'tipo': self.tipo,
             'contenido': self.contenido,
+        }
+
+
+class OrigenPaciente(db.Model):
+    """Categorias de origen/referencia del paciente (redes sociales, anuncios, recomendacion, etc.)."""
+    __tablename__ = 'origenes_paciente'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(100), nullable=False, unique=True)
+    activo = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    pacientes = db.relationship('Paciente', backref='origen', lazy=True)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'nombre': self.nombre,
+            'activo': self.activo,
         }
 
 

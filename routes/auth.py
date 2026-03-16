@@ -1,3 +1,4 @@
+from urllib.parse import urlparse
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_user, logout_user, login_required, current_user
 from extensions import db, limiter
@@ -23,6 +24,10 @@ def login():
             login_user(user, remember=remember)
             _audit(user.id, 'login', ip=request.remote_addr)
             next_page = request.args.get('next')
+            if next_page:
+                parsed = urlparse(next_page)
+                if parsed.netloc or parsed.scheme:
+                    next_page = None
             return redirect(next_page or url_for('main.dashboard'))
         else:
             error = 'Usuario o contrasena incorrectos.'

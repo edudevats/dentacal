@@ -59,6 +59,7 @@ class DevelopmentConfig(Config):
 
 
 class ProductionConfig(Config):
+    SECRET_KEY = os.environ['SECRET_KEY']  # Obligatorio en produccion, falla si no existe
     DEBUG = False
     SESSION_COOKIE_SECURE = True
     LOG_LEVEL = logging.WARNING

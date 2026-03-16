@@ -140,7 +140,7 @@ def crear():
         email=data.get('email', ''),
         nombre_tutor=data.get('nombre_tutor', ''),
         telefono_tutor=data.get('telefono_tutor', ''),
-        escuela=data.get('escuela', ''),
+        origen_paciente_id=data.get('origen_paciente_id') or None,
         notas=data.get('notas', ''),
         estatus_crm=EstatusCRM[data.get('estatus_crm', 'prospecto')],
         doctor_id=data.get('doctor_id'),
@@ -206,8 +206,8 @@ def actualizar(paciente_id):
         p.nombre_tutor = data['nombre_tutor']
     if 'telefono_tutor' in data:
         p.telefono_tutor = data['telefono_tutor']
-    if 'escuela' in data:
-        p.escuela = data['escuela']
+    if 'origen_paciente_id' in data:
+        p.origen_paciente_id = data['origen_paciente_id'] or None
     if 'notas' in data:
         p.notas = data['notas']
     if 'es_problematico' in data:

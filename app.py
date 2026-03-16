@@ -131,7 +131,8 @@ def _start_scheduler(app):
 def _seed_initial_data():
     """Inserta datos iniciales si la BD esta vacia."""
     from models import (Consultorio, TipoCita, PlantillaMensaje,
-                        ConfiguracionConsultorio, Dentista, HorarioDentista)
+                        ConfiguracionConsultorio, Dentista, HorarioDentista,
+                        OrigenPaciente)
     from extensions import db
 
     # Consultorios
@@ -246,6 +247,11 @@ def _seed_initial_data():
             tipo='proxima_visita',
             contenido='Hola {nombre_tutor}! Le recordamos que ya es momento de programar la proxima cita de {nombre_paciente} en La Casa del Sr. Perez.\nEscribanos para buscarle un horario disponible :)',
         ))
+
+    # Origenes de paciente
+    if not OrigenPaciente.query.first():
+        for nombre in ['Redes Sociales', 'Anuncios', 'Recomendacion', 'Paso por el consultorio', 'Otro']:
+            db.session.add(OrigenPaciente(nombre=nombre))
 
     db.session.commit()
 

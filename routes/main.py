@@ -1,6 +1,6 @@
 from flask import Blueprint, render_template
 from flask_login import login_required, current_user
-from models import Dentista, Consultorio, TipoCita, ConfiguracionConsultorio, Paciente
+from models import Dentista, Consultorio, TipoCita, ConfiguracionConsultorio, Paciente, OrigenPaciente
 
 main_bp = Blueprint('main', __name__)
 
@@ -49,8 +49,10 @@ def configuracion():
     tipos = TipoCita.query.order_by(TipoCita.nombre).all()
     from models import PlantillaMensaje
     plantillas = PlantillaMensaje.query.filter_by(activo=True).all()
+    origenes = OrigenPaciente.query.filter_by(activo=True).order_by(OrigenPaciente.nombre).all()
     return render_template('configuracion.html',
                            config=config,
                            dentistas=dentistas,
                            tipos=tipos,
-                           plantillas=plantillas)
+                           plantillas=plantillas,
+                           origenes=origenes)
