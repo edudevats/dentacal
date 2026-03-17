@@ -47,6 +47,20 @@ class EstatusRecordatorio(PyEnum):
     fallido = 'fallido'
 
 
+class EstatusCampana(PyEnum):
+    borrador = 'borrador'
+    programada = 'programada'
+    enviando = 'enviando'
+    completada = 'completada'
+    cancelada = 'cancelada'
+
+
+class EstatusDestinatario(PyEnum):
+    pendiente = 'pendiente'
+    enviado = 'enviado'
+    fallido = 'fallido'
+
+
 # --- Modelos ---
 
 class User(UserMixin, db.Model):
@@ -507,3 +521,64 @@ class ConfiguracionConsultorio(db.Model):
     titular_cuenta = db.Column(db.String(200), default='Paulina Mendoza Ordoñez')
     google_reviews_link = db.Column(db.String(500), default='https://n9.cl/ufkug')
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Campana(db.Model):
+    """Campana de mensajes masivos de WhatsApp."""
+    __tablename__ = 'campanas'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(200), nullable=False)
+    mensaje = db.Column(db.Text, nullable=False)
+    filtros = db.Column(db.Text)  # JSON con filtros de audiencia
+    estatus = db.Column(db.Enum(EstatusCampana), default=EstatusCampana.borrador)
+    fecha_programada = db.Column(db.DateTime, nullable=True)
+    fecha_envio_inicio = db.Column(db.DateTime, nullable=True)
+    fecha_envio_fin = db.Column(db.DateTime, nullable=True)
+    total_destinatarios = db.Column(db.Integer, default=0)
+    enviados = db.Column(db.Integer, default=0)
+    fallidos = db.Column(db.Integer, default=0)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    creator = db.relationship('User', backref='campanas')
+    destinatarios = db.relationship('CampanaDestinatario', backref='campana',
+                                     lazy=True, cascade='all, delete-orphan')
+
+    def to_dict(self):
+        import json
+        return {
+            'id': self.id,
+            'nombre': self.nombre,
+            'mensaje': self.mensaje,
+            'filtros': json.loads(self.filtros) if self.filtros else {},
+            'estatus': self.estatus.value if self.estatus else 'borrador',
+            'fecha_programada': self.fecha_programada.isoformat() if self.fecha_programada else None,
+            'fecha_envio_inicio': self.fecha_envio_inicio.isoformat() if self.fecha_envio_inicio else None,
+            'fecha_envio_fin': self.fecha_envio_fin.isoformat() if self.fecha_envio_fin else None,
+            'total_destinatarios': self.total_destinatarios,
+            'enviados': self.enviados,
+            'fallidos': self.fallidos,
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class CampanaDestinatario(db.Model):
+    """Destinatario individual de una campana."""
+    __tablename__ = 'campana_destinatarios'
+
+    id = db.Column(db.Integer, primary_key=True)
+    campana_id = db.Column(db.Integer, db.ForeignKey('campanas.id'), nullable=False)
+    paciente_id = db.Column(db.Integer, db.ForeignKey('pacientes.id'), nullable=False)
+    numero_destino = db.Column(db.String(20))
+    estatus = db.Column(db.Enum(EstatusDestinatario), default=EstatusDestinatario.pendiente)
+    error_mensaje = db.Column(db.Text, nullable=True)
+    fecha_envio = db.Column(db.DateTime, nullable=True)
+
+    paciente = db.relationship('Paciente', backref='campana_destinatarios')
+
+    __table_args__ = (
+        db.UniqueConstraint('campana_id', 'paciente_id', name='uq_campana_paciente'),
+    )

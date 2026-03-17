@@ -94,7 +94,9 @@ def detalle(paciente_id):
 @pacientes_bp.route('', methods=['POST'])
 @login_required
 def crear():
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
     if not data.get('nombre'):
         return jsonify(error='El nombre es requerido'), 400
 
@@ -163,7 +165,9 @@ def crear():
 @login_required
 def actualizar(paciente_id):
     p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
 
     if 'nombre' in data:
         p.nombre = data['nombre']
@@ -285,7 +289,7 @@ def eliminar(paciente_id):
 @login_required
 def toggle_problematico(paciente_id):
     p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True) or {}
     p.es_problematico = bool(data.get('es_problematico', not p.es_problematico))
     if p.es_problematico:
         p.estatus_crm = EstatusCRM.baja
@@ -311,7 +315,9 @@ def detalle_grupo(grupo_id):
 @login_required
 def actualizar_grupo(grupo_id):
     grupo = GrupoFamiliar.query.get_or_404(grupo_id)
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
     if 'nombre' in data:
         grupo.nombre = data['nombre']
     db.session.commit()

@@ -48,7 +48,9 @@ def detalle(cita_id):
 @citas_bp.route('', methods=['POST'])
 @login_required
 def crear():
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
 
     # Validar campos requeridos
     required = ['paciente_id', 'dentista_id', 'consultorio_id', 'fecha_inicio', 'fecha_fin']
@@ -119,7 +121,9 @@ def crear():
 @login_required
 def actualizar(cita_id):
     cita = Cita.query.get_or_404(cita_id)
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
 
     if 'fecha_inicio' in data and 'fecha_fin' in data:
         try:

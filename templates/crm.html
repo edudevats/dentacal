@@ -4,71 +4,104 @@
 
 {% block content %}
 <div class="p-3">
-  <!-- Search bar -->
-  <div class="mb-3">
-    <div class="input-group" style="max-width:400px">
-      <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-      <input type="text" id="crmBuscar" class="form-control" placeholder="Buscar paciente por nombre o telefono...">
-    </div>
-  </div>
+  <!-- Tabs -->
+  <ul class="nav nav-tabs mb-3" id="crmTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link active" id="tab-kanban" data-bs-toggle="tab" data-bs-target="#tabKanban" type="button" role="tab">
+        <i class="bi bi-kanban me-1"></i>Kanban
+      </button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link" id="tab-campanas" data-bs-toggle="tab" data-bs-target="#tabCampanas" type="button" role="tab">
+        <i class="bi bi-megaphone me-1"></i>Campanas
+      </button>
+    </li>
+  </ul>
 
-  <!-- Filter buttons -->
-  <div class="d-flex flex-wrap gap-2 mb-3" id="crmFilters">
-    <button type="button" class="btn crm-filter-btn active" data-status="alta"
-            style="--filter-bg:#FFF9C4;--filter-color:#F57F17;--filter-border:#F9A825">
-      <i class="bi bi-star-fill me-1"></i>Alta
-      <span class="badge ms-1" style="background:#F9A825;color:#fff" id="stat-alta">0</span>
-    </button>
-    <button type="button" class="btn crm-filter-btn active" data-status="activo"
-            style="--filter-bg:#E8F5E9;--filter-color:#2E7D32;--filter-border:#2E7D32">
-      <i class="bi bi-activity me-1"></i>Activo
-      <span class="badge ms-1 bg-success" id="stat-activo">0</span>
-    </button>
-    <button type="button" class="btn crm-filter-btn active" data-status="prospecto"
-            style="--filter-bg:#FFF3E0;--filter-color:#E65100;--filter-border:#FFA726">
-      <i class="bi bi-hourglass-split me-1"></i>Prospecto
-      <span class="badge ms-1" style="background:#FFA726;color:#fff" id="stat-prospecto">0</span>
-    </button>
-    <button type="button" class="btn crm-filter-btn active" data-status="baja"
-            style="--filter-bg:#F5F5F5;--filter-color:#757575;--filter-border:#9E9E9E">
-      <i class="bi bi-archive me-1"></i>Baja
-      <span class="badge ms-1 bg-secondary" id="stat-baja">0</span>
-    </button>
-  </div>
+  <div class="tab-content">
+    <!-- ===== TAB KANBAN ===== -->
+    <div class="tab-pane fade show active" id="tabKanban" role="tabpanel">
+      <!-- Search bar -->
+      <div class="mb-3">
+        <div class="input-group" style="max-width:400px">
+          <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
+          <input type="text" id="crmBuscar" class="form-control" placeholder="Buscar paciente por nombre o telefono...">
+        </div>
+      </div>
 
-  <!-- Kanban CRM -->
-  <div class="d-flex gap-3 overflow-auto pb-2" id="crmKanban">
-    <!-- ALTA -->
-    <div class="crm-col flex-shrink-0" data-status="alta">
-      <div class="crm-col-header" style="background:#FFF9C4;color:#F57F17">
-        <i class="bi bi-star-fill me-1"></i>ALTA
-        <span class="badge ms-2" style="background:#F9A825;color:#fff" id="count-alta">0</span>
+      <!-- Filter buttons -->
+      <div class="d-flex flex-wrap gap-2 mb-3" id="crmFilters">
+        <button type="button" class="btn crm-filter-btn active" data-status="alta"
+                style="--filter-bg:#FFF9C4;--filter-color:#F57F17;--filter-border:#F9A825">
+          <i class="bi bi-star-fill me-1"></i>Alta
+          <span class="badge ms-1" style="background:#F9A825;color:#fff" id="stat-alta">0</span>
+        </button>
+        <button type="button" class="btn crm-filter-btn active" data-status="activo"
+                style="--filter-bg:#E8F5E9;--filter-color:#2E7D32;--filter-border:#2E7D32">
+          <i class="bi bi-activity me-1"></i>Activo
+          <span class="badge ms-1 bg-success" id="stat-activo">0</span>
+        </button>
+        <button type="button" class="btn crm-filter-btn active" data-status="prospecto"
+                style="--filter-bg:#FFF3E0;--filter-color:#E65100;--filter-border:#FFA726">
+          <i class="bi bi-hourglass-split me-1"></i>Prospecto
+          <span class="badge ms-1" style="background:#FFA726;color:#fff" id="stat-prospecto">0</span>
+        </button>
+        <button type="button" class="btn crm-filter-btn active" data-status="baja"
+                style="--filter-bg:#F5F5F5;--filter-color:#757575;--filter-border:#9E9E9E">
+          <i class="bi bi-archive me-1"></i>Baja
+          <span class="badge ms-1 bg-secondary" id="stat-baja">0</span>
+        </button>
       </div>
-      <div id="col-alta" class="crm-cards"></div>
+
+      <!-- Kanban CRM -->
+      <div class="d-flex gap-3 overflow-auto pb-2" id="crmKanban">
+        <!-- ALTA -->
+        <div class="crm-col flex-shrink-0" data-status="alta">
+          <div class="crm-col-header" style="background:#FFF9C4;color:#F57F17">
+            <i class="bi bi-star-fill me-1"></i>ALTA
+            <span class="badge ms-2" style="background:#F9A825;color:#fff" id="count-alta">0</span>
+          </div>
+          <div id="col-alta" class="crm-cards"></div>
+        </div>
+        <!-- ACTIVO -->
+        <div class="crm-col flex-shrink-0" data-status="activo">
+          <div class="crm-col-header" style="background:#E8F5E9;color:#2E7D32">
+            <i class="bi bi-activity me-1"></i>ACTIVO
+            <span class="badge ms-2 bg-success" id="count-activo">0</span>
+          </div>
+          <div id="col-activo" class="crm-cards"></div>
+        </div>
+        <!-- PROSPECTO -->
+        <div class="crm-col flex-shrink-0" data-status="prospecto">
+          <div class="crm-col-header" style="background:#FFF3E0;color:#E65100">
+            <i class="bi bi-hourglass-split me-1"></i>PROSPECTO
+            <span class="badge ms-2" style="background:#FFA726;color:#fff" id="count-prospecto">0</span>
+          </div>
+          <div id="col-prospecto" class="crm-cards"></div>
+        </div>
+        <!-- BAJA -->
+        <div class="crm-col flex-shrink-0" data-status="baja">
+          <div class="crm-col-header" style="background:#F5F5F5;color:#757575">
+            <i class="bi bi-archive me-1"></i>BAJA
+            <span class="badge ms-2 bg-secondary" id="count-baja">0</span>
+          </div>
+          <div id="col-baja" class="crm-cards"></div>
+        </div>
+      </div>
     </div>
-    <!-- ACTIVO -->
-    <div class="crm-col flex-shrink-0" data-status="activo">
-      <div class="crm-col-header" style="background:#E8F5E9;color:#2E7D32">
-        <i class="bi bi-activity me-1"></i>ACTIVO
-        <span class="badge ms-2 bg-success" id="count-activo">0</span>
+
+    <!-- ===== TAB CAMPANAS ===== -->
+    <div class="tab-pane fade" id="tabCampanas" role="tabpanel">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0"><i class="bi bi-megaphone me-2" style="color:var(--primary)"></i>Campanas de WhatsApp</h5>
+        <button class="btn btn-primary" onclick="abrirNuevaCampana()">
+          <i class="bi bi-plus-circle me-1"></i>Nueva Campana
+        </button>
       </div>
-      <div id="col-activo" class="crm-cards"></div>
-    </div>
-    <!-- PROSPECTO -->
-    <div class="crm-col flex-shrink-0" data-status="prospecto">
-      <div class="crm-col-header" style="background:#FFF3E0;color:#E65100">
-        <i class="bi bi-hourglass-split me-1"></i>PROSPECTO
-        <span class="badge ms-2" style="background:#FFA726;color:#fff" id="count-prospecto">0</span>
+
+      <div id="campanasList">
+        <p class="text-muted text-center py-4">Cargando campanas...</p>
       </div>
-      <div id="col-prospecto" class="crm-cards"></div>
-    </div>
-    <!-- BAJA -->
-    <div class="crm-col flex-shrink-0" data-status="baja">
-      <div class="crm-col-header" style="background:#F5F5F5;color:#757575">
-        <i class="bi bi-archive me-1"></i>BAJA
-        <span class="badge ms-2 bg-secondary" id="count-baja">0</span>
-      </div>
-      <div id="col-baja" class="crm-cards"></div>
     </div>
   </div>
 </div>
@@ -140,8 +173,169 @@
     </div>
   </div>
 </div>
+
+<!-- Modal Nueva Campana -->
+<div class="modal fade" id="modalNuevaCampana" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-megaphone me-2"></i>Nueva Campana</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Nombre -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Nombre de la campana</label>
+          <input type="text" id="campNombre" class="form-control" placeholder="Ej: Promocion Limpieza Marzo">
+        </div>
+
+        <!-- Mensaje -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Mensaje</label>
+          <textarea id="campMensaje" class="form-control" rows="4"
+                    placeholder="Escribe el mensaje... Usa {nombre_paciente} para personalizar"></textarea>
+          <small class="text-muted">Usa <code>{nombre_paciente}</code> para incluir el nombre del paciente</small>
+        </div>
+
+        <!-- Filtros -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Audiencia</label>
+          <div class="card p-3" style="background:#f8f9fa">
+            <div class="mb-2">
+              <small class="fw-semibold text-muted">Estatus CRM</small>
+              <div class="d-flex flex-wrap gap-2 mt-1">
+                <label class="form-check-label camp-estatus-check">
+                  <input type="checkbox" class="form-check-input" value="alta" checked> Alta
+                </label>
+                <label class="form-check-label camp-estatus-check">
+                  <input type="checkbox" class="form-check-input" value="activo" checked> Activo
+                </label>
+                <label class="form-check-label camp-estatus-check">
+                  <input type="checkbox" class="form-check-input" value="prospecto"> Prospecto
+                </label>
+                <label class="form-check-label camp-estatus-check">
+                  <input type="checkbox" class="form-check-input" value="baja"> Baja
+                </label>
+              </div>
+            </div>
+
+            <div class="mb-2">
+              <small class="fw-semibold text-muted">Meses sin cita</small>
+              <div class="d-flex align-items-center gap-2 mt-1">
+                <input type="number" id="campMesesSinCita" class="form-control form-control-sm" style="width:80px"
+                       value="0" min="0" max="60">
+                <small class="text-muted">meses (0 = cualquiera)</small>
+              </div>
+            </div>
+
+            <div class="d-flex align-items-center gap-2">
+              <i class="bi bi-info-circle text-muted"></i>
+              <small class="text-muted">Los pacientes problematicos se excluyen automaticamente</small>
+            </div>
+          </div>
+        </div>
+
+        <!-- Preview audiencia -->
+        <div class="mb-3">
+          <button class="btn btn-outline-info btn-sm" onclick="previewAudiencia()">
+            <i class="bi bi-eye me-1"></i>Vista previa de audiencia
+          </button>
+          <div id="campPreview" class="mt-2" style="display:none">
+            <div class="alert alert-info py-2 mb-0">
+              <strong id="campPreviewTotal">0</strong> pacientes recibiran este mensaje
+              <div id="campPreviewMuestra" class="mt-1 small"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Programacion -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Programacion</label>
+          <div class="d-flex gap-3">
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="campProgramar" id="campEnviarAhora" value="ahora" checked>
+              <label class="form-check-label" for="campEnviarAhora">Enviar ahora</label>
+            </div>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="campProgramar" id="campProgramarFecha" value="programar">
+              <label class="form-check-label" for="campProgramarFecha">Programar envio</label>
+            </div>
+          </div>
+          <div id="campFechaContainer" class="mt-2" style="display:none">
+            <input type="datetime-local" id="campFechaProgramada" class="form-control" style="max-width:300px">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-outline-primary" onclick="guardarCampana(false)">
+          <i class="bi bi-save me-1"></i>Guardar borrador
+        </button>
+        <button class="btn btn-success" onclick="guardarCampana(true)">
+          <i class="bi bi-send me-1"></i>Enviar / Programar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Detalle Campana -->
+<div class="modal fade" id="modalDetalleCampana" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="detCampNombre">Campana</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <div class="small text-muted">Mensaje:</div>
+            <div id="detCampMensaje" class="border rounded p-2 small" style="background:#f8f9fa;white-space:pre-wrap"></div>
+          </div>
+          <div class="col-md-6">
+            <div class="small text-muted mb-1">Estatus:</div>
+            <span id="detCampEstatus" class="badge"></span>
+            <div class="small text-muted mt-2">Creada:</div>
+            <span id="detCampFecha" class="small"></span>
+            <div id="detCampProgramada" class="mt-1" style="display:none">
+              <div class="small text-muted">Programada para:</div>
+              <span id="detCampFechaProg" class="small"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Progress -->
+        <div class="mb-3">
+          <div class="d-flex justify-content-between small mb-1">
+            <span>Progreso de envio</span>
+            <span><strong id="detCampEnviados">0</strong> / <span id="detCampTotal">0</span>
+              <span class="text-danger ms-2" id="detCampFallidosWrap" style="display:none">
+                (<span id="detCampFallidos">0</span> fallidos)
+              </span>
+            </span>
+          </div>
+          <div class="progress" style="height:8px">
+            <div id="detCampProgress" class="progress-bar bg-success" style="width:0%"></div>
+            <div id="detCampProgressFail" class="progress-bar bg-danger" style="width:0%"></div>
+          </div>
+        </div>
+
+        <!-- Destinatarios -->
+        <div class="small fw-semibold text-muted mb-1">Destinatarios</div>
+        <div id="detCampDestinatarios" style="max-height:300px;overflow-y:auto">
+          <p class="text-muted text-center small">Sin destinatarios</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/crm.js') }}"></script>
+<script src="{{ url_for('static', filename='js/campanas.js') }}"></script>
 {% endblock %}

@@ -38,7 +38,9 @@ def actualizar():
         config = ConfiguracionConsultorio()
         db.session.add(config)
 
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
     fields = ['nombre_consultorio', 'direccion', 'telefono', 'clabe',
               'tarjeta', 'titular_cuenta', 'google_reviews_link',
               'porcentaje_anticipo']
@@ -74,7 +76,9 @@ def listar_tipos():
 def crear_tipo():
     if not current_user.is_admin():
         return jsonify(error='Sin permisos'), 403
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
     if not data.get('nombre'):
         return jsonify(error='nombre requerido'), 400
 
@@ -97,7 +101,9 @@ def actualizar_tipo(tipo_id):
     if not current_user.is_admin():
         return jsonify(error='Sin permisos'), 403
     t = TipoCita.query.get_or_404(tipo_id)
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
     for field in ['nombre', 'duracion_minutos', 'precio', 'descripcion', 'color', 'requiere_anticipo']:
         if field in data:
             setattr(t, field, data[field])
@@ -120,7 +126,9 @@ def actualizar_plantilla(plantilla_id):
     if not current_user.is_admin():
         return jsonify(error='Sin permisos'), 403
     p = PlantillaMensaje.query.get_or_404(plantilla_id)
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
     if 'contenido' in data:
         p.contenido = data['contenido']
     if 'nombre' in data:
@@ -143,7 +151,9 @@ def listar_origenes():
 def crear_origen():
     if not current_user.is_admin():
         return jsonify(error='Sin permisos'), 403
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
     nombre = (data.get('nombre') or '').strip()
     if not nombre:
         return jsonify(error='nombre requerido'), 400
@@ -166,7 +176,9 @@ def actualizar_origen(origen_id):
     if not current_user.is_admin():
         return jsonify(error='Sin permisos'), 403
     o = OrigenPaciente.query.get_or_404(origen_id)
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
     if 'nombre' in data:
         nombre = data['nombre'].strip()
         if nombre:

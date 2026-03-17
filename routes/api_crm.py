@@ -1,9 +1,12 @@
-from flask import Blueprint, jsonify, request
-from flask_login import login_required
+import json
+import threading
+
+from flask import Blueprint, jsonify, request, current_app
+from flask_login import login_required, current_user
 from sqlalchemy import func
-from extensions import db
+from extensions import db, scheduler
 from models import (Paciente, EstatusCRM, EstatusCita, SeguimientoCRM, TipoSeguimiento,
-                    ConversacionWhatsapp, Cita)
+                    ConversacionWhatsapp, Cita, Campana, CampanaDestinatario, EstatusCampana)
 from datetime import datetime, timedelta
 
 crm_bp = Blueprint('crm', __name__, url_prefix='/api/crm')
@@ -106,7 +109,9 @@ def detalle_crm(paciente_id):
 @login_required
 def cambiar_estatus(paciente_id):
     p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
     nuevo_estatus = data.get('estatus')
 
     if p.es_problematico and nuevo_estatus != 'baja':
@@ -125,7 +130,9 @@ def cambiar_estatus(paciente_id):
 @login_required
 def crear_seguimiento(paciente_id):
     p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
 
     tipo_str = data.get('tipo', 'whatsapp_1')
     try:
@@ -157,7 +164,7 @@ def completar_seguimiento(seg_id):
     seg = SeguimientoCRM.query.get_or_404(seg_id)
     seg.completado = True
     seg.fecha_enviado = datetime.utcnow()
-    data = request.get_json(force=True) or {}
+    data = request.get_json(silent=True) or {}
     if data.get('notas'):
         seg.notas = data['notas']
     db.session.commit()
@@ -168,7 +175,9 @@ def completar_seguimiento(seg_id):
 @login_required
 def enviar_whatsapp(paciente_id):
     p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
     mensaje = data.get('mensaje', '').strip()
     numero = p.numero_contacto_wa
 
@@ -217,3 +226,137 @@ def _guardar_conversacion(numero, paciente_id, mensaje, es_bot=False):
     )
     db.session.add(conv)
     db.session.commit()
+
+
+# ---- Campanas de WhatsApp masivo ----
+
+@crm_bp.route('/campanas', methods=['GET'])
+@login_required
+def listar_campanas():
+    campanas = Campana.query.order_by(Campana.created_at.desc()).all()
+    return jsonify([c.to_dict() for c in campanas])
+
+
+@crm_bp.route('/campanas', methods=['POST'])
+@login_required
+def crear_campana_endpoint():
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON invalido'), 400
+
+    nombre = (data.get('nombre') or '').strip()
+    mensaje = (data.get('mensaje') or '').strip()
+    if not nombre or not mensaje:
+        return jsonify(error='Nombre y mensaje son requeridos'), 400
+
+    filtros = data.get('filtros', {})
+    fecha_programada = None
+    if data.get('fecha_programada'):
+        try:
+            fecha_programada = datetime.fromisoformat(data['fecha_programada'])
+        except ValueError:
+            return jsonify(error='Fecha programada invalida'), 400
+
+    from services.campana_service import crear_campana
+    campana = crear_campana(nombre, mensaje, filtros, fecha_programada, current_user.id)
+    return jsonify(campana.to_dict()), 201
+
+
+@crm_bp.route('/campanas/<int:campana_id>', methods=['GET'])
+@login_required
+def detalle_campana(campana_id):
+    campana = db.session.get(Campana, campana_id)
+    if not campana:
+        return jsonify(error='Campana no encontrada'), 404
+
+    data = campana.to_dict()
+    data['destinatarios'] = [
+        {
+            'id': d.id,
+            'paciente_id': d.paciente_id,
+            'paciente_nombre': d.paciente.nombre_completo if d.paciente else '',
+            'numero_destino': d.numero_destino,
+            'estatus': d.estatus.value if d.estatus else 'pendiente',
+            'error_mensaje': d.error_mensaje,
+            'fecha_envio': d.fecha_envio.isoformat() if d.fecha_envio else None,
+        }
+        for d in campana.destinatarios
+    ]
+    return jsonify(data)
+
+
+@crm_bp.route('/campanas/preview', methods=['POST'])
+@login_required
+def preview_audiencia():
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON invalido'), 400
+
+    filtros = data.get('filtros', {})
+
+    from services.campana_service import obtener_audiencia
+    pacientes = obtener_audiencia(filtros)
+
+    muestra = [
+        {'id': p.id, 'nombre': p.nombre_completo, 'whatsapp': p.numero_contacto_wa}
+        for p in pacientes[:10]
+    ]
+
+    return jsonify(total=len(pacientes), muestra=muestra)
+
+
+@crm_bp.route('/campanas/<int:campana_id>/enviar', methods=['POST'])
+@login_required
+def enviar_campana_endpoint(campana_id):
+    campana = db.session.get(Campana, campana_id)
+    if not campana:
+        return jsonify(error='Campana no encontrada'), 404
+
+    if campana.estatus != EstatusCampana.borrador:
+        return jsonify(error='Solo se pueden enviar campanas en estado borrador'), 400
+
+    from services.campana_service import preparar_destinatarios, enviar_campana, programar_campana
+
+    total = preparar_destinatarios(campana)
+    if total == 0:
+        return jsonify(error='No hay destinatarios que cumplan los filtros'), 400
+
+    if campana.fecha_programada and campana.fecha_programada > datetime.utcnow():
+        programar_campana(campana.id, current_app._get_current_object(), scheduler)
+        return jsonify(ok=True, total_destinatarios=total, programada=True)
+    else:
+        app = current_app._get_current_object()
+        thread = threading.Thread(
+            target=enviar_campana,
+            args=(campana.id, app),
+            daemon=True,
+        )
+        thread.start()
+        return jsonify(ok=True, total_destinatarios=total, programada=False)
+
+
+@crm_bp.route('/campanas/<int:campana_id>', methods=['DELETE'])
+@login_required
+def eliminar_campana(campana_id):
+    campana = db.session.get(Campana, campana_id)
+    if not campana:
+        return jsonify(error='Campana no encontrada'), 404
+
+    if campana.estatus in (EstatusCampana.enviando, EstatusCampana.completada):
+        return jsonify(error='No se puede eliminar una campana en envio o completada'), 400
+
+    if campana.estatus == EstatusCampana.programada:
+        # Cancelar job del scheduler
+        job_id = f'campana_{campana_id}'
+        try:
+            scheduler.remove_job(job_id)
+        except Exception:
+            pass
+        campana.estatus = EstatusCampana.cancelada
+        db.session.commit()
+        return jsonify(ok=True, cancelada=True)
+
+    # Borrador: eliminar completamente
+    db.session.delete(campana)
+    db.session.commit()
+    return jsonify(ok=True)

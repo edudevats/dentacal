@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 from flask import Blueprint, request, Response
-from extensions import db, csrf
+from extensions import db, csrf, limiter
 from models import ConversacionWhatsapp, Paciente
 
 log = logging.getLogger(__name__)
@@ -16,6 +16,7 @@ MENSAJE_ADJUNTO = (
 
 @webhook_bp.route('/whatsapp', methods=['POST'])
 @csrf.exempt
+@limiter.limit('60 per minute')
 def whatsapp_incoming():
     """Recibe mensajes entrantes de Twilio WhatsApp."""
     _validar_firma_twilio()

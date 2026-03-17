@@ -88,6 +88,16 @@ def setup_scheduler_jobs(scheduler, app):
         kwargs={'app': app},
     )
 
+    # Campanas programadas - safety net cada 5 min
+    scheduler.add_job(
+        func=_job_campanas_programadas,
+        trigger='interval',
+        minutes=5,
+        id='campanas_programadas',
+        replace_existing=True,
+        kwargs={'app': app},
+    )
+
     logger.info('Jobs del scheduler registrados.')
 
 
@@ -312,3 +322,24 @@ def _job_recordatorio_proxima_visita(app):
 
         db.session.commit()
         logger.info(f'Recordatorios proxima visita procesados: {len(pacientes)} pacientes')
+
+
+def _job_campanas_programadas(app):
+    """Safety net: envia campanas programadas cuya fecha ya paso."""
+    with app.app_context():
+        from models import Campana, EstatusCampana
+        from extensions import db
+
+        ahora = _ahora_local()
+        campanas = Campana.query.filter(
+            Campana.estatus == EstatusCampana.programada,
+            Campana.fecha_programada <= ahora,
+        ).all()
+
+        for campana in campanas:
+            try:
+                from services.campana_service import enviar_campana
+                enviar_campana(campana.id, app)
+                logger.info(f'Campana programada {campana.id} enviada por safety-net')
+            except Exception as e:
+                logger.error(f'Error enviando campana programada {campana.id}: {e}')

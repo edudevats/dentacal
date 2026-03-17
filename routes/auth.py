@@ -96,7 +96,7 @@ def crear_usuario():
         return redirect(url_for('auth.admin_usuarios'))
 
     if User.query.filter_by(username=username).first():
-        flash(f'El usuario {username} ya existe.', 'danger')
+        flash('No se pudo crear el usuario. Verifica los datos e intenta de nuevo.', 'danger')
         return redirect(url_for('auth.admin_usuarios'))
 
     try:

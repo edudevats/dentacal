@@ -10,7 +10,9 @@ justificantes_bp = Blueprint('justificantes', __name__, url_prefix='/api/justifi
 @justificantes_bp.route('', methods=['POST'])
 @login_required
 def crear():
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
 
     paciente_id = data.get('paciente_id')
     if not paciente_id:

@@ -38,7 +38,9 @@ def detalle(dentista_id):
 def crear():
     if not current_user.is_admin():
         return jsonify(error='Sin permisos'), 403
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
     if not data.get('nombre'):
         return jsonify(error='El nombre es requerido'), 400
 
@@ -69,7 +71,9 @@ def actualizar(dentista_id):
     if not current_user.is_admin():
         return jsonify(error='Sin permisos'), 403
     d = Dentista.query.get_or_404(dentista_id)
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
 
     if 'nombre' in data:
         d.nombre = data['nombre']
@@ -116,7 +120,9 @@ def eliminar(dentista_id):
 @login_required
 def crear_bloqueo(dentista_id):
     Dentista.query.get_or_404(dentista_id)
-    data = request.get_json(force=True)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
     try:
         inicio = datetime.fromisoformat(data['fecha_inicio'])
         fin = datetime.fromisoformat(data['fecha_fin'])

@@ -283,6 +283,28 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text); backg
   font-size: 11px; color: var(--muted); text-transform: capitalize;
 }
 
+/* ---- CAMPANAS ---- */
+.campana-badge-borrador { background: #E0E0E0; color: #616161; }
+.campana-badge-programada { background: #E3F2FD; color: #1565C0; border: 1px solid #42A5F5; }
+.campana-badge-enviando { background: #FFF3E0; color: #E65100; border: 1px solid #FFA726; animation: campPulse 1.5s ease-in-out infinite; }
+.campana-badge-completada { background: #E8F5E9; color: #2E7D32; border: 1px solid #66BB6A; }
+.campana-badge-cancelada { background: #FFEBEE; color: #C62828; border: 1px solid #EF5350; }
+
+@keyframes campPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.camp-estatus-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
 /* ---- RESPONSIVE ---- */
 @media (max-width: 768px) {
   :root { --sidebar-w: 200px; }
