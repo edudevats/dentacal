@@ -1,6 +1,6 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
-from extensions import db
+from extensions import db, permiso_requerido
 from models import (Cita, Paciente, Dentista, Consultorio, TipoCita,
                     EstatusCita, EstatusCRM)
 from services.scheduler_service import verificar_disponibilidad, obtener_slots_disponibles
@@ -8,6 +8,13 @@ from datetime import datetime
 import pytz
 
 citas_bp = Blueprint('citas', __name__, url_prefix='/api/citas')
+
+
+@citas_bp.before_request
+@login_required
+@permiso_requerido('calendario')
+def _check_permiso():
+    pass
 
 TIMEZONE = pytz.timezone('America/Mexico_City')
 

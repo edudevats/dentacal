@@ -5,7 +5,7 @@
 {% block content %}
 <div class="container-fluid p-4">
   <div class="row">
-    <div class="col-md-8">
+    <div class="col-lg-10">
       <div class="card shadow-sm">
         <div class="card-header d-flex justify-content-between align-items-center">
           <span><i class="bi bi-people me-2"></i>Usuarios</span>
@@ -17,7 +17,7 @@
           <table class="table table-hover mb-0">
             <thead class="table-light">
               <tr>
-                <th>Usuario</th><th>Email</th><th>Rol</th><th>Estado</th><th>Acciones</th>
+                <th>Usuario</th><th>Email</th><th>Rol</th><th>Permisos</th><th>Estado</th><th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -34,20 +34,38 @@
                   </span>
                 </td>
                 <td>
+                  {% if u.is_admin() %}
+                    <span class="badge bg-danger">Acceso total</span>
+                  {% else %}
+                    {% for p in (u.permisos or []) %}
+                      <span class="badge bg-secondary me-1">{{ permisos_disponibles.get(p, p) }}</span>
+                    {% else %}
+                      <span class="text-muted small">Sin permisos</span>
+                    {% endfor %}
+                  {% endif %}
+                </td>
+                <td>
                   <span class="badge bg-{{ 'success' if u.activo else 'secondary' }}">
                     {{ 'Activo' if u.activo else 'Inactivo' }}
                   </span>
                 </td>
                 <td>
+                  {% if not u.is_admin() %}
+                  <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
+                          data-bs-target="#modalPermisos{{ u.id }}" title="Permisos">
+                    <i class="bi bi-shield-check"></i>
+                  </button>
+                  {% endif %}
                   <button class="btn btn-sm btn-outline-warning" data-bs-toggle="modal"
-                          data-bs-target="#modalResetPassword{{ u.id }}">
+                          data-bs-target="#modalResetPassword{{ u.id }}" title="Cambiar contrasena">
                     <i class="bi bi-key"></i>
                   </button>
                   {% if u.id != current_user.id %}
                   <form method="POST" action="{{ url_for('auth.toggle_usuario', user_id=u.id) }}" class="d-inline">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-sm btn-outline-{{ 'danger' if u.activo else 'success' }}">
-                      {{ 'Desactivar' if u.activo else 'Activar' }}
+                    <button type="submit" class="btn btn-sm btn-outline-{{ 'danger' if u.activo else 'success' }}"
+                            title="{{ 'Desactivar' if u.activo else 'Activar' }}">
+                      <i class="bi bi-{{ 'x-circle' if u.activo else 'check-circle' }}"></i>
                     </button>
                   </form>
                   {% endif %}
@@ -61,6 +79,40 @@
     </div>
   </div>
 </div>
+
+<!-- Modales Permisos -->
+{% for u in usuarios %}
+{% if not u.is_admin() %}
+<div class="modal fade" id="modalPermisos{{ u.id }}" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="POST" action="{{ url_for('auth.actualizar_permisos', user_id=u.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h6 class="modal-title"><i class="bi bi-shield-check me-2"></i>Permisos — {{ u.username }}</h6>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted small mb-3">Selecciona las secciones a las que este usuario puede acceder.</p>
+          {% for key, label in permisos_disponibles.items() %}
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="permisos" value="{{ key }}"
+                   id="perm_{{ u.id }}_{{ key }}"
+                   {{ 'checked' if key in (u.permisos or []) else '' }}>
+            <label class="form-check-label" for="perm_{{ u.id }}_{{ key }}">{{ label }}</label>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary btn-sm">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
 
 <!-- Modales Reset Password -->
 {% for u in usuarios %}
@@ -93,7 +145,7 @@
 <div class="modal fade" id="modalNuevoUsuario" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
-      <form method="POST" action="{{ url_for('auth.crear_usuario') }}">
+      <form method="POST" action="{{ url_for('auth.crear_usuario') }}" id="formNuevoUsuario">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header">
           <h5 class="modal-title"><i class="bi bi-person-plus me-2"></i>Nuevo Usuario</h5>
@@ -114,10 +166,20 @@
           </div>
           <div class="mb-3">
             <label class="form-label">Rol</label>
-            <select name="rol" class="form-select">
+            <select name="rol" class="form-select" id="selectRolNuevo">
               <option value="recepcionista">Recepcionista</option>
               <option value="admin">Administrador</option>
             </select>
+          </div>
+          <div class="mb-3" id="permisosNuevoUsuario">
+            <label class="form-label">Permisos de acceso</label>
+            {% for key, label in permisos_disponibles.items() %}
+            <div class="form-check">
+              <input class="form-check-input perm-nuevo" type="checkbox" name="permisos" value="{{ key }}"
+                     id="perm_new_{{ key }}" checked>
+              <label class="form-check-label" for="perm_new_{{ key }}">{{ label }}</label>
+            </div>
+            {% endfor %}
           </div>
         </div>
         <div class="modal-footer">
@@ -128,4 +190,15 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Hide/show permissions section based on role selection
+  const selectRol = document.getElementById('selectRolNuevo');
+  const permisosDiv = document.getElementById('permisosNuevoUsuario');
+  selectRol?.addEventListener('change', function() {
+    permisosDiv.style.display = this.value === 'admin' ? 'none' : 'block';
+  });
+</script>
 {% endblock %}

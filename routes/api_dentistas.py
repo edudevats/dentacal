@@ -1,10 +1,17 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
-from extensions import db
+from extensions import db, permiso_requerido
 from models import Dentista, HorarioDentista, BloqueoDentista
 from datetime import time, datetime
 
 dentistas_bp = Blueprint('dentistas', __name__, url_prefix='/api/dentistas')
+
+
+@dentistas_bp.before_request
+@login_required
+@permiso_requerido('calendario')
+def _check_permiso():
+    pass
 
 
 @dentistas_bp.route('', methods=['GET'])

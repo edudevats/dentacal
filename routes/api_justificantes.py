@@ -1,10 +1,17 @@
 from flask import Blueprint, jsonify, request, make_response
 from flask_login import login_required, current_user
-from extensions import db
+from extensions import db, permiso_requerido
 from models import Justificante, Paciente, Cita
 from datetime import date
 
 justificantes_bp = Blueprint('justificantes', __name__, url_prefix='/api/justificantes')
+
+
+@justificantes_bp.before_request
+@login_required
+@permiso_requerido('calendario')
+def _check_permiso():
+    pass
 
 
 @justificantes_bp.route('', methods=['POST'])

@@ -2,7 +2,7 @@ from urllib.parse import urlparse
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_user, logout_user, login_required, current_user
 from extensions import db, limiter
-from models import User, RolUsuario, AuditLog
+from models import User, RolUsuario, AuditLog, PERMISOS_DISPONIBLES
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -76,7 +76,8 @@ def admin_usuarios():
         flash('No tienes permisos para esta seccion.', 'danger')
         return redirect(url_for('main.dashboard'))
     usuarios = User.query.order_by(User.created_at.desc()).all()
-    return render_template('auth/usuarios.html', usuarios=usuarios)
+    return render_template('auth/usuarios.html', usuarios=usuarios,
+                           permisos_disponibles=PERMISOS_DISPONIBLES)
 
 
 @auth_bp.route('/admin/usuarios/crear', methods=['POST'])
@@ -104,7 +105,14 @@ def crear_usuario():
     except KeyError:
         rol_enum = RolUsuario.recepcionista
 
+    permisos = request.form.getlist('permisos')
+    permisos_validos = [p for p in permisos if p in PERMISOS_DISPONIBLES]
+
     user = User(username=username, email=email, rol=rol_enum)
+    if rol_enum != RolUsuario.admin:
+        user.permisos = permisos_validos
+    else:
+        user.permisos = list(PERMISOS_DISPONIBLES.keys())
     user.set_password(password)
     db.session.add(user)
     db.session.commit()
@@ -146,6 +154,25 @@ def toggle_usuario(user_id):
     db.session.commit()
     estado = 'activado' if user.activo else 'desactivado'
     flash(f'Usuario {user.username} {estado}.', 'success')
+    return redirect(url_for('auth.admin_usuarios'))
+
+
+@auth_bp.route('/admin/usuarios/<int:user_id>/permisos', methods=['POST'])
+@login_required
+def actualizar_permisos(user_id):
+    if not current_user.is_admin():
+        from flask import jsonify
+        return jsonify(error='Sin permisos'), 403
+    user = User.query.get_or_404(user_id)
+    if user.is_admin():
+        flash('Los administradores tienen acceso total.', 'info')
+        return redirect(url_for('auth.admin_usuarios'))
+    permisos = request.form.getlist('permisos')
+    user.permisos = [p for p in permisos if p in PERMISOS_DISPONIBLES]
+    db.session.commit()
+    _audit(current_user.id, 'actualizar_permisos', tabla='users', registro_id=user.id,
+           ip=request.remote_addr)
+    flash(f'Permisos de {user.username} actualizados.', 'success')
     return redirect(url_for('auth.admin_usuarios'))
 
 

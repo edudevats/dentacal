@@ -28,30 +28,38 @@
   </div>
 
   <ul class="sidebar-nav flex-grow-1">
+    {% if current_user.tiene_permiso('calendario') %}
     <li>
       <a href="{{ url_for('main.dashboard') }}"
          class="sidebar-link {% if request.endpoint == 'main.dashboard' %}active{% endif %}">
         <i class="bi bi-calendar3"></i><span>Calendario</span>
       </a>
     </li>
+    {% endif %}
+    {% if current_user.tiene_permiso('pacientes') %}
     <li>
       <a href="{{ url_for('main.pacientes') }}"
          class="sidebar-link {% if request.endpoint == 'main.pacientes' %}active{% endif %}">
         <i class="bi bi-people"></i><span>Pacientes</span>
       </a>
     </li>
+    {% endif %}
+    {% if current_user.tiene_permiso('crm') %}
     <li>
       <a href="{{ url_for('main.crm') }}"
          class="sidebar-link {% if request.endpoint == 'main.crm' %}active{% endif %}">
         <i class="bi bi-graph-up-arrow"></i><span>CRM</span>
       </a>
     </li>
+    {% endif %}
+    {% if current_user.tiene_permiso('bot') %}
     <li>
       <a href="{{ url_for('main.bot_monitor') }}"
          class="sidebar-link {% if request.endpoint == 'main.bot_monitor' %}active{% endif %}">
         <i class="bi bi-robot"></i><span>Bot WhatsApp</span>
       </a>
     </li>
+    {% endif %}
     {% if current_user.is_admin() %}
     <li>
       <a href="{{ url_for('main.configuracion') }}"

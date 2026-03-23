@@ -1,9 +1,17 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required
+from extensions import permiso_requerido
 from models import Cita, Consultorio, EstatusCita
 from datetime import datetime
 
 calendario_bp = Blueprint('calendario', __name__, url_prefix='/api/calendario')
+
+
+@calendario_bp.before_request
+@login_required
+@permiso_requerido('calendario')
+def _check_permiso():
+    pass
 
 
 @calendario_bp.route('/eventos', methods=['GET'])

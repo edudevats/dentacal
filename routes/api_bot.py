@@ -1,10 +1,17 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required
 from sqlalchemy import func
-from extensions import db
+from extensions import db, permiso_requerido
 from models import ConversacionWhatsapp, Paciente
 
 bot_bp = Blueprint('bot', __name__, url_prefix='/api/bot')
+
+
+@bot_bp.before_request
+@login_required
+@permiso_requerido('bot')
+def _check_permiso():
+    pass
 
 
 @bot_bp.route('/conversaciones', methods=['GET'])

@@ -63,6 +63,14 @@ class EstatusDestinatario(PyEnum):
 
 # --- Modelos ---
 
+PERMISOS_DISPONIBLES = {
+    'calendario': 'Calendario',
+    'pacientes': 'Pacientes',
+    'crm': 'CRM',
+    'bot': 'Bot WhatsApp',
+}
+
+
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
 
@@ -72,6 +80,7 @@ class User(UserMixin, db.Model):
     password_hash = db.Column(db.String(255), nullable=False)
     rol = db.Column(db.Enum(RolUsuario), nullable=False, default=RolUsuario.recepcionista)
     activo = db.Column(db.Boolean, default=True)
+    permisos = db.Column(db.JSON, default=list)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def set_password(self, password):
@@ -82,6 +91,11 @@ class User(UserMixin, db.Model):
 
     def is_admin(self):
         return self.rol == RolUsuario.admin
+
+    def tiene_permiso(self, permiso):
+        if self.is_admin():
+            return True
+        return permiso in (self.permisos or [])
 
     def __repr__(self):
         return f'<User {self.username}>'

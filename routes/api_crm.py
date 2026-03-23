@@ -4,12 +4,19 @@ import threading
 from flask import Blueprint, jsonify, request, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import func
-from extensions import db, scheduler
+from extensions import db, scheduler, permiso_requerido
 from models import (Paciente, EstatusCRM, EstatusCita, SeguimientoCRM, TipoSeguimiento,
                     ConversacionWhatsapp, Cita, Campana, CampanaDestinatario, EstatusCampana)
 from datetime import datetime, timedelta
 
 crm_bp = Blueprint('crm', __name__, url_prefix='/api/crm')
+
+
+@crm_bp.before_request
+@login_required
+@permiso_requerido('crm')
+def _check_permiso():
+    pass
 
 
 @crm_bp.route('', methods=['GET'])
