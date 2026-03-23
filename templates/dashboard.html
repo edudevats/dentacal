@@ -63,7 +63,7 @@
     <div class="legend-item" data-dentista-id="{{ d.id }}" onclick="toggleDentista({{ d.id }}, this)">
       <span class="legend-dot" style="background:{{ d.color }}"></span>
       <span>{{ d.nombre }}</span>
-      <small class="text-muted">({{ d.especialidad }})</small>
+      <small class="text-muted legend-count" data-dentista-count="{{ d.id }}">(0 citas)</small>
     </div>
     {% endfor %}
   </div>

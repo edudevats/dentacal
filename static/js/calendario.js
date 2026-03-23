@@ -74,6 +74,23 @@ function initCalendario() {
       info.el.title = info.event.title + ' - ' + status;
     },
 
+    dayHeaderContent(arg) {
+      const dayNames = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+      const day = dayNames[arg.date.getDay()];
+      const date = arg.date.getDate() + '/' + (arg.date.getMonth() + 1);
+      const wrapper = document.createElement('div');
+      wrapper.className = 'day-header-custom';
+      const nameEl = document.createElement('div');
+      nameEl.className = 'day-header-name';
+      nameEl.textContent = day;
+      const dateEl = document.createElement('div');
+      dateEl.className = 'day-header-date';
+      dateEl.textContent = date;
+      wrapper.appendChild(nameEl);
+      wrapper.appendChild(dateEl);
+      return { domNodes: [wrapper] };
+    },
+
     initialDate: new Date(),
     nowIndicator: true,
     height: 'parent',
@@ -97,6 +114,7 @@ async function cargarEventos(info, successCallback, failureCallback) {
     const resp = await apiFetch(url);
     if (!resp.ok) throw new Error('Error cargando eventos');
     let eventos = await resp.json();
+    actualizarConteoLeyenda(eventos);
     if (dentistasOcultos.size > 0) {
       eventos = eventos.filter(e => !dentistasOcultos.has(String(e.extendedProps?.dentista_id)));
     }
@@ -108,6 +126,19 @@ async function cargarEventos(info, successCallback, failureCallback) {
 }
 
 // ==================== LEYENDA ====================
+
+function actualizarConteoLeyenda(eventos) {
+  const conteo = {};
+  eventos.forEach(e => {
+    const did = String(e.extendedProps?.dentista_id || '');
+    if (did) conteo[did] = (conteo[did] || 0) + 1;
+  });
+  document.querySelectorAll('[data-dentista-count]').forEach(el => {
+    const did = el.getAttribute('data-dentista-count');
+    const n = conteo[did] || 0;
+    el.textContent = '(' + n + (n === 1 ? ' cita' : ' citas') + ')';
+  });
+}
 
 function toggleDentista(dentistaId, el) {
   const id = String(dentistaId);
