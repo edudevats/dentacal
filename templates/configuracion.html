@@ -246,7 +246,7 @@
 
 <!-- Modal Dentista -->
 <div class="modal fade" id="modalDentista" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="dentistaTitulo">Nuevo Dentista</h5>
@@ -282,6 +282,114 @@
             </div>
           </div>
         </div>
+
+        <!-- Horario Semanal -->
+        <hr class="my-3">
+        <h6 class="fw-bold mb-3"><i class="bi bi-clock me-1"></i>Horario Semanal</h6>
+        <div id="horariosContainer">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="form-check form-switch" style="min-width:130px">
+              <input class="form-check-input horario-toggle" type="checkbox" id="h_activo_0" data-dia="0">
+              <label class="form-check-label small" for="h_activo_0">Lunes</label>
+            </div>
+            <input type="time" class="form-control form-control-sm" id="h_inicio_0" value="09:00" style="max-width:120px">
+            <span class="text-muted small">a</span>
+            <input type="time" class="form-control form-control-sm" id="h_fin_0" value="18:00" style="max-width:120px">
+          </div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="form-check form-switch" style="min-width:130px">
+              <input class="form-check-input horario-toggle" type="checkbox" id="h_activo_1" data-dia="1">
+              <label class="form-check-label small" for="h_activo_1">Martes</label>
+            </div>
+            <input type="time" class="form-control form-control-sm" id="h_inicio_1" value="09:00" style="max-width:120px">
+            <span class="text-muted small">a</span>
+            <input type="time" class="form-control form-control-sm" id="h_fin_1" value="18:00" style="max-width:120px">
+          </div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="form-check form-switch" style="min-width:130px">
+              <input class="form-check-input horario-toggle" type="checkbox" id="h_activo_2" data-dia="2">
+              <label class="form-check-label small" for="h_activo_2">Miercoles</label>
+            </div>
+            <input type="time" class="form-control form-control-sm" id="h_inicio_2" value="09:00" style="max-width:120px">
+            <span class="text-muted small">a</span>
+            <input type="time" class="form-control form-control-sm" id="h_fin_2" value="18:00" style="max-width:120px">
+          </div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="form-check form-switch" style="min-width:130px">
+              <input class="form-check-input horario-toggle" type="checkbox" id="h_activo_3" data-dia="3">
+              <label class="form-check-label small" for="h_activo_3">Jueves</label>
+            </div>
+            <input type="time" class="form-control form-control-sm" id="h_inicio_3" value="09:00" style="max-width:120px">
+            <span class="text-muted small">a</span>
+            <input type="time" class="form-control form-control-sm" id="h_fin_3" value="18:00" style="max-width:120px">
+          </div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="form-check form-switch" style="min-width:130px">
+              <input class="form-check-input horario-toggle" type="checkbox" id="h_activo_4" data-dia="4">
+              <label class="form-check-label small" for="h_activo_4">Viernes</label>
+            </div>
+            <input type="time" class="form-control form-control-sm" id="h_inicio_4" value="09:00" style="max-width:120px">
+            <span class="text-muted small">a</span>
+            <input type="time" class="form-control form-control-sm" id="h_fin_4" value="18:00" style="max-width:120px">
+          </div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="form-check form-switch" style="min-width:130px">
+              <input class="form-check-input horario-toggle" type="checkbox" id="h_activo_5" data-dia="5">
+              <label class="form-check-label small" for="h_activo_5">Sabado</label>
+            </div>
+            <input type="time" class="form-control form-control-sm" id="h_inicio_5" value="09:00" style="max-width:120px">
+            <span class="text-muted small">a</span>
+            <input type="time" class="form-control form-control-sm" id="h_fin_5" value="18:00" style="max-width:120px">
+          </div>
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="form-check form-switch" style="min-width:130px">
+              <input class="form-check-input horario-toggle" type="checkbox" id="h_activo_6" data-dia="6">
+              <label class="form-check-label small" for="h_activo_6">Domingo</label>
+            </div>
+            <input type="time" class="form-control form-control-sm" id="h_inicio_6" value="09:00" style="max-width:120px">
+            <span class="text-muted small">a</span>
+            <input type="time" class="form-control form-control-sm" id="h_fin_6" value="18:00" style="max-width:120px">
+          </div>
+        </div>
+
+        <!-- Vacaciones -->
+        <hr class="my-3">
+        <div id="bloqueosSection" style="display:none">
+          <div class="d-flex align-items-center gap-2 mb-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="vacaciones_toggle" style="transform:scale(1.3)">
+              <label class="form-check-label fw-bold" for="vacaciones_toggle">
+                <i class="bi bi-calendar-x me-1"></i>Vacaciones
+              </label>
+            </div>
+            <span id="vacacionesStatus" class="badge bg-secondary small">Inactivo</span>
+          </div>
+          <div id="vacacionesForm" style="display:none">
+            <div class="card border-warning bg-warning bg-opacity-10 p-3 mb-3">
+              <div class="small text-muted mb-2">El doctor no recibira citas durante este periodo</div>
+              <div class="row g-2 align-items-end">
+                <div class="col-md-5">
+                  <label class="form-label small fw-semibold">Desde</label>
+                  <input type="date" id="bloqueo_inicio" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-5">
+                  <label class="form-label small fw-semibold">Hasta</label>
+                  <input type="date" id="bloqueo_fin" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-2">
+                  <button type="button" class="btn btn-warning btn-sm w-100" onclick="agregarBloqueo()">
+                    <i class="bi bi-check-lg me-1"></i>Guardar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="bloqueosLista"></div>
+        </div>
+        <div id="bloqueosNuevoMsg" class="text-muted small" style="display:none">
+          Guarda el doctor primero para poder gestionar vacaciones.
+        </div>
+
         <div id="dentistaMsg" class="mt-2"></div>
       </div>
       <div class="modal-footer">
@@ -345,6 +453,21 @@
 
 {% block extra_js %}
 <script>
+  // Persistir tab activa entre reloads
+  function reloadKeepingTab() {
+    const activeTab = document.querySelector('#configTabs .nav-link.active');
+    if (activeTab) sessionStorage.setItem('configActiveTab', activeTab.getAttribute('href'));
+    location.reload();
+  }
+  (function restoreTab() {
+    const saved = sessionStorage.getItem('configActiveTab');
+    if (saved) {
+      sessionStorage.removeItem('configActiveTab');
+      const tab = document.querySelector(`#configTabs a[href="${saved}"]`);
+      if (tab) new bootstrap.Tab(tab).show();
+    }
+  })();
+
   // Configuracion
   document.getElementById('btnGuardarConfig')?.addEventListener('click', async () => {
     const body = {
@@ -376,6 +499,19 @@
     document.getElementById('d_email').value = '';
     document.getElementById('d_activo').checked = true;
     document.getElementById('dentistaTitulo').textContent = 'Nuevo Dentista';
+    for (let dia = 0; dia < 7; dia++) {
+      const toggle = document.getElementById(`h_activo_${dia}`);
+      const inicio = document.getElementById(`h_inicio_${dia}`);
+      const fin = document.getElementById(`h_fin_${dia}`);
+      toggle.checked = dia < 5;
+      inicio.value = '09:00';
+      fin.value = '18:00';
+      inicio.disabled = dia >= 5;
+      fin.disabled = dia >= 5;
+    }
+    document.getElementById('bloqueosSection').style.display = 'none';
+    document.getElementById('bloqueosNuevoMsg').style.display = '';
+    document.getElementById('bloqueosLista').textContent = '';
   }
 
   async function editarDentista(id) {
@@ -389,11 +525,40 @@
     document.getElementById('d_email').value = d.email || '';
     document.getElementById('d_activo').checked = d.activo;
     document.getElementById('dentistaTitulo').textContent = 'Editar Dentista';
+    for (let dia = 0; dia < 7; dia++) {
+      const toggle = document.getElementById(`h_activo_${dia}`);
+      const inicio = document.getElementById(`h_inicio_${dia}`);
+      const fin = document.getElementById(`h_fin_${dia}`);
+      const horario = (d.horarios || []).find(h => h.dia_semana === dia);
+      if (horario) {
+        toggle.checked = horario.activo;
+        inicio.value = horario.hora_inicio;
+        fin.value = horario.hora_fin;
+      } else {
+        toggle.checked = false;
+        inicio.value = '09:00';
+        fin.value = '18:00';
+      }
+      inicio.disabled = !toggle.checked;
+      fin.disabled = !toggle.checked;
+    }
+    document.getElementById('bloqueosSection').style.display = '';
+    document.getElementById('bloqueosNuevoMsg').style.display = 'none';
+    cargarBloqueos(id);
     new bootstrap.Modal(document.getElementById('modalDentista')).show();
   }
 
   async function guardarDentista() {
     const id = document.getElementById('d_id').value;
+    const horarios = [];
+    for (let dia = 0; dia < 7; dia++) {
+      horarios.push({
+        dia_semana: dia,
+        activo: document.getElementById(`h_activo_${dia}`).checked,
+        hora_inicio: document.getElementById(`h_inicio_${dia}`).value,
+        hora_fin: document.getElementById(`h_fin_${dia}`).value,
+      });
+    }
     const body = {
       nombre: document.getElementById('d_nombre').value,
       especialidad: document.getElementById('d_especialidad').value,
@@ -401,6 +566,7 @@
       telefono: document.getElementById('d_telefono').value,
       email: document.getElementById('d_email').value,
       activo: document.getElementById('d_activo').checked,
+      horarios,
     };
     const url = id ? `/api/dentistas/${id}` : '/api/dentistas';
     const method = id ? 'PUT' : 'POST';
@@ -408,13 +574,138 @@
     const msg = document.getElementById('dentistaMsg');
     if (resp.ok) {
       bootstrap.Modal.getInstance(document.getElementById('modalDentista'))?.hide();
-      location.reload();
+      reloadKeepingTab();
     } else {
       const d = await resp.json();
       msg.className = 'mt-2 text-danger small';
       msg.textContent = d.error || 'Error al guardar';
     }
   }
+
+  // Vacaciones
+  const vacToggle = document.getElementById('vacaciones_toggle');
+  vacToggle?.addEventListener('change', function() {
+    document.getElementById('vacacionesForm').style.display = this.checked ? '' : 'none';
+    const badge = document.getElementById('vacacionesStatus');
+    if (this.checked) {
+      badge.className = 'badge bg-warning text-dark small';
+      badge.textContent = 'Programando vacaciones';
+    } else {
+      badge.className = 'badge bg-secondary small';
+      badge.textContent = 'Inactivo';
+    }
+  });
+
+  function _renderBloqueo(b) {
+    const inicio = new Date(b.fecha_inicio).toLocaleDateString('es-MX', {day:'numeric',month:'short',year:'numeric'});
+    const fin = new Date(b.fecha_fin).toLocaleDateString('es-MX', {day:'numeric',month:'short',year:'numeric'});
+    const ahora = new Date();
+    const enCurso = new Date(b.fecha_inicio) <= ahora && new Date(b.fecha_fin) >= ahora;
+    const row = document.createElement('div');
+    row.className = 'd-flex align-items-center justify-content-between border rounded p-2 mb-1' + (enCurso ? ' border-warning bg-warning bg-opacity-10' : '');
+    const info = document.createElement('div');
+    info.className = 'small';
+    const icon = document.createElement('i');
+    icon.className = 'bi bi-sun me-1 text-warning';
+    info.appendChild(icon);
+    if (enCurso) {
+      const badge = document.createElement('span');
+      badge.className = 'badge bg-warning text-dark me-2';
+      badge.textContent = 'En vacaciones';
+      info.appendChild(badge);
+    }
+    const txtInicio = document.createElement('strong');
+    txtInicio.textContent = inicio;
+    info.appendChild(txtInicio);
+    info.appendChild(document.createTextNode(' — '));
+    const txtFin = document.createElement('strong');
+    txtFin.textContent = fin;
+    info.appendChild(txtFin);
+    row.appendChild(info);
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-sm btn-outline-danger';
+    btn.title = 'Cancelar vacaciones';
+    btn.onclick = () => eliminarBloqueo(b.id);
+    const btnIcon = document.createElement('i');
+    btnIcon.className = 'bi bi-x-lg';
+    btn.appendChild(btnIcon);
+    row.appendChild(btn);
+    return row;
+  }
+
+  async function cargarBloqueos(dentistaId) {
+    const resp = await apiFetch(`/api/dentistas/${dentistaId}/bloqueos?futuros=true`);
+    const bloqueos = await resp.json();
+    const lista = document.getElementById('bloqueosLista');
+    lista.textContent = '';
+    // Reset toggle
+    const toggle = document.getElementById('vacaciones_toggle');
+    const badge = document.getElementById('vacacionesStatus');
+    document.getElementById('vacacionesForm').style.display = 'none';
+    toggle.checked = false;
+    if (bloqueos.length === 0) {
+      badge.className = 'badge bg-secondary small';
+      badge.textContent = 'Sin vacaciones';
+      return;
+    }
+    // Check if any block is currently active
+    const ahora = new Date();
+    const enVacaciones = bloqueos.some(b => new Date(b.fecha_inicio) <= ahora && new Date(b.fecha_fin) >= ahora);
+    if (enVacaciones) {
+      badge.className = 'badge bg-warning text-dark small';
+      badge.textContent = 'En vacaciones';
+    } else {
+      badge.className = 'badge bg-info small';
+      badge.textContent = bloqueos.length + ' programada(s)';
+    }
+    bloqueos.forEach(b => lista.appendChild(_renderBloqueo(b)));
+  }
+
+  async function agregarBloqueo() {
+    const dentistaId = document.getElementById('d_id').value;
+    if (!dentistaId) return;
+    const inicio = document.getElementById('bloqueo_inicio').value;
+    const fin = document.getElementById('bloqueo_fin').value;
+    if (!inicio || !fin) { alert('Selecciona fecha de inicio y fin'); return; }
+    if (new Date(fin) < new Date(inicio)) { alert('La fecha fin debe ser igual o posterior al inicio'); return; }
+    // Convertir dates a datetime (dia completo: 00:00 inicio, 23:59 fin)
+    const fechaInicio = inicio + 'T00:00:00';
+    const fechaFin = fin + 'T23:59:00';
+    const resp = await apiFetch(`/api/dentistas/${dentistaId}/bloqueos`, {
+      method: 'POST',
+      body: JSON.stringify({ fecha_inicio: fechaInicio, fecha_fin: fechaFin, motivo: 'Vacaciones' }),
+    });
+    if (resp.ok) {
+      document.getElementById('bloqueo_inicio').value = '';
+      document.getElementById('bloqueo_fin').value = '';
+      document.getElementById('vacaciones_toggle').checked = false;
+      document.getElementById('vacacionesForm').style.display = 'none';
+      cargarBloqueos(dentistaId);
+    } else {
+      const data = await resp.json();
+      alert(data.error || 'Error al programar vacaciones');
+    }
+  }
+
+  async function eliminarBloqueo(bloqueoId) {
+    if (!confirm('Cancelar estas vacaciones?')) return;
+    const dentistaId = document.getElementById('d_id').value;
+    const resp = await apiFetch(`/api/dentistas/${dentistaId}/bloqueos/${bloqueoId}`, { method: 'DELETE' });
+    if (resp.ok) {
+      cargarBloqueos(dentistaId);
+    } else {
+      alert('Error al cancelar vacaciones');
+    }
+  }
+
+  // Toggle horario switches
+  document.querySelectorAll('.horario-toggle').forEach(toggle => {
+    toggle.addEventListener('change', function() {
+      const dia = this.dataset.dia;
+      document.getElementById(`h_inicio_${dia}`).disabled = !this.checked;
+      document.getElementById(`h_fin_${dia}`).disabled = !this.checked;
+    });
+  });
 
   // Tipos de Cita
   function prepararNuevoTipoCita() {
@@ -468,7 +759,7 @@
     const resp = await apiFetch(url, { method, body: JSON.stringify(body) });
     if (resp.ok) {
       bootstrap.Modal.getInstance(document.getElementById('modalTipoCita'))?.hide();
-      location.reload();
+      reloadKeepingTab();
     } else {
       const data = await resp.json();
       msg.className = 'mt-2 text-danger small';
@@ -503,7 +794,7 @@
       body: JSON.stringify({ nombre }),
     });
     if (resp.ok) {
-      location.reload();
+      reloadKeepingTab();
     } else {
       const data = await resp.json();
       alert(data.error || 'Error al crear categoria');
@@ -522,7 +813,7 @@
       body: JSON.stringify({ nombre }),
     });
     if (resp.ok) {
-      location.reload();
+      reloadKeepingTab();
     } else {
       const data = await resp.json();
       alert(data.error || 'Error al actualizar');

@@ -116,6 +116,24 @@ def eliminar(dentista_id):
     return jsonify(ok=True)
 
 
+@dentistas_bp.route('/<int:dentista_id>/bloqueos', methods=['GET'])
+@login_required
+def listar_bloqueos(dentista_id):
+    Dentista.query.get_or_404(dentista_id)
+    futuros = request.args.get('futuros', 'false').lower() == 'true'
+    q = BloqueoDentista.query.filter_by(dentista_id=dentista_id)
+    if futuros:
+        q = q.filter(BloqueoDentista.fecha_fin >= datetime.utcnow())
+    bloqueos = q.order_by(BloqueoDentista.fecha_inicio.desc()).all()
+    return jsonify([{
+        'id': b.id,
+        'dentista_id': b.dentista_id,
+        'fecha_inicio': b.fecha_inicio.isoformat(),
+        'fecha_fin': b.fecha_fin.isoformat(),
+        'motivo': b.motivo,
+    } for b in bloqueos])
+
+
 @dentistas_bp.route('/<int:dentista_id>/bloqueos', methods=['POST'])
 @login_required
 def crear_bloqueo(dentista_id):
@@ -138,6 +156,19 @@ def crear_bloqueo(dentista_id):
     db.session.add(bloqueo)
     db.session.commit()
     return jsonify(id=bloqueo.id), 201
+
+
+@dentistas_bp.route('/<int:dentista_id>/bloqueos/<int:bloqueo_id>', methods=['DELETE'])
+@login_required
+def eliminar_bloqueo(dentista_id, bloqueo_id):
+    if not current_user.is_admin():
+        return jsonify(error='Sin permisos'), 403
+    bloqueo = BloqueoDentista.query.filter_by(
+        id=bloqueo_id, dentista_id=dentista_id
+    ).first_or_404()
+    db.session.delete(bloqueo)
+    db.session.commit()
+    return jsonify(ok=True)
 
 
 def _parse_time(s):

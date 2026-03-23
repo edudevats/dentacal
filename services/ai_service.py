@@ -53,7 +53,7 @@ BOT_FUNCTION_DECLARATIONS = [
     },
     {
         "name": "buscar_disponibilidad",
-        "description": "Busca horarios disponibles para una cita en una fecha especifica. Si se indica hora_preferida y no esta disponible, devuelve la alternativa mas cercana en el mismo dia y en los siguientes dias.",
+        "description": "Busca horarios disponibles para una cita en una fecha especifica. Si se pasa paciente_id, filtra automaticamente por el doctor asignado al paciente. Si se indica hora_preferida y no esta disponible, devuelve la alternativa mas cercana.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -61,13 +61,17 @@ BOT_FUNCTION_DECLARATIONS = [
                     "type": "string",
                     "description": "Fecha en formato YYYY-MM-DD"
                 },
+                "paciente_id": {
+                    "type": "integer",
+                    "description": "ID del paciente. Si se proporciona, el sistema buscara SOLO con el doctor asignado al paciente."
+                },
                 "hora_preferida": {
                     "type": "string",
                     "description": "Hora preferida del paciente en formato HH:MM (ej: 10:00). Si se proporciona y no esta disponible, el sistema sugerira la alternativa mas cercana."
                 },
                 "dentista_id": {
                     "type": "integer",
-                    "description": "ID del dentista especifico (opcional)"
+                    "description": "ID del dentista especifico (opcional, se autodetecta si se pasa paciente_id)"
                 },
                 "duracion_minutos": {
                     "type": "integer",
@@ -147,6 +151,46 @@ BOT_FUNCTION_DECLARATIONS = [
 ]
 
 
+def _get_doctor_schedule_summary():
+    """Genera resumen de horarios de doctores activos y ausencias proximas."""
+    from models import Dentista, HorarioDentista, BloqueoDentista
+    dias_nombres = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom']
+
+    dentistas = Dentista.query.filter_by(activo=True).order_by(Dentista.nombre).all()
+    lineas = []
+
+    for d in dentistas:
+        horarios_activos = {h.dia_semana: h for h in d.horarios if h.activo}
+        if not horarios_activos:
+            lineas.append(f"- {d.nombre} (ID:{d.id}): Sin horario configurado")
+            continue
+
+        dias_str = ', '.join(
+            f"{dias_nombres[dia]} {h.hora_inicio.strftime('%H:%M')}-{h.hora_fin.strftime('%H:%M')}"
+            for dia, h in sorted(horarios_activos.items())
+        )
+
+        ahora = datetime.utcnow()
+        limite = ahora + timedelta(days=30)
+        bloqueos = BloqueoDentista.query.filter(
+            BloqueoDentista.dentista_id == d.id,
+            BloqueoDentista.fecha_fin > ahora,
+            BloqueoDentista.fecha_inicio < limite,
+        ).all()
+
+        bloqueo_str = ''
+        if bloqueos:
+            bloqueos_info = [
+                f"{b.fecha_inicio.strftime('%d/%m')}-{b.fecha_fin.strftime('%d/%m')} ({b.motivo or 'ausencia'})"
+                for b in bloqueos
+            ]
+            bloqueo_str = f" | AUSENCIAS: {'; '.join(bloqueos_info)}"
+
+        lineas.append(f"- {d.nombre} (ID:{d.id}): {dias_str}{bloqueo_str}")
+
+    return '\n'.join(lineas)
+
+
 def _get_system_prompt(numero_whatsapp=None):
     config = _get_config()
 
@@ -192,7 +236,8 @@ def _get_system_prompt(numero_whatsapp=None):
                 else:
                     str_proxima = "Sin citas proximas"
                     
-                info_pacientes.append(f"- {p.nombre_completo} (ID: {p.id}) | {str_proxima}")
+                doctor_str = f"Doctor: {p.doctor.nombre}" if p.doctor_id and p.doctor else "Doctor: Sin asignar"
+                info_pacientes.append(f"- {p.nombre_completo} (ID: {p.id}) | {doctor_str} | {str_proxima}")
             
             pacientes_str = "\n".join(info_pacientes)
             contexto_familia = f"\n\nINFORMACION DEL CONTACTO ({numero_whatsapp}):\nTiene {len(familia)} paciente(s) registrado(s):\n{pacientes_str}"
@@ -201,10 +246,16 @@ def _get_system_prompt(numero_whatsapp=None):
         else:
             contexto_familia = "\n\nINFORMACION DEL CONTACTO: Numero nuevo, no hay pacientes registrados todavia."
 
+    doctor_schedule = _get_doctor_schedule_summary()
+
     return f"""Eres la recepcionista virtual de {config['nombre_consultorio']}, un consultorio dental pediatrico y de adultos ubicado en {config['direccion']}.
 
 FECHA Y HORA ACTUAL: Hoy es {fecha_legible}, son las {hora_legible} (fecha ISO: {fecha_iso}).
 Usa esta informacion para interpretar correctamente expresiones como "manana", "el proximo lunes", "esta semana", etc.{contexto_familia}
+
+DOCTORES Y HORARIOS:
+{doctor_schedule}
+Usa esta informacion para orientar al paciente. Si pide un dia que su doctor no atiende, informa y sugiere los dias correctos de su doctor.
 
 PERSONALIDAD: Amable, profesional, con lenguaje calido y uso de emojis apropiados. Siempre en Espanol.
 
@@ -235,10 +286,12 @@ MANEJO DE FAMILIAS Y MULTIPLES PACIENTES:
 - Usa el paciente_id correcto de ese miembro especifico al agendar o buscar historial.
 - Si el padre/madre pregunta si tienen cita, revisa las proximas citas de TODOS los pacientes listados bajo ese numero.
 
-AGENDAMIENTO AUTOMATICO DE CONSULTORIO Y SUGERENCIAS:
+AGENDAMIENTO CON DOCTOR ASIGNADO:
+- Cada paciente tiene un doctor asignado. Al buscar disponibilidad, SIEMPRE pasa el paciente_id para que el sistema filtre automaticamente por su doctor. Si el paciente no tiene doctor asignado, el sistema buscara en todos los doctores disponibles.
 - NUNCA preguntes al paciente en que consultorio quiere su cita. El consultorio se asigna automaticamente segun disponibilidad.
-- Cuando el paciente pregunte que horarios tienen disponibles un dia especifico, usa buscar_disponibilidad con esa fecha y muestrale TODOS los horarios libres que devuelva el sistema.
-- Si el paciente pide un horario especifico, usa buscar_disponibilidad con la fecha y hora_preferida. Si el horario solicitado NO esta disponible, el sistema te devolvera automaticamente la alternativa mas cercana. Presentala de forma profesional, por ejemplo: "Lamento informarle que ese horario no esta disponible, pero tengo un espacio libre el [dia] a las [hora]. Le gustaria agendar en este horario o prefiere que busquemos otra opcion?"
+- Cuando el paciente pregunte que horarios tienen disponibles un dia especifico, usa buscar_disponibilidad con esa fecha y el paciente_id. Muestrale los horarios libres de su doctor.
+- Si el paciente pide un horario especifico, usa buscar_disponibilidad con la fecha, hora_preferida y paciente_id. Si el horario solicitado NO esta disponible, el sistema te devolvera automaticamente la alternativa mas cercana. Presentala de forma profesional, por ejemplo: "Lamento informarle que ese horario no esta disponible con la Dra. [nombre], pero tengo un espacio libre el [dia] a las [hora]. Le gustaria agendar en este horario o prefiere que busquemos otra opcion?"
+- Si el sistema te devuelve que el doctor tiene una ausencia programada (vacaciones/bloqueo), informa al paciente con la fecha de regreso.
 - Al usar crear_solicitud_cita, SIEMPRE usa el consultorio_id que te devolvio buscar_disponibilidad en el slot elegido. El paciente NO necesita saber el nombre del consultorio.
 
 PROTOCOLO RECORDATORIO DE CONFIRMACION (cuando el paciente responde al recordatorio de 24h):
@@ -598,11 +651,67 @@ def _tool_buscar_disponibilidad(args):
         return {'disponible': False, 'mensaje': 'El consultorio no atiende domingos. Prueba con otro dia.'}
 
     from services.scheduler_service import obtener_slots_disponibles
-    from models import Dentista
+    from models import Dentista, Paciente, BloqueoDentista, HorarioDentista
 
     dentista_id = args.get('dentista_id')
     duracion = args.get('duracion_minutos', 60)
     hora_preferida = args.get('hora_preferida')  # formato HH:MM
+    paciente_id = args.get('paciente_id')
+    doctor_asignado_info = None
+
+    # Si hay paciente_id, filtrar por su doctor asignado
+    if paciente_id and not dentista_id:
+        paciente = Paciente.query.get(paciente_id)
+        if paciente and paciente.doctor_id:
+            dentista_id = paciente.doctor_id
+            doctor_asignado_info = {
+                'dentista_id': paciente.doctor_id,
+                'nombre': paciente.doctor.nombre if paciente.doctor else None,
+            }
+
+    # Verificar bloqueo del doctor en esa fecha
+    if dentista_id:
+        fecha_inicio_dt = dt(fecha.year, fecha.month, fecha.day, 0, 0)
+        fecha_fin_dt = dt(fecha.year, fecha.month, fecha.day, 23, 59, 59)
+        bloqueo_activo = BloqueoDentista.query.filter(
+            BloqueoDentista.dentista_id == dentista_id,
+            BloqueoDentista.fecha_inicio < fecha_fin_dt,
+            BloqueoDentista.fecha_fin > fecha_inicio_dt,
+        ).first()
+        if bloqueo_activo:
+            d = Dentista.query.get(dentista_id)
+            nombre = d.nombre if d else 'El doctor'
+            result = {
+                'disponible': False,
+                'mensaje': f'{nombre} no esta disponible el {fecha.strftime("%d/%m/%Y")} por: {bloqueo_activo.motivo or "ausencia programada"}. Fecha de regreso: {bloqueo_activo.fecha_fin.strftime("%d/%m/%Y")}.',
+                'motivo_ausencia': bloqueo_activo.motivo,
+                'fecha_regreso': bloqueo_activo.fecha_fin.strftime('%Y-%m-%d'),
+            }
+            if doctor_asignado_info:
+                result['doctor_asignado'] = doctor_asignado_info
+            return result
+
+        # Verificar si el doctor trabaja ese dia
+        horario_dia = HorarioDentista.query.filter_by(
+            dentista_id=dentista_id, dia_semana=fecha.weekday(), activo=True
+        ).first()
+        if not horario_dia:
+            d = Dentista.query.get(dentista_id)
+            nombre = d.nombre if d else 'El doctor'
+            # Obtener dias que si trabaja
+            dias_nombres = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo']
+            dias_activos = HorarioDentista.query.filter_by(
+                dentista_id=dentista_id, activo=True
+            ).all()
+            dias_str = ', '.join(dias_nombres[h.dia_semana] for h in sorted(dias_activos, key=lambda x: x.dia_semana))
+            result = {
+                'disponible': False,
+                'mensaje': f'{nombre} no atiende los {dias_nombres[fecha.weekday()]}. Sus dias de consulta son: {dias_str}.',
+                'dias_laborales': dias_str,
+            }
+            if doctor_asignado_info:
+                result['doctor_asignado'] = doctor_asignado_info
+            return result
 
     if dentista_id:
         dentistas = [Dentista.query.get(dentista_id)]
@@ -636,6 +745,8 @@ def _tool_buscar_disponibilidad(args):
         if alternativa:
             result['alternativa_sugerida'] = alternativa
             result['mensaje'] += f' La alternativa mas cercana es el {alternativa["fecha_formato"]} a las {alternativa["slot"]["inicio"]}.'
+        if doctor_asignado_info:
+            result['doctor_asignado'] = doctor_asignado_info
         return result
 
     # Si hay hora preferida, verificar si esa hora especifica esta libre
@@ -655,7 +766,7 @@ def _tool_buscar_disponibilidad(args):
                 break
 
         if slot_exacto:
-            return {
+            result = {
                 'disponible': True,
                 'hora_solicitada_disponible': True,
                 'fecha': args['fecha'],
@@ -663,10 +774,13 @@ def _tool_buscar_disponibilidad(args):
                 'horario_confirmado': slot_exacto,
                 'todas_las_opciones': todos_slots,
             }
+            if doctor_asignado_info:
+                result['doctor_asignado'] = doctor_asignado_info
+            return result
         else:
             # La hora preferida no esta disponible, buscar la mas cercana en el mismo dia
             mejor = _encontrar_slot_mas_cercano(todos_slots, hora_preferida)
-            return {
+            result = {
                 'disponible': True,
                 'hora_solicitada_disponible': False,
                 'fecha': args['fecha'],
@@ -675,13 +789,19 @@ def _tool_buscar_disponibilidad(args):
                 'alternativa_sugerida': mejor,
                 'todas_las_opciones': todos_slots,
             }
+            if doctor_asignado_info:
+                result['doctor_asignado'] = doctor_asignado_info
+            return result
 
-    return {
+    result = {
         'disponible': True,
         'fecha': args['fecha'],
         'fecha_formato': fecha.strftime('%A %d de %B de %Y'),
         'opciones': todos_slots,
     }
+    if doctor_asignado_info:
+        result['doctor_asignado'] = doctor_asignado_info
+    return result
 
 
 def _encontrar_slot_mas_cercano(todos_slots, hora_preferida):

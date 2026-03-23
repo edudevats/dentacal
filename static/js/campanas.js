@@ -81,7 +81,7 @@ function _renderEmptyCampanas(container) {
   const btn = document.createElement('button');
   btn.className = 'btn btn-primary btn-sm';
   btn.onclick = abrirNuevaCampana;
-  btn.textContent = 'Crear primera campana';
+  btn.textContent = 'Crear primera campaña';
   wrapper.appendChild(btn);
 
   container.appendChild(wrapper);
