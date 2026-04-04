@@ -24,15 +24,15 @@ function initCalendario() {
   const el = document.getElementById('calendar');
   if (!el) return;
 
+  const isMobileView = window.innerWidth <= 768;
+
   calendar = new FullCalendar.Calendar(el, {
     schedulerLicenseKey: 'CC-Attribution-NonCommercial-NoDerivatives',
-    initialView: 'resourceTimeGridDay',
+    initialView: isMobileView ? 'timeGridDay' : 'resourceTimeGridDay',
     locale: 'es',
-    headerToolbar: {
-      left: 'prev,next today',
-      center: 'title',
-      right: 'resourceTimeGridDay,resourceTimeGridWeek,dayGridMonth',
-    },
+    headerToolbar: isMobileView
+      ? { left: 'prev,next', center: 'title', right: 'timeGridDay,dayGridMonth' }
+      : { left: 'prev,next today', center: 'title', right: 'resourceTimeGridDay,resourceTimeGridWeek,dayGridMonth' },
     resources: window.CONSULTORIOS || [],
     events: cargarEventos,
 
@@ -91,6 +91,11 @@ function initCalendario() {
       return { domNodes: [wrapper] };
     },
 
+    datesSet() {
+      // Recalcular conteo de leyenda al cambiar vista o rango de fechas
+      recalcularConteoDesdeVista();
+    },
+
     initialDate: new Date(),
     nowIndicator: true,
     height: 'parent',
@@ -132,6 +137,25 @@ function actualizarConteoLeyenda(eventos) {
   eventos.forEach(e => {
     const did = String(e.extendedProps?.dentista_id || '');
     if (did) conteo[did] = (conteo[did] || 0) + 1;
+  });
+  document.querySelectorAll('[data-dentista-count]').forEach(el => {
+    const did = el.getAttribute('data-dentista-count');
+    const n = conteo[did] || 0;
+    el.textContent = '(' + n + (n === 1 ? ' cita' : ' citas') + ')';
+  });
+}
+
+function recalcularConteoDesdeVista() {
+  if (!calendar) return;
+  const view = calendar.view;
+  const start = view.activeStart;
+  const end = view.activeEnd;
+  const conteo = {};
+  calendar.getEvents().forEach(ev => {
+    if (ev.start >= start && ev.start < end) {
+      const did = String(ev.extendedProps?.dentista_id || '');
+      if (did) conteo[did] = (conteo[did] || 0) + 1;
+    }
   });
   document.querySelectorAll('[data-dentista-count]').forEach(el => {
     const did = el.getAttribute('data-dentista-count');

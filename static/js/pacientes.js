@@ -159,6 +159,7 @@ function crearFilaPaciente(p) {
   }
 
   const tdTutor = document.createElement('td');
+  tdTutor.className = 'd-none d-md-table-cell';
   if (p.grupo_familiar_miembros && p.grupo_familiar_miembros.length > 0) {
     tdTutor.appendChild(mkEl('i', { cls: 'bi bi-people text-info me-1' }));
     const nombres = p.grupo_familiar_miembros.map(m => m.nombre).join(', ');
@@ -181,6 +182,7 @@ function crearFilaPaciente(p) {
   }
 
   const tdCita = document.createElement('td');
+  tdCita.className = 'd-none d-md-table-cell';
   tdCita.textContent = p.ultima_cita ? p.ultima_cita.slice(0, 10) : '\u2014';
   if (p.proximo_recordatorio_fecha) {
     const badge = mkEl('div', {

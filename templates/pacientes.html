@@ -14,10 +14,10 @@
 {% block content %}
 <div class="p-3">
   <div class="card shadow-sm">
-    <div class="card-header d-flex align-items-center gap-2">
-      <input type="search" id="searchInput" class="form-control form-control-sm" style="max-width:300px"
+    <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+      <input type="search" id="searchInput" class="form-control form-control-sm filter-responsive" style="max-width:300px"
         placeholder="Buscar por nombre, telefono...">
-      <select id="filtroEstatus" class="form-select form-select-sm" style="max-width:160px">
+      <select id="filtroEstatus" class="form-select form-select-sm filter-responsive" style="max-width:160px">
         <option value="">Todos los status</option>
         <option value="alta">Alta</option>
         <option value="activo">Activo</option>
@@ -28,15 +28,15 @@
         <i class="bi bi-person-plus me-1"></i>Nuevo Paciente
       </button>
     </div>
-    <div class="card-body p-0">
+    <div class="card-body p-0 table-responsive-mobile">
       <table class="table table-hover mb-0" id="tablaPacientes">
         <thead class="table-light">
           <tr>
             <th>Paciente</th>
             <th>WhatsApp</th>
-            <th>Familia / Tutor</th>
+            <th class="d-none d-md-table-cell">Familia / Tutor</th>
             <th>Status CRM</th>
-            <th>Ultima cita</th>
+            <th class="d-none d-md-table-cell">Ultima cita</th>
             <th>Acciones</th>
           </tr>
         </thead>

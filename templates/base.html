@@ -17,6 +17,8 @@
 <body>
 
 {% if current_user.is_authenticated %}
+<!-- Sidebar backdrop (mobile) -->
+<div id="sidebarBackdrop" class="sidebar-backdrop"></div>
 <!-- Sidebar -->
 <nav id="sidebar" class="sidebar d-flex flex-column">
   <div class="sidebar-brand">
@@ -140,9 +142,35 @@
     options.headers['X-CSRFToken'] = CSRF_TOKEN;
     return fetch(url, options);
   }
+  // Sidebar toggle: mobile overlay vs desktop collapse
+  const sidebar = document.getElementById('sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  const isMobile = () => window.innerWidth <= 768;
+
+  function closeMobileSidebar() {
+    sidebar?.classList.remove('mobile-open');
+    backdrop?.classList.remove('active');
+  }
+
   document.getElementById('sidebarToggle')?.addEventListener('click', () => {
-    document.getElementById('sidebar')?.classList.toggle('collapsed');
-    document.getElementById('main-content')?.classList.toggle('expanded');
+    if (isMobile()) {
+      const opening = !sidebar?.classList.contains('mobile-open');
+      sidebar?.classList.toggle('mobile-open');
+      if (opening) {
+        backdrop?.classList.add('active');
+      } else {
+        backdrop?.classList.remove('active');
+      }
+    } else {
+      sidebar?.classList.toggle('collapsed');
+      document.getElementById('main-content')?.classList.toggle('expanded');
+    }
+  });
+
+  backdrop?.addEventListener('click', closeMobileSidebar);
+
+  document.querySelectorAll('.sidebar-link').forEach(link => {
+    link.addEventListener('click', () => { if (isMobile()) closeMobileSidebar(); });
   });
 </script>
 {% block extra_js %}{% endblock %}

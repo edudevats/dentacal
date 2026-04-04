@@ -85,6 +85,13 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text); backg
 
 .page-content { padding: 0; flex-grow: 1; }
 
+/* ---- SIDEBAR BACKDROP (mobile overlay) ---- */
+.sidebar-backdrop {
+  display: none; position: fixed; inset: 0; z-index: 999;
+  background: rgba(0,0,0,.5); opacity: 0;
+  pointer-events: none; transition: opacity .3s ease;
+}
+
 /* ---- CARDS ---- */
 .card { border: 1px solid var(--border); border-radius: 12px; }
 .card-header { background: #fff; border-bottom: 1px solid var(--border); font-weight: 600; padding: 14px 16px; }
@@ -309,11 +316,120 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text); backg
 }
 
 /* ---- RESPONSIVE ---- */
+
+/* --- Tablet (≤992px) --- */
+@media (max-width: 992px) {
+  .doctor-legend { gap: 4px; }
+  .legend-item { font-size: 13px; padding: 2px 6px; }
+  .crm-col { min-width: 220px; }
+}
+
+/* --- Mobile (≤768px) --- */
 @media (max-width: 768px) {
-  :root { --sidebar-w: 200px; }
-  .sidebar { transform: translateX(-100%); }
-  .sidebar.mobile-open { transform: translateX(0); }
+  :root { --sidebar-w: 260px; }
+
+  /* Sidebar: overlay con backdrop */
+  .sidebar {
+    transform: translateX(-100%);
+    box-shadow: none;
+  }
+  .sidebar.mobile-open {
+    transform: translateX(0);
+    box-shadow: 4px 0 24px rgba(0,0,0,.3);
+  }
+  .sidebar-backdrop {
+    display: block !important;
+    position: fixed; inset: 0; z-index: 999;
+    background: rgba(0,0,0,.5);
+    opacity: 0; pointer-events: none;
+    transition: opacity .3s ease;
+  }
+  .sidebar-backdrop.active {
+    opacity: 1; pointer-events: auto;
+  }
+
+  /* Main content full width */
   .main-content { margin-left: 0 !important; }
-  .bot-sidebar { width: 100%; }
-  .bot-container { flex-direction: column; }
+  .main-content.expanded { margin-left: 0 !important; }
+
+  /* Topbar */
+  .topbar { padding: 0 12px; gap: 8px; }
+  .topbar-title { font-size: 14px; }
+  .topbar-right .badge { font-size: 10px; padding: 3px 6px; }
+
+  /* Page content */
+  .page-content .p-3 { padding: 12px !important; }
+
+  /* Card headers: stack on mobile */
+  .card-header { flex-wrap: wrap; gap: 8px !important; padding: 10px 12px; }
+  .card-header .ms-auto { margin-left: 0 !important; width: 100%; }
+  .card-header .ms-auto .btn { width: 100%; }
+
+  /* Tables: horizontal scroll */
+  .table-responsive-mobile { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table th, .table td { white-space: nowrap; font-size: 13px; padding: 8px 10px; }
+
+  /* Doctor legend: scrollable row */
+  .doctor-legend {
+    flex-wrap: nowrap; overflow-x: auto;
+    -webkit-overflow-scrolling: touch; padding-bottom: 4px;
+  }
+  .legend-item { flex-shrink: 0; font-size: 12px; padding: 2px 6px; }
+
+  /* Calendar: reduce slot height + toolbar */
+  .calendar-wrapper { height: calc(100vh - var(--topbar-h) - 140px); min-height: 400px; }
+  .fc .fc-toolbar { flex-wrap: wrap; gap: 6px; }
+  .fc .fc-toolbar-title { font-size: 14px !important; }
+  .fc .fc-button { padding: 4px 8px !important; font-size: 12px !important; }
+  .fc .fc-timegrid-slot { height: 32px !important; }
+
+  /* Slots grid */
+  .slot-grid { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 6px; }
+  .slot-btn { padding: 6px 2px; font-size: 12px; }
+
+  /* CRM Kanban: vertical stack on mobile */
+  #crmKanban { flex-direction: column; overflow-x: visible; }
+  #crmKanban .crm-col { min-width: 100%; flex-shrink: 1; }
+  .crm-col { min-width: 100%; }
+  .crm-filter-btn { padding: 6px 10px; font-size: 12px; }
+
+  /* Bot monitor: single panel with back button */
+  .bot-container { flex-direction: column; height: calc(100vh - var(--topbar-h)); overflow: hidden; }
+  .bot-sidebar { width: 100%; flex-shrink: 0; height: 100%; border-right: none; }
+  .bot-sidebar.bot-hidden { display: none !important; }
+  .bot-chat { width: 100%; height: 100%; display: none; }
+  .bot-chat.bot-active { display: flex; }
+  .bot-chat.bot-hidden { display: none !important; }
+  .chat-messages { padding: 12px; }
+  .chat-header { padding: 10px 12px; gap: 8px; }
+  .chat-bubble { max-width: 85%; }
+  .btn-back-chat { display: inline-flex !important; }
+
+  /* Modals: full width on mobile */
+  .modal-dialog { margin: 8px; }
+  .modal-dialog.modal-lg { max-width: calc(100% - 16px); }
+  .modal-body { padding: 12px; }
+  .modal-body .row.g-3 > [class*="col-md-"] { flex: 0 0 100%; max-width: 100%; }
+
+  /* Login */
+  .login-container { padding: 24px 20px; margin: 12px; }
+
+  /* Filters: full width */
+  .filter-responsive { max-width: 100% !important; width: 100% !important; }
+
+  /* Config page: tabs scroll */
+  .nav-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .nav-tabs .nav-link { white-space: nowrap; font-size: 13px; padding: 8px 12px; }
+}
+
+/* --- Small phones (≤480px) --- */
+@media (max-width: 480px) {
+  .topbar-title { font-size: 13px; }
+  .topbar-right { display: none; }
+  .page-content .p-3 { padding: 8px !important; }
+  .fc .fc-toolbar-chunk:last-child { display: none; }
+  .fc .fc-toolbar-title { font-size: 13px !important; }
+  .chat-bubble { max-width: 90%; font-size: 13px; }
+  .crm-filter-btn { padding: 5px 8px; font-size: 11px; }
+  .legend-item span:not(.legend-dot) { display: none; }
 }

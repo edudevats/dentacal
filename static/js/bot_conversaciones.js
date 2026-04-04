@@ -229,6 +229,14 @@ async function seleccionarItem(conv) {
 
   const mensajes = await resp.json();
   renderizarMensajes(mensajes, contenedor);
+
+  // Mobile: switch to chat panel
+  if (window.innerWidth <= 768) {
+    document.querySelector('.bot-sidebar')?.classList.add('bot-hidden');
+    const chat = document.querySelector('.bot-chat');
+    chat?.classList.remove('bot-hidden');
+    chat?.classList.add('bot-active');
+  }
 }
 
 
@@ -306,4 +314,14 @@ function formatearFechaSep(isoStr) {
   return new Date(isoStr).toLocaleDateString('es-MX', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
+}
+
+
+// ── Mobile: volver a lista de conversaciones ────────────────────────────────
+
+function volverALista() {
+  document.querySelector('.bot-sidebar')?.classList.remove('bot-hidden');
+  const chat = document.querySelector('.bot-chat');
+  chat?.classList.add('bot-hidden');
+  chat?.classList.remove('bot-active');
 }
