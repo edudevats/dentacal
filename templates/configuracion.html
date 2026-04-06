@@ -10,6 +10,7 @@
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabTipos">Tipos de Cita</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabPlantillas">Plantillas</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabOrigenes">Origen Paciente</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabRecordatorios">Recordatorios</a></li>
   </ul>
 
   <div class="tab-content">
@@ -241,6 +242,22 @@
       </div>
     </div>
 
+    <!-- Tab Recordatorios -->
+    <div class="tab-pane fade" id="tabRecordatorios">
+      <div class="small text-muted mb-2">
+        Mensajes que se envian via WhatsApp cuando se programa un recordatorio de seguimiento.
+        Variables disponibles: <code>{nombre_paciente}</code>, <code>{nombre_tutor}</code>
+      </div>
+      <div class="d-flex mb-3">
+        <button class="btn btn-primary btn-sm ms-auto" onclick="abrirModalNuevoTipoRec()">
+          <i class="bi bi-plus-circle me-1"></i>Nuevo tipo de recordatorio
+        </button>
+      </div>
+      <div id="recTiposLista">
+        <div class="text-center text-muted py-3 small">Cargando...</div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -445,6 +462,38 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button class="btn btn-primary" onclick="guardarTipoCita()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Nuevo/Editar Tipo de Recordatorio -->
+<div class="modal fade" id="modalTipoRecordatorio" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="recTipoModalTitulo">Nuevo Tipo de Recordatorio</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="recTipoId">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Nombre del tipo <span class="text-danger">*</span></label>
+          <input type="text" id="recTipoNombre" class="form-control"
+            placeholder="Ej: Limpieza preventiva, Ortodoncia, Control de brackets...">
+          <div class="form-text">Este nombre aparecera como opcion al programar un recordatorio.</div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Mensaje plantilla <span class="text-danger">*</span></label>
+          <textarea id="recTipoContenido" class="form-control" rows="6"
+            placeholder="Hola {nombre_tutor}! Le escribimos de La Casa del Sr. Perez..."></textarea>
+          <div class="form-text">Variables: <code>{nombre_paciente}</code>, <code>{nombre_tutor}</code></div>
+        </div>
+        <div id="recTipoMsg" class="mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarTipoRecordatorio()">Guardar</button>
       </div>
     </div>
   </div>
@@ -830,5 +879,145 @@
       alert('Error al eliminar');
     }
   }
+
+  // ==================== TIPOS DE RECORDATORIO ====================
+
+  async function cargarTiposRecordatorio() {
+    const lista = document.getElementById('recTiposLista');
+    if (!lista) return;
+    const resp = await apiFetch('/api/recordatorios/plantillas');
+    if (!resp.ok) { lista.textContent = 'Error al cargar'; return; }
+    const tipos = await resp.json();
+    while (lista.firstChild) lista.removeChild(lista.firstChild);
+
+    tipos.forEach(t => {
+      const card = document.createElement('div');
+      card.className = 'card mb-2 shadow-sm';
+      card.id = 'rec-tipo-' + t.id;
+
+      const body = document.createElement('div');
+      body.className = 'card-body';
+
+      // Header row
+      const header = document.createElement('div');
+      header.className = 'd-flex justify-content-between align-items-start mb-2';
+
+      const info = document.createElement('div');
+      const nombre = document.createElement('span');
+      nombre.className = 'fw-semibold';
+      nombre.textContent = t.nombre;
+      info.appendChild(nombre);
+
+      if (t.es_builtin) {
+        const badge = document.createElement('span');
+        badge.className = 'badge bg-secondary ms-2 small';
+        badge.textContent = 'Predeterminado';
+        info.appendChild(badge);
+      }
+
+      const acciones = document.createElement('div');
+      acciones.className = 'd-flex gap-1';
+
+      const btnEdit = document.createElement('button');
+      btnEdit.className = 'btn btn-sm btn-outline-primary';
+      btnEdit.title = 'Editar mensaje';
+      btnEdit.appendChild(Object.assign(document.createElement('i'), { className: 'bi bi-pencil' }));
+      btnEdit.addEventListener('click', () => editarTipoRecordatorio(t));
+      acciones.appendChild(btnEdit);
+
+      if (!t.es_builtin) {
+        const btnDel = document.createElement('button');
+        btnDel.className = 'btn btn-sm btn-outline-danger';
+        btnDel.title = 'Eliminar tipo';
+        btnDel.appendChild(Object.assign(document.createElement('i'), { className: 'bi bi-trash' }));
+        btnDel.addEventListener('click', () => eliminarTipoRecordatorio(t.id, t.nombre));
+        acciones.appendChild(btnDel);
+      }
+
+      header.appendChild(info);
+      header.appendChild(acciones);
+
+      const pre = document.createElement('pre');
+      pre.className = 'mb-0 small bg-light p-2 rounded';
+      pre.style.whiteSpace = 'pre-wrap';
+      pre.id = 'rec-preview-' + t.id;
+      pre.textContent = t.contenido;
+
+      body.appendChild(header);
+      body.appendChild(pre);
+      card.appendChild(body);
+      lista.appendChild(card);
+    });
+  }
+
+  function abrirModalNuevoTipoRec() {
+    document.getElementById('recTipoModalTitulo').textContent = 'Nuevo Tipo de Recordatorio';
+    document.getElementById('recTipoId').value = '';
+    document.getElementById('recTipoNombre').value = '';
+    document.getElementById('recTipoNombre').disabled = false;
+    document.getElementById('recTipoContenido').value = '';
+    document.getElementById('recTipoMsg').textContent = '';
+    new bootstrap.Modal(document.getElementById('modalTipoRecordatorio')).show();
+  }
+
+  function editarTipoRecordatorio(t) {
+    document.getElementById('recTipoModalTitulo').textContent = 'Editar Recordatorio';
+    document.getElementById('recTipoId').value = t.id;
+    document.getElementById('recTipoNombre').value = t.nombre;
+    document.getElementById('recTipoNombre').disabled = t.es_builtin;
+    document.getElementById('recTipoContenido').value = t.contenido;
+    document.getElementById('recTipoMsg').textContent = '';
+    new bootstrap.Modal(document.getElementById('modalTipoRecordatorio')).show();
+  }
+
+  async function guardarTipoRecordatorio() {
+    const id = document.getElementById('recTipoId').value;
+    const nombre = document.getElementById('recTipoNombre').value.trim();
+    const contenido = document.getElementById('recTipoContenido').value.trim();
+    const msgEl = document.getElementById('recTipoMsg');
+
+    if (!contenido) {
+      msgEl.className = 'mt-2 text-danger small';
+      msgEl.textContent = 'El mensaje es requerido.';
+      return;
+    }
+    if (!id && !nombre) {
+      msgEl.className = 'mt-2 text-danger small';
+      msgEl.textContent = 'El nombre es requerido.';
+      return;
+    }
+
+    const url = id ? `/api/recordatorios/plantillas/${id}` : '/api/recordatorios/plantillas';
+    const method = id ? 'PUT' : 'POST';
+    const body = { contenido };
+    if (nombre) body.nombre = nombre;
+
+    const resp = await apiFetch(url, { method, body: JSON.stringify(body) });
+    if (resp.ok) {
+      bootstrap.Modal.getInstance(document.getElementById('modalTipoRecordatorio'))?.hide();
+      if (typeof recInvalidarCache === 'function') recInvalidarCache();
+      cargarTiposRecordatorio();
+    } else {
+      const data = await resp.json();
+      msgEl.className = 'mt-2 text-danger small';
+      msgEl.textContent = data.error || 'Error al guardar';
+    }
+  }
+
+  async function eliminarTipoRecordatorio(id, nombre) {
+    if (!confirm(`Eliminar el tipo "${nombre}"? Los recordatorios ya programados con este tipo no se eliminaran.`)) return;
+    const resp = await apiFetch(`/api/recordatorios/plantillas/${id}`, { method: 'DELETE' });
+    if (resp.ok) {
+      const card = document.getElementById('rec-tipo-' + id);
+      if (card) card.remove();
+      if (typeof recInvalidarCache === 'function') recInvalidarCache();
+    } else {
+      const data = await resp.json();
+      alert(data.error || 'Error al eliminar');
+    }
+  }
+
+  // Cargar tipos al activar el tab
+  document.querySelector('[href="#tabRecordatorios"]')?.addEventListener('shown.bs.tab', cargarTiposRecordatorio);
 </script>
 {% endblock %}

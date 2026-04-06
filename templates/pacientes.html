@@ -155,22 +155,38 @@
                 <option value="baja">Baja</option>
               </select>
             </div>
-            <div class="col-md-6">
-              <div class="form-check form-switch mb-2">
-                <input class="form-check-input" type="checkbox" id="p_toggle_proxima_visita">
-                <label class="form-check-label fw-semibold" for="p_toggle_proxima_visita">
-                  <i class="bi bi-calendar-heart me-1"></i>Recordatorio proxima visita
-                </label>
-              </div>
-              <div id="p_proxima_visita_input_wrapper" style="display:none">
-                <input type="month" id="p_proxima_visita" class="form-control">
-                <small class="text-muted">Se enviara un WhatsApp ese mes invitando a agendar</small>
-              </div>
-            </div>
             <div class="col-12">
               <label class="form-label">Notas</label>
               <textarea id="p_notas" class="form-control" rows="2"></textarea>
             </div>
+
+            <!-- Recordatorios (proxima visita + manuales; visible solo al editar) -->
+            <div class="col-12" id="recordatoriosSection" style="display:none;">
+              <hr class="my-1">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <span class="fw-semibold small">
+                  <i class="bi bi-bell me-1" style="color:var(--primary)"></i>Recordatorios
+                </span>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="btnNuevoRecordatorioPaciente">
+                  <i class="bi bi-plus-circle me-1"></i>Programar nuevo
+                </button>
+              </div>
+              <!-- Proxima visita -->
+              <div class="d-flex align-items-center gap-2 mb-2 p-2 border rounded" style="background:var(--bs-light,#f8f9fa)">
+                <div class="form-check form-switch mb-0 flex-shrink-0">
+                  <input class="form-check-input" type="checkbox" id="p_toggle_proxima_visita">
+                  <label class="form-check-label small fw-semibold" for="p_toggle_proxima_visita">
+                    <i class="bi bi-calendar-heart me-1 text-info"></i>Proxima visita
+                  </label>
+                </div>
+                <div id="p_proxima_visita_input_wrapper" style="display:none" class="d-flex align-items-center gap-2">
+                  <input type="month" id="p_proxima_visita" class="form-control form-control-sm" style="max-width:160px">
+                  <small class="text-muted">WhatsApp ese mes para agendar</small>
+                </div>
+              </div>
+              <div id="recordatoriosList"></div>
+            </div>
+
           </div>
           <div id="pacienteMsg" class="mt-2"></div>
         </form>

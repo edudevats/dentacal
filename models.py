@@ -596,3 +596,38 @@ class CampanaDestinatario(db.Model):
     __table_args__ = (
         db.UniqueConstraint('campana_id', 'paciente_id', name='uq_campana_paciente'),
     )
+
+
+class RecordatorioManual(db.Model):
+    """Recordatorio de seguimiento programado manualmente para un paciente."""
+    __tablename__ = 'recordatorios_manuales'
+
+    id = db.Column(db.Integer, primary_key=True)
+    paciente_id = db.Column(db.Integer, db.ForeignKey('pacientes.id'), nullable=False)
+    cita_origen_id = db.Column(db.Integer, db.ForeignKey('citas.id'), nullable=True)
+    # tipo: seguimiento / tratamiento / recuperacion
+    tipo = db.Column(db.String(50), nullable=False, default='seguimiento')
+    mensaje = db.Column(db.Text, nullable=False)
+    fecha_programada = db.Column(db.Date, nullable=False)
+    fecha_envio = db.Column(db.DateTime, nullable=True)
+    # status: pendiente / enviado / fallido / cancelado
+    status = db.Column(db.String(20), default='pendiente')
+    error = db.Column(db.Text, nullable=True)
+    creado_en = db.Column(db.DateTime, default=datetime.utcnow)
+    creado_por = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    paciente = db.relationship('Paciente', backref='recordatorios_manuales')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'paciente_id': self.paciente_id,
+            'paciente': self.paciente.nombre_completo if self.paciente else '',
+            'cita_origen_id': self.cita_origen_id,
+            'tipo': self.tipo,
+            'mensaje': self.mensaje,
+            'fecha_programada': self.fecha_programada.isoformat() if self.fecha_programada else None,
+            'fecha_envio': self.fecha_envio.isoformat() if self.fecha_envio else None,
+            'status': self.status,
+            'creado_en': self.creado_en.isoformat() if self.creado_en else None,
+        }

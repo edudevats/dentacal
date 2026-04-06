@@ -20,6 +20,22 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btnEliminarPaciente')?.addEventListener('click', eliminarPaciente);
   document.getElementById('btnGenerarJustificante')?.addEventListener('click', generarJustificante);
 
+  document.getElementById('btnNuevoRecordatorioPaciente')?.addEventListener('click', () => {
+    const pId = pacienteEditandoId;
+    const nombre = document.getElementById('p_nombre').value;
+    if (!pId) return;
+    // Cuando el modal de recordatorio se cierre, recargar la lista
+    const modalRec = document.getElementById('modalRecordatorio');
+    const onHide = () => {
+      cargarRecordatoriosPaciente(pId);
+      modalRec.removeEventListener('hidden.bs.modal', onHide);
+    };
+    modalRec?.addEventListener('hidden.bs.modal', onHide);
+    if (typeof abrirModalRecordatorio === 'function') {
+      abrirModalRecordatorio(pId, null, nombre);
+    }
+  });
+
   cargarDoctores();
   cargarOrigenes();
   initTutor();
@@ -205,13 +221,23 @@ function crearFilaPaciente(p) {
   btnProb.appendChild(mkEl('i', { cls: 'bi bi-exclamation-triangle' }));
   btnProb.addEventListener('click', (e) => { e.stopPropagation(); toggleProblematico(p); });
 
-  const btnJust = mkEl('button', { cls: 'btn btn-sm btn-outline-secondary', title: 'Justificante' });
+  const btnJust = mkEl('button', { cls: 'btn btn-sm btn-outline-secondary me-1', title: 'Justificante' });
   btnJust.appendChild(mkEl('i', { cls: 'bi bi-file-medical' }));
   btnJust.addEventListener('click', () => abrirModalJustificante(p));
+
+  const btnRec = mkEl('button', { cls: 'btn btn-sm btn-outline-info', title: 'Programar recordatorio de seguimiento' });
+  btnRec.appendChild(mkEl('i', { cls: 'bi bi-bell' }));
+  btnRec.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (typeof abrirModalRecordatorio === 'function') {
+      abrirModalRecordatorio(p.id, null, p.nombre_completo || p.nombre);
+    }
+  });
 
   tdAcc.appendChild(btnEdit);
   tdAcc.appendChild(btnProb);
   tdAcc.appendChild(btnJust);
+  tdAcc.appendChild(btnRec);
 
   if (p.es_problematico) tr.style.background = '#fff5f5';
   [tdNombre, tdWa, tdTutor, tdStatus, tdCita, tdAcc].forEach(td => tr.appendChild(td));
@@ -317,6 +343,11 @@ function abrirModalEditarPaciente(p) {
   // Calcular edad y mostrar/ocultar seccion tutor
   onFechaNacChange();
 
+  // Mostrar sección de recordatorios y cargarlos
+  const recSection = document.getElementById('recordatoriosSection');
+  if (recSection) recSection.style.display = 'block';
+  cargarRecordatoriosPaciente(p.id);
+
   new bootstrap.Modal(document.getElementById('modalPaciente')).show();
 }
 
@@ -349,6 +380,12 @@ function limpiarFormPaciente() {
   // Reset grupo familiar
   const familiaSection = document.getElementById('familiaSection');
   if (familiaSection) familiaSection.style.display = 'none';
+
+  // Ocultar sección de recordatorios (solo visible en edición)
+  const recSection = document.getElementById('recordatoriosSection');
+  if (recSection) recSection.style.display = 'none';
+  const recList = document.getElementById('recordatoriosList');
+  if (recList) recList.textContent = '';
 }
 
 async function guardarPaciente() {
@@ -569,6 +606,85 @@ async function toggleProblematico(p) {
 }
 
 // ─── Justificantes ────────────────────────────────────────────────────────
+
+// ==================== RECORDATORIOS MANUALES (modal editar paciente) ====================
+
+// Base labels; custom tipos will be fetched from the API cache when available
+const TIPO_LABELS = {
+  seguimiento: 'Seguimiento',
+  tratamiento: 'Tratamiento',
+  recuperacion: 'Recuperacion',
+};
+
+function tipoLabel(tipoKey) {
+  if (TIPO_LABELS[tipoKey]) return TIPO_LABELS[tipoKey];
+  // Capitalize slug: "limpieza_preventiva" → "Limpieza preventiva"
+  return tipoKey.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+}
+const STATUS_COLORS = {
+  pendiente: 'warning',
+  enviado: 'success',
+  fallido: 'danger',
+  cancelado: 'secondary',
+};
+
+async function cargarRecordatoriosPaciente(pacienteId) {
+  const lista = document.getElementById('recordatoriosList');
+  if (!lista) return;
+  lista.textContent = '';
+
+  try {
+    const resp = await apiFetch(`/api/recordatorios/paciente/${pacienteId}`);
+    if (!resp.ok) return;
+    const records = await resp.json();
+
+    if (records.length === 0) {
+      lista.appendChild(mkEl('p', { text: 'Sin recordatorios programados.', cls: 'text-muted small mb-0' }));
+      return;
+    }
+
+    records.forEach(r => {
+      const row = document.createElement('div');
+      row.className = 'd-flex align-items-center justify-content-between border rounded px-2 py-1 mb-1';
+
+      const info = document.createElement('div');
+      info.className = 'small';
+
+      const tipoBadge = mkEl('span', {
+        text: tipoLabel(r.tipo),
+        cls: 'badge bg-primary me-2',
+        style: 'font-size:10px',
+      });
+      const statusBadge = mkEl('span', {
+        text: r.status,
+        cls: `badge bg-${STATUS_COLORS[r.status] || 'secondary'} me-2`,
+        style: 'font-size:10px',
+      });
+      const fechaTxt = document.createTextNode(r.fecha_programada || '');
+
+      info.appendChild(tipoBadge);
+      info.appendChild(statusBadge);
+      info.appendChild(fechaTxt);
+
+      row.appendChild(info);
+
+      if (r.status === 'pendiente') {
+        const btnCancel = mkEl('button', {
+          cls: 'btn btn-sm btn-outline-danger py-0 px-1',
+          title: 'Cancelar recordatorio',
+        });
+        btnCancel.appendChild(mkEl('i', { cls: 'bi bi-x-lg' }));
+        btnCancel.addEventListener('click', async () => {
+          const ok = await apiFetch(`/api/recordatorios/${r.id}`, { method: 'DELETE' });
+          if (ok.ok) cargarRecordatoriosPaciente(pacienteId);
+        });
+        row.appendChild(btnCancel);
+      }
+
+      lista.appendChild(row);
+    });
+  } catch (_) {}
+}
 
 async function generarJustificante() {
   const body = {

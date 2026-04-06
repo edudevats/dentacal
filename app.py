@@ -77,6 +77,7 @@ def _register_blueprints(app):
     from routes.api_justificantes import justificantes_bp
     from routes.webhook_whatsapp import webhook_bp
     from routes.api_bot import bot_bp
+    from routes.api_recordatorios import recordatorios_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
@@ -89,6 +90,7 @@ def _register_blueprints(app):
     app.register_blueprint(justificantes_bp)
     app.register_blueprint(webhook_bp)
     app.register_blueprint(bot_bp)
+    app.register_blueprint(recordatorios_bp)
 
 
 def _register_error_handlers(app):
@@ -246,6 +248,26 @@ def _seed_initial_data():
             nombre='Recordatorio Proxima Visita',
             tipo='proxima_visita',
             contenido='Hola {nombre_tutor}! Le recordamos que ya es momento de programar la proxima cita de {nombre_paciente} en La Casa del Sr. Perez.\nEscribanos para buscarle un horario disponible :)',
+        ))
+
+    # Plantillas de recordatorio manual (seguimiento post-cita)
+    if not PlantillaMensaje.query.filter_by(tipo='recordatorio_seguimiento').first():
+        db.session.add(PlantillaMensaje(
+            nombre='Seguimiento Post-Consulta',
+            tipo='recordatorio_seguimiento',
+            contenido='Hola {nombre_tutor} :) Le escribimos de La Casa del Sr. Perez. Esperamos que {nombre_paciente} se encuentre muy bien despues de su cita. Si tiene alguna duda o necesita agendar su proxima visita, con gusto le ayudamos. Que tenga un excelente dia!',
+        ))
+    if not PlantillaMensaje.query.filter_by(tipo='recordatorio_tratamiento').first():
+        db.session.add(PlantillaMensaje(
+            nombre='Continuar Tratamiento',
+            tipo='recordatorio_tratamiento',
+            contenido='Hola {nombre_tutor} :) Le escribimos de La Casa del Sr. Perez para recordarle que {nombre_paciente} tiene pendiente continuar con su tratamiento dental. Es importante no interrumpirlo para obtener los mejores resultados. Le podemos buscar un horario que le acomode, cuando guste escribanos!',
+        ))
+    if not PlantillaMensaje.query.filter_by(tipo='recordatorio_recuperacion').first():
+        db.session.add(PlantillaMensaje(
+            nombre='Recuperar Paciente',
+            tipo='recordatorio_recuperacion',
+            contenido='Hola {nombre_tutor}! Le escribimos de La Casa del Sr. Perez, hace tiempo que no vemos a {nombre_paciente} por aqui y queremos saber como esta :) Si desea agendar una cita de revision o limpieza dental, con gusto le buscamos espacio. Cualquier duda estamos a sus ordenes!',
         ))
 
     # Origenes de paciente

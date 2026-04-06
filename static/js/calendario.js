@@ -393,6 +393,17 @@ async function guardarCita() {
 
     bootstrap.Modal.getInstance(document.getElementById('modalCita'))?.hide();
     calendar.refetchEvents();
+
+    // Al marcar como completada: ofrecer programar recordatorio de seguimiento
+    if (citaEditandoId && body.status === 'completada') {
+      const nombrePaciente = data.paciente || document.getElementById('paciente_search').value;
+      const pacienteId = data.paciente_id || parseInt(document.getElementById('paciente_id').value);
+      setTimeout(() => {
+        if (typeof abrirModalRecordatorio === 'function') {
+          abrirModalRecordatorio(pacienteId, citaEditandoId, nombrePaciente);
+        }
+      }, 400);
+    }
   } catch (err) {
     msgEl.textContent = 'Error de red: ' + err.message;
     msgEl.className = 'mt-2 text-danger small';

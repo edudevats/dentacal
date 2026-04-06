@@ -98,6 +98,17 @@ def setup_scheduler_jobs(scheduler, app):
         kwargs={'app': app},
     )
 
+    # Recordatorios manuales - diario a las 9am
+    scheduler.add_job(
+        func=_job_recordatorios_manuales,
+        trigger='cron',
+        hour=9,
+        minute=5,
+        id='recordatorios_manuales',
+        replace_existing=True,
+        kwargs={'app': app},
+    )
+
     logger.info('Jobs del scheduler registrados.')
 
 
@@ -343,3 +354,47 @@ def _job_campanas_programadas(app):
                 logger.info(f'Campana programada {campana.id} enviada por safety-net')
             except Exception as e:
                 logger.error(f'Error enviando campana programada {campana.id}: {e}')
+
+
+def _job_recordatorios_manuales(app):
+    """Envia recordatorios manuales de seguimiento programados para hoy o dias anteriores."""
+    with app.app_context():
+        from models import RecordatorioManual, ConversacionWhatsapp
+        from extensions import db
+
+        hoy = _ahora_local().date()
+        pendientes = RecordatorioManual.query.filter(
+            RecordatorioManual.status == 'pendiente',
+            RecordatorioManual.fecha_programada <= hoy,
+        ).all()
+
+        for rec in pendientes:
+            if rec.paciente and rec.paciente.es_problematico:
+                logger.info(f'Saltando recordatorio manual {rec.id}: paciente problematico')
+                continue
+            try:
+                from services.whatsapp_service import enviar_mensaje
+                numero = rec.paciente.numero_contacto_wa if rec.paciente else None
+                if not numero:
+                    rec.status = 'fallido'
+                    rec.error = 'Sin numero de WhatsApp'
+                    db.session.commit()
+                    continue
+
+                enviar_mensaje(numero, rec.mensaje)
+                rec.status = 'enviado'
+                rec.fecha_envio = _ahora_local()
+
+                conv = ConversacionWhatsapp(
+                    numero_telefono=numero,
+                    paciente_id=rec.paciente_id,
+                    mensaje=rec.mensaje,
+                    es_bot=True,
+                )
+                db.session.add(conv)
+                logger.info(f'Recordatorio manual {rec.id} enviado a {numero}')
+            except Exception as e:
+                logger.error(f'Error enviando recordatorio manual {rec.id}: {e}')
+                rec.status = 'fallido'
+                rec.error = str(e)
+            db.session.commit()

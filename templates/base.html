@@ -173,6 +173,159 @@
     link.addEventListener('click', () => { if (isMobile()) closeMobileSidebar(); });
   });
 </script>
+<!-- ============ MODAL RECORDATORIO MANUAL (global) ============ -->
+{% if current_user.is_authenticated %}
+<div class="modal fade" id="modalRecordatorio" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalRecordatorioTitulo">
+          <i class="bi bi-bell me-2" style="color:var(--primary)"></i>Programar Recordatorio
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="recPacienteId">
+        <input type="hidden" id="recCitaOrigenId">
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Tipo de recordatorio</label>
+          <select id="recTipo" class="form-select" onchange="recActualizarPlantilla()">
+            <option value="">Cargando...</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Fecha de envio</label>
+          <input type="date" id="recFecha" class="form-control">
+          <div class="form-text">El mensaje se enviara automaticamente ese dia a las 9am via WhatsApp.</div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Mensaje <span class="text-muted fw-normal small">(editable)</span></label>
+          <textarea id="recMensaje" class="form-control" rows="5"></textarea>
+        </div>
+        <div id="recMsg" class="mt-2 small"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Ahora no</button>
+        <button class="btn btn-primary" id="btnGuardarRecordatorio">
+          <i class="bi bi-bell me-1"></i>Programar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Cache: [{id, tipo_key, nombre, contenido, es_builtin}]
+  let _recTipos = null;
+  let _recNombrePaciente = '';
+
+  async function _loadTipos(force) {
+    if (_recTipos && !force) return _recTipos;
+    try {
+      const resp = await apiFetch('/api/recordatorios/plantillas');
+      if (resp.ok) _recTipos = await resp.json();
+    } catch (_) {}
+    return _recTipos || [];
+  }
+
+  async function _poblarSelect() {
+    const sel = document.getElementById('recTipo');
+    if (!sel) return;
+    const tipos = await _loadTipos();
+    while (sel.firstChild) sel.removeChild(sel.firstChild);
+    tipos.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.tipo_key;
+      opt.textContent = t.nombre;
+      sel.appendChild(opt);
+    });
+  }
+
+  // Exponer para que configuracion.html pueda invalidar el cache
+  window.recInvalidarCache = function () { _recTipos = null; };
+
+  function _interpolar(texto, nombre) {
+    return (texto || '')
+      .replace(/\{nombre_paciente\}/g, nombre)
+      .replace(/\{nombre_tutor\}/g, nombre);
+  }
+
+  window.recActualizarPlantilla = async function () {
+    const tipoKey = document.getElementById('recTipo').value;
+    const tipos = await _loadTipos();
+    const t = tipos.find(x => x.tipo_key === tipoKey);
+    document.getElementById('recMensaje').value = _interpolar(t ? t.contenido : '', _recNombrePaciente);
+  };
+
+  window.abrirModalRecordatorio = async function (pacienteId, citaOrigenId, nombrePaciente) {
+    _recNombrePaciente = nombrePaciente || '';
+    document.getElementById('recPacienteId').value = pacienteId || '';
+    document.getElementById('recCitaOrigenId').value = citaOrigenId || '';
+    document.getElementById('recMsg').textContent = '';
+
+    // Poblar select dinámicamente y seleccionar el primero
+    await _poblarSelect();
+    const sel = document.getElementById('recTipo');
+    if (sel.options.length > 0) sel.selectedIndex = 0;
+
+    // Fecha default: 7 dias a partir de hoy
+    const d = new Date();
+    d.setDate(d.getDate() + 7);
+    document.getElementById('recFecha').value = d.toISOString().slice(0, 10);
+
+    // Actualizar titulo de forma segura
+    const titleEl = document.getElementById('modalRecordatorioTitulo');
+    while (titleEl.firstChild) titleEl.removeChild(titleEl.firstChild);
+    const icon = document.createElement('i');
+    icon.className = 'bi bi-bell me-2';
+    icon.style.color = 'var(--primary)';
+    titleEl.appendChild(icon);
+    titleEl.appendChild(document.createTextNode(
+      'Recordatorio' + (nombrePaciente ? ': ' + nombrePaciente : '')
+    ));
+
+    await recActualizarPlantilla();
+    new bootstrap.Modal(document.getElementById('modalRecordatorio')).show();
+  };
+
+  document.getElementById('btnGuardarRecordatorio')?.addEventListener('click', async function () {
+    const pacienteId = document.getElementById('recPacienteId').value;
+    const citaOrigenId = document.getElementById('recCitaOrigenId').value;
+    const tipo = document.getElementById('recTipo').value;
+    const fecha = document.getElementById('recFecha').value;
+    const mensaje = document.getElementById('recMensaje').value.trim();
+    const msgEl = document.getElementById('recMsg');
+
+    if (!fecha || !mensaje) {
+      msgEl.className = 'mt-2 small text-danger';
+      msgEl.textContent = 'Completa la fecha y el mensaje.';
+      return;
+    }
+
+    this.disabled = true;
+    try {
+      const body = { paciente_id: parseInt(pacienteId), tipo, fecha_programada: fecha, mensaje };
+      if (citaOrigenId) body.cita_origen_id = parseInt(citaOrigenId);
+      const resp = await apiFetch('/api/recordatorios', { method: 'POST', body: JSON.stringify(body) });
+      if (resp.ok) {
+        bootstrap.Modal.getInstance(document.getElementById('modalRecordatorio'))?.hide();
+      } else {
+        const data = await resp.json();
+        msgEl.className = 'mt-2 small text-danger';
+        msgEl.textContent = data.error || 'Error al programar';
+      }
+    } catch (_) {
+      msgEl.className = 'mt-2 small text-danger';
+      msgEl.textContent = 'Error de red';
+    } finally {
+      this.disabled = false;
+    }
+  });
+})();
+</script>
+{% endif %}
+
 {% block extra_js %}{% endblock %}
 </body>
 </html>
