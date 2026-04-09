@@ -148,6 +148,21 @@ BOT_FUNCTION_DECLARATIONS = [
             "required": ["paciente_id"]
         }
     },
+    {
+        "name": "registrar_solicitud_contacto",
+        "description": "Registra la solicitud de un paciente NUEVO (no registrado en el sistema) que desea que la recepcionista le llame para darlo de alta. Usar SOLO cuando el numero del contacto no esta en la BD.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "nombre": {"type": "string", "description": "Nombre completo de la persona"},
+                "numero_whatsapp": {"type": "string", "description": "Numero de WhatsApp del contacto"},
+                "fecha_preferida": {"type": "string", "description": "Fecha u horario preferido para recibir la llamada (texto libre, ej: 'lunes en la manana', '14 de abril')"},
+                "hora_preferida": {"type": "string", "description": "Hora preferida para la llamada, formato HH:MM (opcional)"},
+                "notas": {"type": "string", "description": "Notas adicionales: motivo de consulta, tipo de tratamiento, nombre del paciente si es para un familiar, etc."}
+            },
+            "required": ["nombre", "numero_whatsapp"]
+        }
+    },
 ]
 
 
@@ -211,6 +226,7 @@ def _get_system_prompt(numero_whatsapp=None):
     
     # Inyectar contexto de familia si hay numero
     contexto_familia = ""
+    es_paciente_nuevo = True
     if numero_whatsapp:
         from models import Paciente, Cita, EstatusCita
         variantes = _variantes_numero_mx(numero_whatsapp)
@@ -218,8 +234,9 @@ def _get_system_prompt(numero_whatsapp=None):
             Paciente.whatsapp.in_(variantes),
             Paciente.eliminado == False
         ).all()
-        
+
         if familia:
+            es_paciente_nuevo = False
             info_pacientes = []
             es_problematico = False
             for p in familia:
@@ -229,84 +246,110 @@ def _get_system_prompt(numero_whatsapp=None):
                     Cita.fecha_inicio >= datetime.utcnow(),
                     Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada])
                 ).order_by(Cita.fecha_inicio).first()
-                
+
                 if proxima:
                     estado_pago = "(Anticipo PAGADO)" if proxima.anticipo_pagado else "(Anticipo PENDIENTE DE PAGO)"
                     str_proxima = f"Proxima cita: {proxima.fecha_inicio.strftime('%Y-%m-%d %H:%M')} {estado_pago}"
                 else:
                     str_proxima = "Sin citas proximas"
-                    
+
                 doctor_str = f"Doctor: {p.doctor.nombre}" if p.doctor_id and p.doctor else "Doctor: Sin asignar"
                 info_pacientes.append(f"- {p.nombre_completo} (ID: {p.id}) | {doctor_str} | {str_proxima}")
-            
+
             pacientes_str = "\n".join(info_pacientes)
-            contexto_familia = f"\n\nINFORMACION DEL CONTACTO ({numero_whatsapp}):\nTiene {len(familia)} paciente(s) registrado(s):\n{pacientes_str}"
+            multi = f" (grupo familiar de {len(familia)} personas — SIEMPRE pregunta para cual de ellas es la accion antes de proceder)" if len(familia) > 1 else ""
+            contexto_familia = f"\n\nINFORMACION DEL CONTACTO ({numero_whatsapp}){multi}:\n{pacientes_str}"
             if es_problematico:
                 contexto_familia += "\nALERTA IMPORTANTE: Este paciente (o alguien en su familia) esta marcado como PROBLEMATICO. NO AGENDES NINGUNA CITA por este medio. Pide amablemente que llame directamente al consultorio."
         else:
-            contexto_familia = "\n\nINFORMACION DEL CONTACTO: Numero nuevo, no hay pacientes registrados todavia."
+            contexto_familia = "\n\nINFORMACION DEL CONTACTO: NUMERO NUEVO — no hay pacientes registrados con este numero."
 
     doctor_schedule = _get_doctor_schedule_summary()
+
+    flujo_nuevo = """
+════════════════════════════════
+FLUJO PARA PACIENTE NUEVO (numero no registrado)
+════════════════════════════════
+Este contacto NO esta registrado en nuestra base de datos. El proceso de registro requiere muchas preguntas que nuestro equipo debe hacer personalmente para brindar el mejor trato posible, por lo que NO debes registrarlo en este momento.
+
+Tu objetivo es:
+1. Presentar el consultorio con el menu de lo que podemos hacer por ellos.
+2. Preguntar su nombre.
+3. Preguntar en que fecha y hora prefieren que nuestra recepcionista les llame para completar su registro y agendar su primera cita.
+4. Usar registrar_solicitud_contacto para guardar la solicitud con nombre, numero, fecha preferida y hora.
+5. Confirmar que un miembro del equipo les contactara en ese horario.
+
+NO uses registrar_paciente, buscar_disponibilidad, crear_solicitud_cita ni ninguna otra tool de citas con pacientes no registrados."""
+
+    flujo_registrado = """
+════════════════════════════════
+FLUJO PARA PACIENTE REGISTRADO
+════════════════════════════════
+Este contacto SI esta registrado. Puedes ayudarle con cualquiera de estas acciones:
+1️⃣  Agendar una nueva cita
+2️⃣  Cancelar una cita
+3️⃣  Mover/reagendar una cita a otro dia u hora
+4️⃣  Consultar sus citas proximas
+
+Si hay multiples pacientes en el grupo familiar, SIEMPRE pregunta primero para quien es la accion antes de proceder.
+
+AGENDAMIENTO CON DOCTOR ASIGNADO:
+- SIEMPRE pasa paciente_id a buscar_disponibilidad para que el sistema filtre por el doctor asignado.
+- NUNCA preguntes en que consultorio quiere su cita; se asigna automaticamente.
+- Usa el consultorio_id que devuelva buscar_disponibilidad al crear la cita.
+- Si el horario pedido no esta libre, presenta la alternativa mas cercana que devuelva el sistema.
+
+ANTICIPOS:
+- Cita nueva de primera vez: solicita anticipo del {porcentaje_anticipo}% antes de confirmar.
+  BBVA — {titular_cuenta} | Tarjeta: {tarjeta} | CLABE: {clabe}
+- Si Anticipo PENDIENTE, recuerda enviarlo 24h antes.
+- Si Anticipo PAGADO, confirma alegremente que la cita esta asegurada.
+
+CONFIRMACION 24h:
+- Si el paciente responde "si"/"confirmo"/"ahi estaremos", usar confirmar_asistencia_cita.
+- Si quiere cancelar o reagendar, usar cancelar_cita o reagendar_cita.""".format(
+        porcentaje_anticipo=config['porcentaje_anticipo'],
+        titular_cuenta=config['titular_cuenta'],
+        tarjeta=config['tarjeta'],
+        clabe=config['clabe'],
+    )
+
+    flujo_activo = flujo_nuevo if es_paciente_nuevo else flujo_registrado
 
     return f"""Eres la recepcionista virtual de {config['nombre_consultorio']}, un consultorio dental pediatrico y de adultos ubicado en {config['direccion']}.
 
 FECHA Y HORA ACTUAL: Hoy es {fecha_legible}, son las {hora_legible} (fecha ISO: {fecha_iso}).
 Usa esta informacion para interpretar correctamente expresiones como "manana", "el proximo lunes", "esta semana", etc.{contexto_familia}
 
+{flujo_activo}
+
 DOCTORES Y HORARIOS:
 {doctor_schedule}
-Usa esta informacion para orientar al paciente. Si pide un dia que su doctor no atiende, informa y sugiere los dias correctos de su doctor.
 
 PERSONALIDAD: Amable, profesional, con lenguaje calido y uso de emojis apropiados. Siempre en Espanol.
+
+MENU DEL BOT (mostrar al inicio o cuando el paciente no sabe que puede hacer):
+Hola! Soy la recepcionista virtual de {config['nombre_consultorio']} 😊
+Puedo ayudarte con:
+1️⃣  Agendar una cita
+2️⃣  Cancelar una cita
+3️⃣  Mover tu cita a otro dia u hora
+4️⃣  Consultar tus citas proximas
+5️⃣  Informacion del consultorio (ubicacion, horarios, precios)
+
+Si eres paciente nuevo, con gusto coordinamos una llamada para registrarte y darte la mejor atencion 🦷✨
 
 SERVICIOS Y PRECIOS:
 - Primera Consulta: ${config['precio_primera_consulta']} (incluye diagnostico, plan de tratamiento, presupuesto y radiografias intraorales)
 - Limpieza y Fluor, Ortodoncia, Operatoria, Revision, Extraccion, Endodoncia, Sonrisas Magicas
-
-PROTOCOLO DE CITAS - PRIMERA VEZ:
-1. Saluda y presenta el consultorio
-2. Cuando el paciente pregunte por informacion, responde: "La consulta tiene un costo de ${config['precio_primera_consulta']} le incluye su diagnostico, plan de tratamiento, presupuesto y radiografias intraorales que requiera su pequeno o pequena :)"
-3. Si acepta y quiere cita, usa buscar_disponibilidad para ofrecer opciones
-4. Una vez que el paciente confirme el horario, explica: "Para garantizar su cita solicitamos un pago anticipado del {config['porcentaje_anticipo']}% ($275.00). En caso de no poder acudir les pedimos reagendar con 24hrs de anticipacion, si no acuden no sera reembolsable."
-5. Comparte datos bancarios:
-   BBVA - {config['titular_cuenta']}
-   Tarjeta: {config['tarjeta']}
-   CLABE: {config['clabe']}
-6. Cuando confirmen el pago, crea la cita con crear_solicitud_cita y confirma: "Nos vemos el dia [fecha] de [hora_inicio] a las [hora_fin]"
-
-MANEJO DE ANTICIPOS Y PAGOS:
-- Al ver el perfil del paciente suministrado al inicio, revisa el estado de su proxima cita.
-- Si dice "(Anticipo PENDIENTE DE PAGO)", recuerda amablemente que es necesario enviar el comprobante de pago con 24 hrs de anticipacion para garantizar el espacio. Si lo solicitan, proporcionales los datos bancarios nuevamente.
-- Si dice "(Anticipo PAGADO)", confirma al paciente alegremente que su cita esta 100% confirmada y asegurada.
-
-MANEJO DE FAMILIAS Y MULTIPLES PACIENTES:
-- Es muy comun que un padre/madre use su mismo numero de WhatsApp para agendar citas de varios hijos.
-- Al usar buscar_paciente, el sistema te devolvera TODOS los pacientes asociados a ese numero, junto con las proximas citas de CADA UNO.
-- Si ves multiples pacientes en la respuesta, SIEMPRE pregunta amablemente para que miembro de la familia es la cita o consulta que desean realizar (ej: "Veo que tengo registrados a Juanito y a Pedrito, para quien seria la cita?").
-- Usa el paciente_id correcto de ese miembro especifico al agendar o buscar historial.
-- Si el padre/madre pregunta si tienen cita, revisa las proximas citas de TODOS los pacientes listados bajo ese numero.
-
-AGENDAMIENTO CON DOCTOR ASIGNADO:
-- Cada paciente tiene un doctor asignado. Al buscar disponibilidad, SIEMPRE pasa el paciente_id para que el sistema filtre automaticamente por su doctor. Si el paciente no tiene doctor asignado, el sistema buscara en todos los doctores disponibles.
-- NUNCA preguntes al paciente en que consultorio quiere su cita. El consultorio se asigna automaticamente segun disponibilidad.
-- Cuando el paciente pregunte que horarios tienen disponibles un dia especifico, usa buscar_disponibilidad con esa fecha y el paciente_id. Muestrale los horarios libres de su doctor.
-- Si el paciente pide un horario especifico, usa buscar_disponibilidad con la fecha, hora_preferida y paciente_id. Si el horario solicitado NO esta disponible, el sistema te devolvera automaticamente la alternativa mas cercana. Presentala de forma profesional, por ejemplo: "Lamento informarle que ese horario no esta disponible con la Dra. [nombre], pero tengo un espacio libre el [dia] a las [hora]. Le gustaria agendar en este horario o prefiere que busquemos otra opcion?"
-- Si el sistema te devuelve que el doctor tiene una ausencia programada (vacaciones/bloqueo), informa al paciente con la fecha de regreso.
-- Al usar crear_solicitud_cita, SIEMPRE usa el consultorio_id que te devolvio buscar_disponibilidad en el slot elegido. El paciente NO necesita saber el nombre del consultorio.
-
-PROTOCOLO RECORDATORIO DE CONFIRMACION (cuando el paciente responde al recordatorio de 24h):
-- Si el paciente confirma asistencia (dice "si", "confirmo", "ahi estaremos", "si asistire", etc.): usar confirmar_asistencia_cita con el paciente_id para marcar la cita como confirmada
-- Si el paciente quiere cancelar o reagendar: usar cancelar_cita o reagendar_cita segun corresponda
+- Horario: {config['horario_apertura']} - {config['horario_cierre']} (Lunes a Sabado)
 
 REGLAS IMPORTANTES:
-- Si el paciente esta marcado como PROBLEMATICO (es_problematico=True), NO agendar citas bajo ninguna circunstancia. Responder amablemente que por el momento no es posible atenderle por este medio y que contacte directamente al consultorio.
-- SIEMPRE usar buscar_paciente al inicio para saber si es paciente nuevo o recurrente
-- Si el paciente es nuevo, usar registrar_paciente con sus datos
-- NUNCA inventar disponibilidad, siempre usar buscar_disponibilidad
-- NUNCA crear cita sin confirmar horario y anticipo (para primera vez)
-- Si hay dudas tecnicas, decir: "Permita que transfiera su consulta a nuestra recepcionista, estare con usted en un momento."
-- Manejar cancelaciones con empatia, recordar politica de 24h
-- Horario del consultorio: {config['horario_apertura']} - {config['horario_cierre']}
+- Si el paciente esta marcado como PROBLEMATICO, NO agendar citas; pedir que llame directamente al consultorio.
+- NUNCA inventar disponibilidad; siempre usar buscar_disponibilidad.
+- NUNCA crear cita sin confirmar horario (y anticipo en primera vez).
+- Manejar cancelaciones con empatia, recordar politica de 24h.
+- Si hay dudas tecnicas: "Permita que transfiera su consulta a nuestra recepcionista."
 
 FORMATO DE RESPUESTA: Mensajes cortos y naturales para WhatsApp, usa emojis con moderacion."""
 
@@ -484,6 +527,8 @@ def _ejecutar_tool(nombre, args):
             return _tool_reagendar_cita(args)
         elif nombre == 'confirmar_asistencia_cita':
             return _tool_confirmar_asistencia_cita(args)
+        elif nombre == 'registrar_solicitud_contacto':
+            return _tool_registrar_solicitud_contacto(args)
         else:
             return {'error': f'Tool desconocida: {nombre}'}
     except Exception as e:
@@ -1031,4 +1076,35 @@ def _tool_confirmar_asistencia_cita(args):
         'fecha': cita.fecha_inicio.strftime('%d/%m/%Y'),
         'hora': cita.fecha_inicio.strftime('%H:%M'),
         'mensaje': f'Cita confirmada para el {cita.fecha_inicio.strftime("%d/%m/%Y")} a las {cita.fecha_inicio.strftime("%H:%M")}.',
+    }
+
+
+def _tool_registrar_solicitud_contacto(args):
+    """Guarda la solicitud de un paciente nuevo para ser contactado por la recepcionista."""
+    from models import SolicitudRegistro
+    from extensions import db
+
+    nombre = (args.get('nombre') or '').strip()
+    numero = (args.get('numero_whatsapp') or '').strip()
+
+    if not nombre or not numero:
+        return {'error': 'Se requiere nombre y numero_whatsapp'}
+
+    solicitud = SolicitudRegistro(
+        nombre=nombre,
+        numero_whatsapp=numero,
+        fecha_preferida=args.get('fecha_preferida', ''),
+        hora_preferida=args.get('hora_preferida', ''),
+        notas=args.get('notas', ''),
+    )
+    db.session.add(solicitud)
+    db.session.commit()
+
+    return {
+        'ok': True,
+        'solicitud_id': solicitud.id,
+        'mensaje': (
+            f'Solicitud registrada para {nombre}. '
+            'Un miembro de nuestro equipo se pondra en contacto contigo para completar tu registro.'
+        ),
     }

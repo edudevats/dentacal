@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required
 from extensions import db, permiso_requerido
-from models import Paciente, GrupoFamiliar, EstatusCRM
+from models import Paciente, GrupoFamiliar, EstatusCRM, SolicitudRegistro
 from datetime import datetime, date
 
 pacientes_bp = Blueprint('pacientes', __name__, url_prefix='/api/pacientes')
@@ -336,3 +336,39 @@ def _normalizar_numero(numero):
         return numero
     numero = numero.replace('whatsapp:', '').replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
     return numero
+
+
+# ── Solicitudes de Registro (pacientes nuevos via bot) ──────────────────────
+
+@pacientes_bp.route('/solicitudes', methods=['GET'])
+@login_required
+def listar_solicitudes():
+    solo_pendientes = request.args.get('pendientes', 'true').lower() == 'true'
+    q = SolicitudRegistro.query
+    if solo_pendientes:
+        q = q.filter_by(atendida=False)
+    solicitudes = q.order_by(SolicitudRegistro.created_at.desc()).all()
+    return jsonify({
+        'solicitudes': [s.to_dict() for s in solicitudes],
+        'total': len(solicitudes),
+    })
+
+
+@pacientes_bp.route('/solicitudes/<int:sid>', methods=['PATCH'])
+@login_required
+def actualizar_solicitud(sid):
+    solicitud = SolicitudRegistro.query.get_or_404(sid)
+    data = request.get_json(silent=True) or {}
+    if 'atendida' in data:
+        solicitud.atendida = bool(data['atendida'])
+    db.session.commit()
+    return jsonify(solicitud.to_dict())
+
+
+@pacientes_bp.route('/solicitudes/<int:sid>', methods=['DELETE'])
+@login_required
+def eliminar_solicitud(sid):
+    solicitud = SolicitudRegistro.query.get_or_404(sid)
+    db.session.delete(solicitud)
+    db.session.commit()
+    return jsonify({'ok': True})

@@ -269,6 +269,23 @@ def _seed_initial_data():
             tipo='recordatorio_recuperacion',
             contenido='Hola {nombre_tutor}! Le escribimos de La Casa del Sr. Perez, hace tiempo que no vemos a {nombre_paciente} por aqui y queremos saber como esta :) Si desea agendar una cita de revision o limpieza dental, con gusto le buscamos espacio. Cualquier duda estamos a sus ordenes!',
         ))
+    if not PlantillaMensaje.query.filter_by(tipo='bienvenida_bot').first():
+        db.session.add(PlantillaMensaje(
+            nombre='Bienvenida Bot (Menu)',
+            tipo='bienvenida_bot',
+            contenido=(
+                'Hola! Soy la recepcionista virtual de La Casa del Sr. Perez \U0001f60a\n'
+                'Puedo ayudarte con:\n'
+                '1\ufe0f\u20e3  Agendar una cita\n'
+                '2\ufe0f\u20e3  Cancelar una cita\n'
+                '3\ufe0f\u20e3  Mover tu cita a otro dia u hora\n'
+                '4\ufe0f\u20e3  Consultar tus citas proximas\n'
+                '5\ufe0f\u20e3  Informacion del consultorio (ubicacion, horarios, precios)\n\n'
+                'Si eres paciente nuevo, con gusto coordinamos una llamada para registrarte '
+                'y darte la mejor atencion \U0001f9b7\u2728\n\n'
+                'Escribenos lo que necesitas!'
+            ),
+        ))
 
     # Origenes de paciente
     if not OrigenPaciente.query.first():

@@ -703,3 +703,144 @@ async function generarJustificante() {
     alert(data.error || 'Error al generar justificante');
   }
 }
+
+// ── Solicitudes de Registro (pacientes nuevos via bot) ───────────────────────
+
+function _buildSolicitudRow(s) {
+  const tr = document.createElement('tr');
+  if (s.atendida) { tr.classList.add('table-secondary', 'opacity-75'); }
+
+  const fecha = s.created_at
+    ? new Date(s.created_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
+    : '';
+  const waNum = s.numero_whatsapp.replace(/\D/g, '');
+
+  const tdNombre = document.createElement('td');
+  tdNombre.className = 'fw-semibold';
+  tdNombre.textContent = s.nombre;
+
+  const tdWa = document.createElement('td');
+  const waLink = document.createElement('a');
+  waLink.href = 'https://wa.me/' + waNum;
+  waLink.target = '_blank';
+  waLink.className = 'text-success';
+  waLink.innerHTML = '<i class="bi bi-whatsapp me-1"></i>';
+  waLink.appendChild(document.createTextNode(s.numero_whatsapp));
+  tdWa.appendChild(waLink);
+
+  const tdFechaPref = document.createElement('td');
+  tdFechaPref.className = 'd-none d-md-table-cell';
+  if (s.fecha_preferida) { tdFechaPref.textContent = s.fecha_preferida; }
+  else { tdFechaPref.innerHTML = '<span class="text-muted">\u2014</span>'; }
+
+  const tdHora = document.createElement('td');
+  tdHora.className = 'd-none d-md-table-cell';
+  if (s.hora_preferida) { tdHora.textContent = s.hora_preferida; }
+  else { tdHora.innerHTML = '<span class="text-muted">\u2014</span>'; }
+
+  const tdNotas = document.createElement('td');
+  tdNotas.className = 'd-none d-lg-table-cell small text-muted';
+  tdNotas.textContent = s.notas || '';
+
+  const tdRecibido = document.createElement('td');
+  tdRecibido.className = 'small text-muted';
+  tdRecibido.textContent = fecha;
+
+  const tdAcciones = document.createElement('td');
+  if (s.atendida) {
+    const btnUndo = document.createElement('button');
+    btnUndo.className = 'btn btn-outline-secondary btn-sm';
+    btnUndo.title = 'Marcar como pendiente';
+    btnUndo.innerHTML = '<i class="bi bi-arrow-counterclockwise"></i>';
+    btnUndo.addEventListener('click', () => marcarSolicitud(s.id, false));
+    tdAcciones.appendChild(btnUndo);
+  } else {
+    const btnOk = document.createElement('button');
+    btnOk.className = 'btn btn-success btn-sm me-1';
+    btnOk.title = 'Marcar como atendida';
+    btnOk.innerHTML = '<i class="bi bi-check-lg"></i>';
+    btnOk.addEventListener('click', () => marcarSolicitud(s.id, true));
+    tdAcciones.appendChild(btnOk);
+  }
+  const btnDel = document.createElement('button');
+  btnDel.className = 'btn btn-outline-danger btn-sm';
+  btnDel.title = 'Eliminar';
+  btnDel.innerHTML = '<i class="bi bi-trash"></i>';
+  btnDel.addEventListener('click', () => eliminarSolicitud(s.id));
+  tdAcciones.appendChild(btnDel);
+
+  tr.append(tdNombre, tdWa, tdFechaPref, tdHora, tdNotas, tdRecibido, tdAcciones);
+  return tr;
+}
+
+async function cargarSolicitudes() {
+  const tbody = document.getElementById('solicitudesTbody');
+  if (!tbody) return;
+  const mostrarAtendidas = document.getElementById('soloNoPendientes')?.checked;
+  const url = mostrarAtendidas
+    ? '/api/pacientes/solicitudes?pendientes=false'
+    : '/api/pacientes/solicitudes?pendientes=true';
+
+  tbody.replaceChildren();
+  const loadingTr = document.createElement('tr');
+  loadingTr.innerHTML = '<td colspan="7" class="text-center text-muted py-4">Cargando...</td>';
+  tbody.appendChild(loadingTr);
+
+  try {
+    const resp = await apiFetch(url);
+    const data = await resp.json();
+    const solicitudes = data.solicitudes || [];
+
+    if (!mostrarAtendidas) {
+      const badge = document.getElementById('badgeSolicitudes');
+      if (badge) {
+        badge.textContent = solicitudes.length;
+        badge.classList.toggle('d-none', solicitudes.length === 0);
+      }
+    }
+    const totalEl = document.getElementById('totalSolicitudes');
+    if (totalEl) totalEl.textContent = solicitudes.length + ' solicitud(es)';
+
+    tbody.replaceChildren();
+    if (!solicitudes.length) {
+      const emptyTr = document.createElement('tr');
+      emptyTr.innerHTML = '<td colspan="7" class="text-center text-muted py-4">Sin solicitudes pendientes \u2705</td>';
+      tbody.appendChild(emptyTr);
+      return;
+    }
+    solicitudes.forEach(s => tbody.appendChild(_buildSolicitudRow(s)));
+  } catch (_e) {
+    tbody.replaceChildren();
+    const errTr = document.createElement('tr');
+    errTr.innerHTML = '<td colspan="7" class="text-center text-danger py-3">Error al cargar solicitudes</td>';
+    tbody.appendChild(errTr);
+  }
+}
+
+async function marcarSolicitud(id, atendida) {
+  await apiFetch('/api/pacientes/solicitudes/' + id, {
+    method: 'PATCH',
+    body: JSON.stringify({ atendida }),
+  });
+  cargarSolicitudes();
+}
+
+async function eliminarSolicitud(id) {
+  if (!confirm('\u00bfEliminar esta solicitud?')) return;
+  await apiFetch('/api/pacientes/solicitudes/' + id, { method: 'DELETE' });
+  cargarSolicitudes();
+}
+
+// Carga el badge de solicitudes pendientes al arrancar la pagina
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const resp = await apiFetch('/api/pacientes/solicitudes?pendientes=true');
+    const data = await resp.json();
+    const n = (data.solicitudes || []).length;
+    const badge = document.getElementById('badgeSolicitudes');
+    if (badge && n > 0) {
+      badge.textContent = n;
+      badge.classList.remove('d-none');
+    }
+  } catch (_) {}
+});

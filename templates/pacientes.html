@@ -13,43 +13,98 @@
 
 {% block content %}
 <div class="p-3">
-  <div class="card shadow-sm">
-    <div class="card-header d-flex align-items-center gap-2 flex-wrap">
-      <input type="search" id="searchInput" class="form-control form-control-sm filter-responsive" style="max-width:300px"
-        placeholder="Buscar por nombre, telefono...">
-      <select id="filtroEstatus" class="form-select form-select-sm filter-responsive" style="max-width:160px">
-        <option value="">Todos los status</option>
-        <option value="alta">Alta</option>
-        <option value="activo">Activo</option>
-        <option value="prospecto">Prospecto</option>
-        <option value="baja">Baja</option>
-      </select>
-      <button class="btn btn-primary btn-sm ms-auto" onclick="abrirModalNuevoPaciente()">
-        <i class="bi bi-person-plus me-1"></i>Nuevo Paciente
+  <!-- Tabs -->
+  <ul class="nav nav-tabs mb-3" id="pacientesTabs">
+    <li class="nav-item">
+      <button class="nav-link active" id="tab-pacientes" data-bs-toggle="tab" data-bs-target="#pane-pacientes">
+        <i class="bi bi-people me-1"></i>Pacientes
       </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" id="tab-nuevos" data-bs-toggle="tab" data-bs-target="#pane-nuevos" onclick="cargarSolicitudes()">
+        <i class="bi bi-person-plus me-1"></i>Pacientes Nuevos
+        <span class="badge bg-danger ms-1 d-none" id="badgeSolicitudes">0</span>
+      </button>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+    <!-- Tab: Lista de pacientes -->
+    <div class="tab-pane fade show active" id="pane-pacientes">
+      <div class="card shadow-sm">
+        <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+          <input type="search" id="searchInput" class="form-control form-control-sm filter-responsive" style="max-width:300px"
+            placeholder="Buscar por nombre, telefono...">
+          <select id="filtroEstatus" class="form-select form-select-sm filter-responsive" style="max-width:160px">
+            <option value="">Todos los status</option>
+            <option value="alta">Alta</option>
+            <option value="activo">Activo</option>
+            <option value="prospecto">Prospecto</option>
+            <option value="baja">Baja</option>
+          </select>
+          <button class="btn btn-primary btn-sm ms-auto" onclick="abrirModalNuevoPaciente()">
+            <i class="bi bi-person-plus me-1"></i>Nuevo Paciente
+          </button>
+        </div>
+        <div class="card-body p-0 table-responsive-mobile">
+          <table class="table table-hover mb-0" id="tablaPacientes">
+            <thead class="table-light">
+              <tr>
+                <th>Paciente</th>
+                <th>WhatsApp</th>
+                <th class="d-none d-md-table-cell">Familia / Tutor</th>
+                <th>Status CRM</th>
+                <th class="d-none d-md-table-cell">Ultima cita</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="pacientesTbody">
+              <tr>
+                <td colspan="6" class="text-center text-muted py-4">Cargando...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card-footer d-flex justify-content-between align-items-center small text-muted">
+          <span id="totalPacientes"></span>
+          <div id="paginacion"></div>
+        </div>
+      </div>
     </div>
-    <div class="card-body p-0 table-responsive-mobile">
-      <table class="table table-hover mb-0" id="tablaPacientes">
-        <thead class="table-light">
-          <tr>
-            <th>Paciente</th>
-            <th>WhatsApp</th>
-            <th class="d-none d-md-table-cell">Familia / Tutor</th>
-            <th>Status CRM</th>
-            <th class="d-none d-md-table-cell">Ultima cita</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody id="pacientesTbody">
-          <tr>
-            <td colspan="6" class="text-center text-muted py-4">Cargando...</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="card-footer d-flex justify-content-between align-items-center small text-muted">
-      <span id="totalPacientes"></span>
-      <div id="paginacion"></div>
+
+    <!-- Tab: Pacientes Nuevos (solicitudes via bot) -->
+    <div class="tab-pane fade" id="pane-nuevos">
+      <div class="card shadow-sm">
+        <div class="card-header d-flex align-items-center gap-2 flex-wrap">
+          <span class="fw-semibold"><i class="bi bi-whatsapp me-1 text-success"></i>Solicitudes de registro via WhatsApp</span>
+          <div class="form-check form-switch ms-auto">
+            <input class="form-check-input" type="checkbox" id="soloNoPendientes" onchange="cargarSolicitudes()">
+            <label class="form-check-label small" for="soloNoPendientes">Mostrar atendidas</label>
+          </div>
+          <button class="btn btn-outline-secondary btn-sm" onclick="cargarSolicitudes()">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </div>
+        <div class="card-body p-0 table-responsive-mobile">
+          <table class="table table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Nombre</th>
+                <th>WhatsApp</th>
+                <th class="d-none d-md-table-cell">Fecha preferida</th>
+                <th class="d-none d-md-table-cell">Hora</th>
+                <th class="d-none d-lg-table-cell">Notas</th>
+                <th>Recibido</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="solicitudesTbody">
+              <tr><td colspan="7" class="text-center text-muted py-4">Cargando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card-footer small text-muted" id="totalSolicitudes"></div>
+      </div>
     </div>
   </div>
 </div>

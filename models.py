@@ -598,6 +598,32 @@ class CampanaDestinatario(db.Model):
     )
 
 
+class SolicitudRegistro(db.Model):
+    """Paciente nuevo no registrado que pidio al bot que la recepcionista le llame para darlo de alta."""
+    __tablename__ = 'solicitudes_registro'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(120), nullable=False)
+    numero_whatsapp = db.Column(db.String(20), nullable=False)
+    fecha_preferida = db.Column(db.String(100))   # texto libre, ej: "lunes 14 de abril"
+    hora_preferida = db.Column(db.String(20))      # ej: "10:00"
+    notas = db.Column(db.Text)
+    atendida = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'nombre': self.nombre,
+            'numero_whatsapp': self.numero_whatsapp,
+            'fecha_preferida': self.fecha_preferida or '',
+            'hora_preferida': self.hora_preferida or '',
+            'notas': self.notas or '',
+            'atendida': self.atendida,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class RecordatorioManual(db.Model):
     """Recordatorio de seguimiento programado manualmente para un paciente."""
     __tablename__ = 'recordatorios_manuales'
