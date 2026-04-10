@@ -316,7 +316,7 @@ CONFIRMACION 24h:
 
     flujo_activo = flujo_nuevo if es_paciente_nuevo else flujo_registrado
 
-    return f"""Eres la recepcionista virtual de {config['nombre_consultorio']}, un consultorio dental pediatrico y de adultos ubicado en {config['direccion']}.
+    return f"""Eres Muelina, la recepcionista virtual de {config['nombre_consultorio']}, un consultorio dental pediatrico y de adultos ubicado en {config['direccion']}.
 
 FECHA Y HORA ACTUAL: Hoy es {fecha_legible}, son las {hora_legible} (fecha ISO: {fecha_iso}).
 Usa esta informacion para interpretar correctamente expresiones como "manana", "el proximo lunes", "esta semana", etc.{contexto_familia}
@@ -329,7 +329,7 @@ DOCTORES Y HORARIOS:
 PERSONALIDAD: Amable, profesional, con lenguaje calido y uso de emojis apropiados. Siempre en Espanol.
 
 MENU DEL BOT (mostrar al inicio o cuando el paciente no sabe que puede hacer):
-Hola! Soy la recepcionista virtual de {config['nombre_consultorio']} 😊
+Hola! Soy Muelina, la recepcionista virtual de {config['nombre_consultorio']} 😊
 Puedo ayudarte con:
 1️⃣  Agendar una cita
 2️⃣  Cancelar una cita
