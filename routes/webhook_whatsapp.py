@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from flask import Blueprint, request, Response
 from extensions import db, csrf, limiter
-from models import ConversacionWhatsapp, Paciente
+from models import ConversacionWhatsapp, Paciente, CampanaDestinatario, EstatusDestinatario
 
 log = logging.getLogger(__name__)
 
@@ -60,6 +60,50 @@ def whatsapp_incoming():
 
     _guardar_mensaje(numero, pid, respuesta, es_bot=True)
     return _twiml_response(respuesta)
+
+
+@webhook_bp.route('/whatsapp-status', methods=['POST'])
+@csrf.exempt
+@limiter.exempt
+def whatsapp_status_callback():
+    """
+    Status Callback de Twilio. Twilio envia POST con el estado de entrega
+    de cada mensaje saliente: queued / sending / sent / delivered / read /
+    failed / undelivered.
+
+    Configurar en consola Twilio (o pasar status_callback al crear el mensaje):
+        https://<tu-dominio>/webhook/whatsapp-status
+    """
+    _validar_firma_twilio()
+
+    message_sid = request.form.get('MessageSid', '').strip()
+    message_status = request.form.get('MessageStatus', '').strip()
+    error_code = request.form.get('ErrorCode', '').strip()
+    error_message = request.form.get('ErrorMessage', '').strip()
+
+    if not message_sid:
+        return Response('', status=200)
+
+    log.info(f'Twilio status callback: SID={message_sid} status={message_status} error={error_code}')
+
+    # Buscar el destinatario de campana asociado a este SID
+    dest = CampanaDestinatario.query.filter_by(message_sid=message_sid).first()
+    if dest:
+        dest.delivery_status = message_status or dest.delivery_status
+        dest.delivery_updated_at = datetime.utcnow()
+
+        if message_status in ('failed', 'undelivered'):
+            dest.estatus = EstatusDestinatario.fallido
+            if error_code or error_message:
+                dest.error_mensaje = f'[{error_code}] {error_message}'[:500]
+
+        try:
+            db.session.commit()
+        except Exception as e:
+            log.error(f'Error guardando status callback: {e}')
+            db.session.rollback()
+
+    return Response('', status=200)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

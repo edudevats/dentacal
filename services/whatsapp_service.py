@@ -7,10 +7,22 @@ from flask import current_app
 logger = logging.getLogger(__name__)
 
 
-def enviar_mensaje(numero_destino, mensaje):
+def _build_status_callback_url():
+    """Construye la URL absoluta del Status Callback de Twilio.
+    Si PUBLIC_BASE_URL no esta configurada, retorna None y Twilio no enviara
+    callbacks (envio normal sin tracking)."""
+    base = current_app.config.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
+    if not base:
+        return None
+    return f'{base}/webhook/whatsapp-status'
+
+
+def enviar_mensaje(numero_destino, mensaje, status_callback=None):
     """
     Envia un mensaje de WhatsApp via Twilio.
     numero_destino: numero en formato +521XXXXXXXXXX (sin prefijo whatsapp:)
+    status_callback: URL absoluta opcional. Si no se pasa, se usa la del config
+        (PUBLIC_BASE_URL + /webhook/whatsapp-status). Pasa False para deshabilitar.
     Retorna el SID del mensaje.
     """
     account_sid = current_app.config.get('TWILIO_ACCOUNT_SID', '')
@@ -34,11 +46,19 @@ def enviar_mensaje(numero_destino, mensaje):
         else:
             to = numero_destino
 
-        msg = client.messages.create(
-            from_=from_number,
-            body=mensaje,
-            to=to,
-        )
+        # Resolver status_callback (None = usar default del config; False = deshabilitar)
+        if status_callback is None:
+            status_callback = _build_status_callback_url()
+
+        kwargs = {
+            'from_': from_number,
+            'body': mensaje,
+            'to': to,
+        }
+        if status_callback:
+            kwargs['status_callback'] = status_callback
+
+        msg = client.messages.create(**kwargs)
         logger.info(f'WA enviado a {numero_destino}: SID={msg.sid}')
         return msg.sid
     except Exception as e:

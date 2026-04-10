@@ -590,6 +590,10 @@ class CampanaDestinatario(db.Model):
     estatus = db.Column(db.Enum(EstatusDestinatario), default=EstatusDestinatario.pendiente)
     error_mensaje = db.Column(db.Text, nullable=True)
     fecha_envio = db.Column(db.DateTime, nullable=True)
+    # Twilio tracking via Status Callback
+    message_sid = db.Column(db.String(64), nullable=True, index=True)
+    delivery_status = db.Column(db.String(20), nullable=True)  # queued/sent/delivered/read/failed/undelivered
+    delivery_updated_at = db.Column(db.DateTime, nullable=True)
 
     paciente = db.relationship('Paciente', backref='campana_destinatarios')
 

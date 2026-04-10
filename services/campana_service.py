@@ -127,9 +127,11 @@ def enviar_campana(campana_id, app):
             )
 
             try:
-                enviar_mensaje(dest.numero_destino, mensaje)
+                sid = enviar_mensaje(dest.numero_destino, mensaje)
                 dest.estatus = EstatusDestinatario.enviado
                 dest.fecha_envio = datetime.utcnow()
+                dest.message_sid = sid
+                dest.delivery_status = 'queued'
                 campana.enviados += 1
 
                 # Guardar en historial de conversacion

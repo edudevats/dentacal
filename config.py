@@ -38,6 +38,9 @@ class Config:
     TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
     TWILIO_AUTH_TOKEN = os.environ.get('TWILIO_AUTH_TOKEN', '')
     TWILIO_WHATSAPP_NUMBER = os.environ.get('TWILIO_WHATSAPP_NUMBER', 'whatsapp:+14155238886')
+    # URL publica de la app (ngrok / pythonanywhere). Se usa para construir
+    # el Status Callback URL que Twilio invoca con el estado de entrega.
+    PUBLIC_BASE_URL = os.environ.get('PUBLIC_BASE_URL', '')
 
     # Datos consultorio para el bot
     CLABE_INTERBANCARIA = os.environ.get('CLABE_INTERBANCARIA', '012180015419659725')
