@@ -12,7 +12,176 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('botSearch').addEventListener('input', filtrarLista);
   document.getElementById('botFiltro').addEventListener('change', filtrarLista);
   document.getElementById('btnRefrescar').addEventListener('click', () => cargarLista());
+
+  // Status de APIs (solo si el pill existe = usuario admin)
+  if (document.getElementById('apiStatusPill')) {
+    verificarApiStatus();
+    // Re-verificar cada 2 minutos
+    setInterval(verificarApiStatus, 2 * 60 * 1000);
+    document.getElementById('btnRefrescarStatus').addEventListener('click', verificarApiStatus);
+  }
 });
+
+
+// ── Status APIs (admin) ──────────────────────────────────────────────────────
+
+const SVC_META = {
+  gemini:          { icon: 'bi-robot',             label: 'Gemini (Bot IA)' },
+  twilio:          { icon: 'bi-whatsapp',          label: 'Twilio (WhatsApp)' },
+  database:        { icon: 'bi-database',          label: 'Base de Datos' },
+  status_callback: { icon: 'bi-arrow-return-left', label: 'Status Callback URL' },
+};
+
+async function verificarApiStatus() {
+  const pill = document.getElementById('apiStatusPill');
+  const pillText = document.getElementById('apiStatusText');
+  const loading = document.getElementById('apiStatusLoading');
+  const content = document.getElementById('apiStatusContent');
+
+  if (!pill) return;
+
+  pill.className = 'btn btn-sm ms-3 api-status-pill api-status-loading';
+  pillText.textContent = 'Verificando APIs…';
+  loading.classList.remove('d-none');
+  content.classList.add('d-none');
+
+  try {
+    const resp = await apiFetch('/api/bot/status-apis');
+    if (!resp.ok) {
+      pill.className = 'btn btn-sm ms-3 api-status-pill api-status-error';
+      pillText.textContent = 'APIs: error ' + resp.status;
+      return;
+    }
+    const data = await resp.json();
+    renderApiStatus(data);
+  } catch (e) {
+    pill.className = 'btn btn-sm ms-3 api-status-pill api-status-error';
+    pillText.textContent = 'APIs: sin conexion';
+  }
+}
+
+function renderApiStatus(data) {
+  const pill = document.getElementById('apiStatusPill');
+  const pillText = document.getElementById('apiStatusText');
+  const loading = document.getElementById('apiStatusLoading');
+  const content = document.getElementById('apiStatusContent');
+  const tsEl = document.getElementById('apiStatusTimestamp');
+
+  loading.classList.add('d-none');
+  content.classList.remove('d-none');
+
+  const servicios = data.servicios || {};
+  let errores = 0, warnings = 0, okCount = 0;
+  for (const [k, v] of Object.entries(servicios)) {
+    if (v.ok) okCount++;
+    else if (k === 'status_callback') warnings++;
+    else errores++;
+  }
+
+  // Pill
+  if (errores > 0) {
+    pill.className = 'btn btn-sm ms-3 api-status-pill api-status-error';
+    pillText.textContent = 'APIs: ' + errores + ' error' + (errores > 1 ? 'es' : '');
+  } else if (warnings > 0) {
+    pill.className = 'btn btn-sm ms-3 api-status-pill api-status-warning';
+    pillText.textContent = 'APIs: advertencia';
+  } else {
+    pill.className = 'btn btn-sm ms-3 api-status-pill api-status-ok';
+    pillText.textContent = 'APIs: operativas';
+  }
+
+  // Modal content
+  while (content.firstChild) content.removeChild(content.firstChild);
+
+  // Resumen
+  const resumen = document.createElement('div');
+  resumen.className = 'alert mb-3 ' + (errores ? 'alert-danger' : warnings ? 'alert-warning' : 'alert-success');
+  const resumenIcon = document.createElement('i');
+  resumenIcon.className = 'bi me-2 ' + (errores
+    ? 'bi-x-circle-fill'
+    : warnings ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill');
+  resumen.appendChild(resumenIcon);
+
+  const resumenText = document.createElement('span');
+  if (errores) {
+    resumenText.textContent = 'Hay ' + errores + ' servicio(s) con errores. El bot puede no funcionar correctamente.';
+  } else if (warnings) {
+    resumenText.textContent = 'Funcional con advertencias. Revisa los servicios marcados.';
+  } else {
+    resumenText.textContent = 'Todos los servicios operativos (' + okCount + '/4).';
+  }
+  resumen.appendChild(resumenText);
+  content.appendChild(resumen);
+
+  // Tarjetas por servicio
+  const orden = ['gemini', 'twilio', 'database', 'status_callback'];
+  for (const key of orden) {
+    const svc = servicios[key];
+    if (!svc) continue;
+    content.appendChild(renderServiceCard(key, svc));
+  }
+
+  // Timestamp
+  const fecha = new Date((data.timestamp || Date.now() / 1000) * 1000);
+  tsEl.textContent = 'Verificado: ' + fecha.toLocaleTimeString('es-MX');
+}
+
+function renderServiceCard(key, svc) {
+  const meta = SVC_META[key] || { icon: 'bi-gear', label: key };
+  const card = document.createElement('div');
+  card.className = 'api-service-card';
+
+  const isWarningSvc = (key === 'status_callback' && !svc.ok);
+  const tone = svc.ok ? 'ok' : (isWarningSvc ? 'warning' : 'error');
+  const estadoLabel = svc.ok ? 'OK' : (isWarningSvc ? 'Advertencia' : 'Error');
+
+  const head = document.createElement('div');
+  head.className = 'svc-head';
+
+  const icon = document.createElement('div');
+  icon.className = 'svc-icon ' + tone;
+  const iconI = document.createElement('i');
+  iconI.className = 'bi ' + meta.icon;
+  icon.appendChild(iconI);
+
+  const title = document.createElement('div');
+  title.className = 'svc-title';
+  title.textContent = meta.label;
+
+  const badge = document.createElement('span');
+  const badgeClass = tone === 'ok' ? 'bg-success'
+                   : tone === 'warning' ? 'bg-warning text-dark'
+                   : 'bg-danger';
+  badge.className = 'badge ' + badgeClass;
+  badge.textContent = estadoLabel;
+
+  head.appendChild(icon);
+  head.appendChild(title);
+  head.appendChild(badge);
+  card.appendChild(head);
+
+  const detalle = document.createElement('div');
+  detalle.className = 'svc-detalle';
+  detalle.textContent = svc.detalle || svc.estado || '';
+  card.appendChild(detalle);
+
+  const metaParts = [];
+  if (svc.modelo)          metaParts.push('modelo: ' + svc.modelo);
+  if (svc.api_key_preview) metaParts.push('api_key: ' + svc.api_key_preview);
+  if (svc.sid_preview)     metaParts.push('sid: ' + svc.sid_preview);
+  if (svc.numero_wa)       metaParts.push('wa: ' + svc.numero_wa);
+  if (svc.url)             metaParts.push('url: ' + svc.url);
+  if (svc.latencia_ms)     metaParts.push(svc.latencia_ms + ' ms');
+
+  if (metaParts.length) {
+    const m = document.createElement('div');
+    m.className = 'svc-meta';
+    m.textContent = metaParts.join(' · ');
+    card.appendChild(m);
+  }
+
+  return card;
+}
 
 
 // ── Lista de conversaciones ──────────────────────────────────────────────────

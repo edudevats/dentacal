@@ -1,8 +1,12 @@
-from flask import Blueprint, jsonify, request
-from flask_login import login_required
-from sqlalchemy import func
+import time
+import logging
+from flask import Blueprint, jsonify, request, current_app
+from flask_login import login_required, current_user
+from sqlalchemy import func, text
 from extensions import db, permiso_requerido
 from models import ConversacionWhatsapp, Paciente
+
+log = logging.getLogger(__name__)
 
 bot_bp = Blueprint('bot', __name__, url_prefix='/api/bot')
 
@@ -100,3 +104,183 @@ def hilo_conversacion(numero):
         'timestamp': m.timestamp.isoformat(),
         'paciente_id': m.paciente_id,
     } for m in mensajes])
+
+
+# ── Status de APIs externas (solo admin) ────────────────────────────────────
+
+def _mask(value, show=4):
+    """Oculta una clave dejando visible solo los ultimos N caracteres."""
+    if not value:
+        return ''
+    if len(value) <= show:
+        return '*' * len(value)
+    return '*' * (len(value) - show) + value[-show:]
+
+
+def _check_gemini():
+    """Verifica conexion con Gemini haciendo una peticion minima."""
+    api_key = current_app.config.get('GEMINI_API_KEY', '')
+    model = current_app.config.get('AI_MODEL', 'gemini-3.1-flash-lite-preview')
+
+    if not api_key:
+        return {'ok': False, 'estado': 'no_configurado',
+                'detalle': 'GEMINI_API_KEY vacio en .env', 'modelo': model}
+    if api_key.startswith('test'):
+        return {'ok': False, 'estado': 'modo_test',
+                'detalle': 'GEMINI_API_KEY en modo test', 'modelo': model}
+
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError as e:
+        return {'ok': False, 'estado': 'sdk_faltante',
+                'detalle': f'google-genai no instalado: {e}', 'modelo': model}
+
+    try:
+        t0 = time.time()
+        client = genai.Client(api_key=api_key)
+        resp = client.models.generate_content(
+            model=model,
+            contents=[types.Content(role='user', parts=[types.Part(text='ping')])],
+            config=types.GenerateContentConfig(
+                max_output_tokens=5,
+                temperature=0,
+            ),
+        )
+        latencia_ms = int((time.time() - t0) * 1000)
+        texto = ''
+        try:
+            if resp and resp.candidates:
+                parts = resp.candidates[0].content.parts or []
+                for p in parts:
+                    if getattr(p, 'text', None):
+                        texto = p.text[:40]
+                        break
+        except Exception:
+            pass
+
+        return {
+            'ok': True,
+            'estado': 'ok',
+            'detalle': f'Respuesta recibida ({latencia_ms} ms)',
+            'modelo': model,
+            'latencia_ms': latencia_ms,
+            'api_key_preview': _mask(api_key),
+            'muestra_respuesta': texto,
+        }
+    except Exception as e:
+        msg = str(e)[:200]
+        log.warning(f'Gemini health check fallo: {e}')
+        return {
+            'ok': False,
+            'estado': 'error',
+            'detalle': msg,
+            'modelo': model,
+            'api_key_preview': _mask(api_key),
+        }
+
+
+def _check_twilio():
+    """Verifica credenciales de Twilio obteniendo info de la cuenta."""
+    sid = current_app.config.get('TWILIO_ACCOUNT_SID', '')
+    token = current_app.config.get('TWILIO_AUTH_TOKEN', '')
+    wa_number = current_app.config.get('TWILIO_WHATSAPP_NUMBER', '')
+
+    if not sid or not token:
+        return {'ok': False, 'estado': 'no_configurado',
+                'detalle': 'TWILIO_ACCOUNT_SID o TWILIO_AUTH_TOKEN vacios',
+                'numero_wa': wa_number}
+    if sid.startswith('test'):
+        return {'ok': False, 'estado': 'modo_test',
+                'detalle': 'Credenciales Twilio en modo test',
+                'numero_wa': wa_number}
+
+    try:
+        from twilio.rest import Client
+    except ImportError as e:
+        return {'ok': False, 'estado': 'sdk_faltante',
+                'detalle': f'twilio no instalado: {e}',
+                'numero_wa': wa_number}
+
+    try:
+        t0 = time.time()
+        client = Client(sid, token)
+        account = client.api.v2010.accounts(sid).fetch()
+        latencia_ms = int((time.time() - t0) * 1000)
+        return {
+            'ok': account.status == 'active',
+            'estado': account.status,
+            'detalle': f'Cuenta "{account.friendly_name}" ({account.status})',
+            'numero_wa': wa_number,
+            'latencia_ms': latencia_ms,
+            'sid_preview': _mask(sid),
+        }
+    except Exception as e:
+        msg = str(e)[:200]
+        log.warning(f'Twilio health check fallo: {e}')
+        return {
+            'ok': False,
+            'estado': 'error',
+            'detalle': msg,
+            'numero_wa': wa_number,
+            'sid_preview': _mask(sid),
+        }
+
+
+def _check_db():
+    """Verifica que la BD responda."""
+    try:
+        t0 = time.time()
+        db.session.execute(text('SELECT 1'))
+        latencia_ms = int((time.time() - t0) * 1000)
+        return {'ok': True, 'estado': 'ok',
+                'detalle': f'Respuesta ({latencia_ms} ms)',
+                'latencia_ms': latencia_ms}
+    except Exception as e:
+        return {'ok': False, 'estado': 'error', 'detalle': str(e)[:200]}
+
+
+def _check_status_callback():
+    """Verifica que PUBLIC_BASE_URL este configurado para el Status Callback."""
+    base = current_app.config.get('PUBLIC_BASE_URL', '').strip()
+    if not base:
+        return {
+            'ok': False,
+            'estado': 'no_configurado',
+            'detalle': 'PUBLIC_BASE_URL vacio — sin tracking de entrega de mensajes',
+            'url': None,
+        }
+    url = f'{base.rstrip("/")}/webhook/whatsapp-status'
+    return {'ok': True, 'estado': 'configurado',
+            'detalle': 'Twilio enviara actualizaciones de entrega a esta URL',
+            'url': url}
+
+
+@bot_bp.route('/status-apis', methods=['GET'])
+@login_required
+def status_apis():
+    """
+    Estado de las APIs externas del bot (Gemini + Twilio + DB + Status Callback).
+    Solo admin. Hace peticiones reales para verificar conectividad.
+    """
+    if not current_user.is_admin():
+        return jsonify(error='Sin permisos'), 403
+
+    gemini = _check_gemini()
+    twilio = _check_twilio()
+    base_db = _check_db()
+    status_cb = _check_status_callback()
+
+    # Global: ok solo si Gemini+Twilio+DB estan OK. Status callback es advertencia.
+    global_ok = gemini['ok'] and twilio['ok'] and base_db['ok']
+
+    return jsonify({
+        'ok': global_ok,
+        'timestamp': time.time(),
+        'servicios': {
+            'gemini': gemini,
+            'twilio': twilio,
+            'database': base_db,
+            'status_callback': status_cb,
+        }
+    })

@@ -1,8 +1,111 @@
 {% extends 'base.html' %}
 {% block title %}Monitor Bot WhatsApp{% endblock %}
-{% block page_title %}<i class="bi bi-robot me-2" style="color:var(--primary)"></i>Monitor Bot WhatsApp{% endblock %}
+{% block page_title %}
+<i class="bi bi-robot me-2" style="color:var(--primary)"></i>Monitor Bot WhatsApp
+{% if current_user.is_admin() %}
+  <button type="button"
+          id="apiStatusPill"
+          class="btn btn-sm ms-3 api-status-pill api-status-loading"
+          data-bs-toggle="modal" data-bs-target="#apiStatusModal"
+          title="Estado de las APIs del bot">
+    <span class="api-status-dot"></span>
+    <span id="apiStatusText">Verificando APIs…</span>
+  </button>
+{% endif %}
+{% endblock %}
 
 {% block content %}
+{% if current_user.is_admin() %}
+<!-- Modal de detalles (solo admin) -->
+<div class="modal fade" id="apiStatusModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-activity me-2" style="color:var(--primary)"></i>
+          Estado de las APIs del Bot
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="apiStatusLoading" class="text-center py-4">
+          <div class="spinner-border text-primary" role="status"></div>
+          <div class="text-muted small mt-2">Verificando servicios…</div>
+        </div>
+        <div id="apiStatusContent" class="d-none"></div>
+      </div>
+      <div class="modal-footer">
+        <small class="text-muted me-auto" id="apiStatusTimestamp"></small>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnRefrescarStatus">
+          <i class="bi bi-arrow-clockwise me-1"></i>Volver a verificar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.api-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: .78rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  transition: all .2s;
+}
+.api-status-pill .api-status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #9ca3af;
+  box-shadow: 0 0 0 0 rgba(156,163,175,.5);
+}
+.api-status-loading    { background:#f1f5f9; color:#64748b; border-color:#cbd5e1; }
+.api-status-loading  .api-status-dot { background:#9ca3af; animation: pulse 1.5s infinite; }
+.api-status-ok         { background:#ecfdf5; color:#047857; border-color:#a7f3d0; }
+.api-status-ok       .api-status-dot { background:#10b981; animation: pulse 2s infinite; }
+.api-status-warning    { background:#fffbeb; color:#b45309; border-color:#fde68a; }
+.api-status-warning  .api-status-dot { background:#f59e0b; }
+.api-status-error      { background:#fef2f2; color:#b91c1c; border-color:#fecaca; }
+.api-status-error    .api-status-dot { background:#ef4444; animation: pulse 1s infinite; }
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+  50%      { box-shadow: 0 0 0 4px transparent; opacity: .7; }
+}
+
+.api-service-card {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+.api-service-card .svc-head {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 6px;
+}
+.api-service-card .svc-icon {
+  width: 32px; height: 32px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 1.1rem;
+}
+.api-service-card .svc-icon.ok      { background:#ecfdf5; color:#047857; }
+.api-service-card .svc-icon.warning { background:#fffbeb; color:#b45309; }
+.api-service-card .svc-icon.error   { background:#fef2f2; color:#b91c1c; }
+.api-service-card .svc-title { font-weight:600; flex-grow:1; }
+.api-service-card .svc-detalle {
+  font-size:.85rem; color:#475569; margin-top:4px;
+  word-break: break-word;
+}
+.api-service-card .svc-meta {
+  font-size:.75rem; color:#64748b; margin-top:6px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+</style>
+{% endif %}
+
 <div class="bot-container">
 
   <!-- Panel izquierdo: lista de conversaciones -->
