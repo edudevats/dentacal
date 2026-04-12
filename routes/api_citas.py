@@ -197,7 +197,19 @@ def actualizar(cita_id):
     if 'notas' in data:
         cita.notas = data['notas']
     if 'anticipo_pagado' in data:
+        anticipo_anterior = cita.anticipo_pagado
         cita.anticipo_pagado = bool(data['anticipo_pagado'])
+
+        # Anticipo recien marcado como pagado → promover pre_cita + notificar
+        if cita.anticipo_pagado and not anticipo_anterior:
+            # Si era pre-cita, promover a pendiente
+            if cita.status == EstatusCita.pre_cita:
+                cita.status = EstatusCita.pendiente
+                cita.pre_cita_expira = None
+
+            # Notificar al paciente por WhatsApp
+            _notificar_anticipo_recibido(cita)
+
     if 'anticipo_monto' in data:
         cita.anticipo_monto = data['anticipo_monto']
 
@@ -272,3 +284,52 @@ def resumen_dia():
 
     citas = q.order_by(Cita.dentista_id, Cita.fecha_inicio).all()
     return jsonify([c.to_dict() for c in citas])
+
+
+def _notificar_anticipo_recibido(cita):
+    """Envia WhatsApp al paciente confirmando la recepcion del anticipo."""
+    import logging
+    log = logging.getLogger(__name__)
+
+    paciente = cita.paciente
+    if not paciente:
+        return
+
+    numero = getattr(paciente, 'numero_contacto_wa', None) or paciente.whatsapp
+    if not numero:
+        return
+
+    nombre = paciente.nombre_completo
+    fecha_str = cita.fecha_inicio.strftime('%d/%m/%Y')
+    hora_str = cita.fecha_inicio.strftime('%H:%M')
+    hora_fin_str = cita.fecha_fin.strftime('%H:%M')
+    dentista = cita.dentista.nombre if cita.dentista else 'su doctor'
+
+    mensaje = (
+        f'Hola {nombre} \U0001f60a\n\n'
+        f'Hemos recibido su anticipo correctamente \u2705\n'
+        f'Su cita queda confirmada:\n\n'
+        f'\U0001f4c5 Fecha: {fecha_str}\n'
+        f'\U0001f552 Horario: {hora_str} a {hora_fin_str}\n'
+        f'\U0001f9b7 Doctor(a): {dentista}\n\n'
+        f'Le esperamos en La Casa del Sr. Perez. '
+        f'Si necesita reagendar, por favor hagalo con al menos 24hrs de anticipacion.\n'
+        f'\U00002728 Gracias por su confianza!'
+    )
+
+    try:
+        from services.whatsapp_service import enviar_mensaje
+        enviar_mensaje(numero, mensaje)
+        log.info(f'Notificacion anticipo enviada a {numero} (cita #{cita.id})')
+
+        # Guardar en historial de conversacion
+        from models import ConversacionWhatsapp
+        conv = ConversacionWhatsapp(
+            numero_telefono=numero,
+            paciente_id=paciente.id,
+            mensaje=mensaje,
+            es_bot=True,
+        )
+        db.session.add(conv)
+    except Exception as e:
+        log.error(f'Error enviando notificacion anticipo cita #{cita.id}: {e}')

@@ -60,18 +60,27 @@ function initCalendario() {
 
     eventDidMount(info) {
       const status = info.event.extendedProps.status;
-      if (status === 'completada') {
+      if (status === 'pre_cita') {
+        info.el.style.opacity = '0.65';
+        info.el.style.borderLeft = '4px solid #F2853D';
+        info.el.style.borderStyle = 'dashed';
+        info.el.style.backgroundImage =
+          'repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(255,255,255,0.15) 5px, rgba(255,255,255,0.15) 10px)';
+        const expira = info.event.extendedProps.pre_cita_expira;
+        const expiraStr = expira ? ' | Expira: ' + new Date(expira).toLocaleString('es-MX', {dateStyle:'short', timeStyle:'short'}) : '';
+        info.el.title = info.event.title + ' - PRE-CITA (reserva temporal)' + expiraStr;
+      } else if (status === 'completada') {
         info.el.style.opacity = '0.85';
         info.el.style.borderLeft = '4px solid #4CAF50';
-      }
-      if (status === 'no_asistencia') {
+      } else if (status === 'no_asistencia') {
         info.el.style.opacity = '0.6';
         info.el.style.textDecoration = 'line-through';
-      }
-      if (status === 'cancelada') {
+      } else if (status === 'cancelada') {
         info.el.style.opacity = '0.4';
       }
-      info.el.title = info.event.title + ' - ' + status;
+      if (status !== 'pre_cita') {
+        info.el.title = info.event.title + ' - ' + status;
+      }
     },
 
     dayHeaderContent(arg) {

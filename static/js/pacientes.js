@@ -720,13 +720,26 @@ function _buildSolicitudRow(s) {
   tdNombre.textContent = s.nombre;
 
   const tdWa = document.createElement('td');
+  // Link de telefono para llamar
+  const telLink = document.createElement('a');
+  telLink.href = 'tel:+' + waNum;
+  telLink.className = 'text-primary me-2';
+  telLink.title = 'Llamar';
+  telLink.innerHTML = '<i class="bi bi-telephone-fill"></i>';
+  tdWa.appendChild(telLink);
+  // Link de WhatsApp
   const waLink = document.createElement('a');
   waLink.href = 'https://wa.me/' + waNum;
   waLink.target = '_blank';
-  waLink.className = 'text-success';
-  waLink.innerHTML = '<i class="bi bi-whatsapp me-1"></i>';
-  waLink.appendChild(document.createTextNode(s.numero_whatsapp));
+  waLink.className = 'text-success me-2';
+  waLink.title = 'WhatsApp';
+  waLink.innerHTML = '<i class="bi bi-whatsapp"></i>';
   tdWa.appendChild(waLink);
+  // Numero visible
+  const numSpan = document.createElement('span');
+  numSpan.className = 'small';
+  numSpan.textContent = s.numero_whatsapp;
+  tdWa.appendChild(numSpan);
 
   const tdFechaPref = document.createElement('td');
   tdFechaPref.className = 'd-none d-md-table-cell';

@@ -53,7 +53,7 @@ BOT_FUNCTION_DECLARATIONS = [
     },
     {
         "name": "buscar_disponibilidad",
-        "description": "Busca horarios disponibles para una cita en una fecha especifica. Si se pasa paciente_id, filtra automaticamente por el doctor asignado al paciente. Si se indica hora_preferida y no esta disponible, devuelve la alternativa mas cercana.",
+        "description": "Busca horarios disponibles para una cita en una fecha especifica. Si se pasa paciente_id, filtra automaticamente por el doctor asignado al paciente Y verifica compatibilidad nino/adulto. Si se indica hora_preferida y no esta disponible, devuelve la alternativa mas cercana.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -63,7 +63,7 @@ BOT_FUNCTION_DECLARATIONS = [
                 },
                 "paciente_id": {
                     "type": "integer",
-                    "description": "ID del paciente. Si se proporciona, el sistema buscara SOLO con el doctor asignado al paciente."
+                    "description": "ID del paciente. Si se proporciona, el sistema buscara SOLO con el doctor asignado y filtrara segun si el paciente es nino o adulto."
                 },
                 "hora_preferida": {
                     "type": "string",
@@ -201,7 +201,15 @@ def _get_doctor_schedule_summary():
             ]
             bloqueo_str = f" | AUSENCIAS: {'; '.join(bloqueos_info)}"
 
-        lineas.append(f"- {d.nombre} (ID:{d.id}): {dias_str}{bloqueo_str}")
+        # Info de que tipo de pacientes atiende
+        atiende_tags = []
+        if d.atiende_ninos:
+            atiende_tags.append('niños')
+        if d.atiende_adultos:
+            atiende_tags.append('adultos')
+        atiende_str = f" | Atiende: {' y '.join(atiende_tags)}" if atiende_tags else " | SIN TIPO DE PACIENTE CONFIGURADO"
+
+        lineas.append(f"- {d.nombre} (ID:{d.id}): {dias_str}{atiende_str}{bloqueo_str}")
 
     return '\n'.join(lineas)
 
@@ -247,6 +255,21 @@ def _get_system_prompt(numero_whatsapp=None):
                     Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada])
                 ).order_by(Cita.fecha_inicio).first()
 
+                # Historial: contar citas pasadas que SI se concretaron
+                # (completadas o confirmadas pasadas). Esto define si el
+                # paciente es RECURRENTE (no necesita anticipo) o PRIMERA VEZ.
+                citas_previas = Cita.query.filter(
+                    Cita.paciente_id == p.id,
+                    Cita.fecha_inicio < datetime.utcnow(),
+                    Cita.status.in_([EstatusCita.completada, EstatusCita.confirmada, EstatusCita.pendiente]),
+                ).count()
+                es_recurrente = citas_previas > 0
+                historial_tag = (
+                    f"RECURRENTE ({citas_previas} cita(s) previa(s) — NO requiere anticipo)"
+                    if es_recurrente
+                    else "PRIMERA VEZ (requiere anticipo)"
+                )
+
                 if proxima:
                     estado_pago = "(Anticipo PAGADO)" if proxima.anticipo_pagado else "(Anticipo PENDIENTE DE PAGO)"
                     str_proxima = f"Proxima cita: {proxima.fecha_inicio.strftime('%Y-%m-%d %H:%M')} {estado_pago}"
@@ -254,7 +277,24 @@ def _get_system_prompt(numero_whatsapp=None):
                     str_proxima = "Sin citas proximas"
 
                 doctor_str = f"Doctor: {p.doctor.nombre}" if p.doctor_id and p.doctor else "Doctor: Sin asignar"
-                info_pacientes.append(f"- {p.nombre_completo} (ID: {p.id}) | {doctor_str} | {str_proxima}")
+
+                # Tipo de paciente y compatibilidad con doctor
+                if p.fecha_nacimiento:
+                    tipo_pac = "NIÑO" if p.es_menor_edad else "ADULTO"
+                else:
+                    tipo_pac = "EDAD NO REGISTRADA"
+
+                compat_str = ""
+                if p.doctor_id and p.doctor and p.fecha_nacimiento:
+                    doc = p.doctor
+                    if p.es_menor_edad and not doc.atiende_ninos:
+                        compat_str = " ⚠️ DOCTOR NO ATIENDE NIÑOS — necesita reasignacion"
+                    elif not p.es_menor_edad and not doc.atiende_adultos:
+                        compat_str = " ⚠️ DOCTOR NO ATIENDE ADULTOS — necesita reasignacion"
+
+                info_pacientes.append(
+                    f"- {p.nombre_completo} (ID: {p.id}) | {tipo_pac} | {historial_tag} | {doctor_str}{compat_str} | {str_proxima}"
+                )
 
             pacientes_str = "\n".join(info_pacientes)
             multi = f" (grupo familiar de {len(familia)} personas — SIEMPRE pregunta para cual de ellas es la accion antes de proceder)" if len(familia) > 1 else ""
@@ -299,11 +339,24 @@ AGENDAMIENTO CON DOCTOR ASIGNADO:
 - Usa el consultorio_id que devuelva buscar_disponibilidad al crear la cita.
 - Si el horario pedido no esta libre, presenta la alternativa mas cercana que devuelva el sistema.
 
-ANTICIPOS:
-- Cita nueva de primera vez: solicita anticipo del {porcentaje_anticipo}% antes de confirmar.
-  BBVA — {titular_cuenta} | Tarjeta: {tarjeta} | CLABE: {clabe}
-- Si Anticipo PENDIENTE, recuerda enviarlo 24h antes.
-- Si Anticipo PAGADO, confirma alegremente que la cita esta asegurada.
+COMPATIBILIDAD DOCTOR-PACIENTE (niños/adultos):
+- Cada doctor puede atender niños, adultos o ambos. La info aparece en DOCTORES Y HORARIOS.
+- El sistema filtra automaticamente los doctores segun la edad del paciente al buscar disponibilidad.
+- Si el doctor asignado al paciente NO atiende su tipo (niño/adulto), el sistema devolvera un error. En ese caso informa al paciente que su doctor no atiende ese tipo de paciente y sugiere que contacte al consultorio para que le asignen otro doctor.
+- Si el paciente no tiene fecha de nacimiento registrada, no se aplica filtro.
+
+ANTICIPOS Y PRE-CITAS (REGLA CRITICA — revisar el historial del paciente antes de pedir anticipo):
+- PACIENTE RECURRENTE (tiene citas previas — historial_tag "RECURRENTE"): NO pidas anticipo. Agenda la cita directamente con crear_solicitud_cita y confirma el horario. La cita se crea como PENDIENTE normal.
+- PACIENTE DE PRIMERA VEZ (historial_tag "PRIMERA VEZ"): El sistema creara automaticamente una PRE-CITA que reserva el espacio en el calendario por 12 horas. Explica al paciente:
+  1. "Su espacio queda reservado por 12 horas."
+  2. Comparte datos bancarios para el anticipo del {porcentaje_anticipo}%:
+     BBVA — {titular_cuenta} | Tarjeta: {tarjeta} | CLABE: {clabe}
+  3. "Una vez que nos envie su comprobante de pago, la cita queda confirmada."
+  4. Si pagan con tarjeta llamando al consultorio, la recepcionista confirma desde el sistema.
+  5. Si no se paga el anticipo en 12 horas, la pre-cita se cancela automaticamente y el horario queda libre.
+- Si la cita dice "Anticipo PENDIENTE" y es de primera vez, recuerda enviarlo para garantizar el espacio.
+- Si dice "Anticipo PAGADO", confirma alegremente que su cita esta 100% asegurada.
+- En grupos familiares, evalua el historial de CADA paciente por separado.
 
 CONFIRMACION 24h:
 - Si el paciente responde "si"/"confirmo"/"ahi estaremos", usar confirmar_asistencia_cita.
@@ -479,7 +532,7 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
                         func_call = part.function_call
                         nombre = func_call.name
                         arg_dict = dict(func_call.args) if func_call.args else {}
-                        result = _ejecutar_tool(nombre, arg_dict)
+                        result = _ejecutar_tool(nombre, arg_dict, numero_telefono=numero_telefono)
                         function_response_parts.append(
                             types.Part.from_function_response(
                                 name=nombre,
@@ -506,7 +559,7 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
 
 
 
-def _ejecutar_tool(nombre, args):
+def _ejecutar_tool(nombre, args, numero_telefono=None):
     """Ejecuta una tool del bot y retorna el resultado."""
     try:
         if nombre == 'buscar_paciente':
@@ -528,6 +581,9 @@ def _ejecutar_tool(nombre, args):
         elif nombre == 'confirmar_asistencia_cita':
             return _tool_confirmar_asistencia_cita(args)
         elif nombre == 'registrar_solicitud_contacto':
+            # Forzar el numero real del contacto (no el que Gemini invente)
+            if numero_telefono:
+                args['numero_whatsapp'] = numero_telefono
             return _tool_registrar_solicitud_contacto(args)
         else:
             return {'error': f'Tool desconocida: {nombre}'}
@@ -586,13 +642,33 @@ def _tool_buscar_paciente(args):
             Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
         ).order_by(Cita.fecha_inicio).first()
 
+        # Historial: citas previas concretadas (sin contar canceladas/no asistencias)
+        citas_previas = Cita.query.filter(
+            Cita.paciente_id == paciente.id,
+            Cita.fecha_inicio < datetime.utcnow(),
+            Cita.status.in_([EstatusCita.completada, EstatusCita.confirmada, EstatusCita.pendiente]),
+        ).count()
+        es_recurrente = citas_previas > 0
+
+        # Determinar tipo de paciente para filtro de doctor
+        tipo_paciente = 'niño' if paciente.es_menor_edad else ('adulto' if paciente.fecha_nacimiento else 'sin edad registrada')
+
         info = {
             'id': paciente.id,
             'nombre': paciente.nombre_completo,
             'es_menor': paciente.es_menor_edad,
+            'tipo_paciente': tipo_paciente,
             'problema': paciente.es_problematico,
             'ultima_cita': ultima_cita.to_dict() if ultima_cita else None,
             'proxima_cita': proxima_cita.to_dict() if proxima_cita else None,
+            'citas_previas': citas_previas,
+            'es_recurrente': es_recurrente,
+            'requiere_anticipo': not es_recurrente,
+            'nota_anticipo': (
+                'NO requiere anticipo (paciente recurrente con historial)'
+                if es_recurrente
+                else 'Requiere anticipo del 50% (primera vez)'
+            ),
         }
         familia_info.append(info)
 
@@ -662,9 +738,15 @@ def _tool_registrar_paciente(args):
 
 def _tool_info_consultorio():
     config = _get_config()
-    from models import TipoCita
+    from models import TipoCita, Dentista
     tipos = TipoCita.query.filter_by(activo=True).all()
     servicios = [{'nombre': t.nombre, 'precio': float(t.precio), 'duracion': t.duracion_minutos} for t in tipos]
+
+    # Doctores agrupados por tipo de paciente
+    dentistas_activos = Dentista.query.filter_by(activo=True).order_by(Dentista.nombre).all()
+    doctores_ninos = [d.nombre for d in dentistas_activos if d.atiende_ninos]
+    doctores_adultos = [d.nombre for d in dentistas_activos if d.atiende_adultos]
+
     return {
         'nombre': config['nombre_consultorio'],
         'direccion': config['direccion'],
@@ -679,6 +761,8 @@ def _tool_info_consultorio():
         },
         'politica_cancelacion': 'Reagendar con 24hrs de anticipacion. Sin reembolso en no asistencia.',
         'servicios': servicios,
+        'doctores_que_atienden_ninos': doctores_ninos,
+        'doctores_que_atienden_adultos': doctores_adultos,
     }
 
 
@@ -762,8 +846,31 @@ def _tool_buscar_disponibilidad(args):
         dentistas = [Dentista.query.get(dentista_id)]
         if not dentistas[0]:
             return {'error': 'Dentista no encontrado'}
+        # Validar que el doctor atienda al tipo de paciente
+        if paciente_id:
+            paciente_check = Paciente.query.get(paciente_id)
+            if paciente_check and paciente_check.fecha_nacimiento:
+                d = dentistas[0]
+                if paciente_check.es_menor_edad and not d.atiende_ninos:
+                    return {
+                        'error': f'{d.nombre} no atiende niños. Consulta con la recepcionista para asignar otro doctor.',
+                        'doctor_no_compatible': True,
+                    }
+                if not paciente_check.es_menor_edad and not d.atiende_adultos:
+                    return {
+                        'error': f'{d.nombre} no atiende adultos. Consulta con la recepcionista para asignar otro doctor.',
+                        'doctor_no_compatible': True,
+                    }
     else:
         dentistas = Dentista.query.filter_by(activo=True).all()
+        # Filtrar por tipo de paciente si hay paciente_id
+        if paciente_id:
+            paciente_check = Paciente.query.get(paciente_id)
+            if paciente_check and paciente_check.fecha_nacimiento:
+                if paciente_check.es_menor_edad:
+                    dentistas = [d for d in dentistas if d.atiende_ninos]
+                else:
+                    dentistas = [d for d in dentistas if d.atiende_adultos]
 
     todos_slots = []
     for dentista in dentistas:
@@ -776,6 +883,8 @@ def _tool_buscar_disponibilidad(args):
                 'dentista_id': dentista.id,
                 'dentista': dentista.nombre,
                 'especialidad': dentista.especialidad,
+                'atiende_ninos': dentista.atiende_ninos,
+                'atiende_adultos': dentista.atiende_adultos,
                 'slots': disponibles[:8],
             })
 
@@ -910,7 +1019,7 @@ def _buscar_alternativa_cercana(fecha_original, dentistas, duracion, hora_prefer
 
 
 def _tool_crear_cita(args):
-    from models import Cita, Paciente, EstatusCRM
+    from models import Cita, Paciente, Dentista, EstatusCRM
     from extensions import db
     from services.scheduler_service import verificar_disponibilidad
 
@@ -918,6 +1027,19 @@ def _tool_crear_cita(args):
     paciente_check = Paciente.query.get(args['paciente_id'])
     if paciente_check and paciente_check.es_problematico:
         return {'error': 'No se pueden crear citas para este paciente. Favor de contactar al consultorio directamente.'}
+
+    # Verificar compatibilidad doctor-paciente (niño/adulto)
+    if paciente_check and paciente_check.fecha_nacimiento:
+        dentista = Dentista.query.get(args['dentista_id'])
+        if dentista:
+            if paciente_check.es_menor_edad and not dentista.atiende_ninos:
+                return {
+                    'error': f'{dentista.nombre} no atiende niños. Se requiere un doctor que atienda pacientes pediatricos. Contacta al consultorio para asignar otro doctor.',
+                }
+            if not paciente_check.es_menor_edad and not dentista.atiende_adultos:
+                return {
+                    'error': f'{dentista.nombre} no atiende adultos. Se requiere un doctor que atienda adultos. Contacta al consultorio para asignar otro doctor.',
+                }
 
     try:
         inicio = datetime.fromisoformat(args['fecha_inicio'])
@@ -934,6 +1056,25 @@ def _tool_crear_cita(args):
     if conflicto:
         return {'error': 'El horario ya no esta disponible. Por favor elige otro.'}
 
+    # Determinar si el paciente es de primera vez (sin citas previas concretadas)
+    paciente = Paciente.query.get(args['paciente_id'])
+    citas_previas = Cita.query.filter(
+        Cita.paciente_id == args['paciente_id'],
+        Cita.fecha_inicio < datetime.utcnow(),
+        Cita.status.in_([EstatusCita.completada, EstatusCita.confirmada, EstatusCita.pendiente]),
+    ).count()
+    es_primera_vez = citas_previas == 0
+
+    # Primera vez → pre_cita (reserva 12h); recurrente → pendiente directa
+    if es_primera_vez:
+        status_cita = EstatusCita.pre_cita
+        expira = datetime.utcnow() + timedelta(hours=12)
+        notas_default = 'Pre-cita via WhatsApp (reserva 12h — pendiente de anticipo)'
+    else:
+        status_cita = EstatusCita.pendiente
+        expira = None
+        notas_default = 'Cita creada via WhatsApp'
+
     cita = Cita(
         paciente_id=args['paciente_id'],
         dentista_id=args['dentista_id'],
@@ -941,11 +1082,12 @@ def _tool_crear_cita(args):
         tipo_cita_id=args.get('tipo_cita_id'),
         fecha_inicio=inicio,
         fecha_fin=fin,
-        notas=args.get('notas', 'Cita creada via WhatsApp'),
+        status=status_cita,
+        pre_cita_expira=expira,
+        notas=args.get('notas', notas_default),
     )
     db.session.add(cita)
 
-    paciente = Paciente.query.get(args['paciente_id'])
     if paciente:
         paciente.ultima_cita = inicio
         if paciente.estatus_crm.value == 'prospecto':
@@ -953,18 +1095,35 @@ def _tool_crear_cita(args):
 
     db.session.commit()
 
-    return {
-        'ok': True,
-        'cita_id': cita.id,
-        'fecha': inicio.strftime('%d/%m/%Y'),
-        'hora': inicio.strftime('%H:%M'),
-        'hora_fin': fin.strftime('%H:%M'),
-        'mensaje': f'Cita registrada para el {inicio.strftime("%d/%m/%Y")} a las {inicio.strftime("%H:%M")}',
-    }
+    if es_primera_vez:
+        return {
+            'ok': True,
+            'cita_id': cita.id,
+            'es_pre_cita': True,
+            'fecha': inicio.strftime('%d/%m/%Y'),
+            'hora': inicio.strftime('%H:%M'),
+            'hora_fin': fin.strftime('%H:%M'),
+            'expira': expira.strftime('%d/%m/%Y %H:%M'),
+            'mensaje': (
+                f'Pre-cita registrada para el {inicio.strftime("%d/%m/%Y")} a las {inicio.strftime("%H:%M")}. '
+                f'El espacio queda reservado por 12 horas. '
+                f'Una vez que envies el comprobante de anticipo, la cita queda confirmada.'
+            ),
+        }
+    else:
+        return {
+            'ok': True,
+            'cita_id': cita.id,
+            'es_pre_cita': False,
+            'fecha': inicio.strftime('%d/%m/%Y'),
+            'hora': inicio.strftime('%H:%M'),
+            'hora_fin': fin.strftime('%H:%M'),
+            'mensaje': f'Cita registrada para el {inicio.strftime("%d/%m/%Y")} a las {inicio.strftime("%H:%M")}',
+        }
 
 
 def _tool_confirmar_anticipo(args):
-    from models import Cita
+    from models import Cita, EstatusCita
     from extensions import db
     cita = Cita.query.get(args.get('cita_id'))
     if not cita:
@@ -972,6 +1131,10 @@ def _tool_confirmar_anticipo(args):
     cita.anticipo_pagado = True
     if args.get('monto'):
         cita.anticipo_monto = args['monto']
+    # Si era pre-cita, promover a pendiente (confirmada con anticipo)
+    if cita.status == EstatusCita.pre_cita:
+        cita.status = EstatusCita.pendiente
+        cita.pre_cita_expira = None  # ya no expira
     db.session.commit()
     return {'ok': True, 'mensaje': 'Anticipo confirmado. Su cita esta garantizada.'}
 

@@ -109,7 +109,43 @@ def setup_scheduler_jobs(scheduler, app):
         kwargs={'app': app},
     )
 
+    # Pre-citas expiradas - cada 30 min
+    scheduler.add_job(
+        func=_job_cancelar_pre_citas_expiradas,
+        trigger='interval',
+        minutes=30,
+        id='cancelar_pre_citas_expiradas',
+        replace_existing=True,
+        kwargs={'app': app},
+    )
+
     logger.info('Jobs del scheduler registrados.')
+
+
+def _job_cancelar_pre_citas_expiradas(app):
+    """Cancela automaticamente las pre-citas cuya reserva de 12h haya expirado sin anticipo."""
+    with app.app_context():
+        from models import Cita, EstatusCita
+        from extensions import db
+
+        ahora = datetime.utcnow()
+        expiradas = Cita.query.filter(
+            Cita.status == EstatusCita.pre_cita,
+            Cita.pre_cita_expira.isnot(None),
+            Cita.pre_cita_expira <= ahora,
+        ).all()
+
+        for cita in expiradas:
+            cita.status = EstatusCita.cancelada
+            cita.notas = (cita.notas or '') + ' | Cancelada automaticamente: pre-cita expirada sin anticipo.'
+            logger.info(
+                f'Pre-cita #{cita.id} expirada (paciente_id={cita.paciente_id}). '
+                f'Expiraba: {cita.pre_cita_expira}. Cancelada.'
+            )
+
+        if expiradas:
+            db.session.commit()
+            logger.info(f'{len(expiradas)} pre-cita(s) expirada(s) cancelada(s).')
 
 
 def _job_recordatorios_24h(app):

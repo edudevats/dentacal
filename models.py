@@ -13,6 +13,7 @@ class RolUsuario(PyEnum):
 
 
 class EstatusCita(PyEnum):
+    pre_cita = 'pre_cita'
     pendiente = 'pendiente'
     confirmada = 'confirmada'
     completada = 'completada'
@@ -126,6 +127,8 @@ class Dentista(db.Model):
     color = db.Column(db.String(7), default='#3788d8')  # Hex
     telefono = db.Column(db.String(20))
     email = db.Column(db.String(120))
+    atiende_ninos = db.Column(db.Boolean, default=True)
+    atiende_adultos = db.Column(db.Boolean, default=True)
     activo = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -143,6 +146,8 @@ class Dentista(db.Model):
             'color': self.color,
             'telefono': self.telefono,
             'email': self.email,
+            'atiende_ninos': self.atiende_ninos,
+            'atiende_adultos': self.atiende_adultos,
             'activo': self.activo,
         }
 
@@ -363,6 +368,9 @@ class Cita(db.Model):
     anticipo_pagado = db.Column(db.Boolean, default=False)
     anticipo_monto = db.Column(db.Numeric(10, 2), default=0)
 
+    # Pre-cita: reserva temporal de 12h para pacientes de primera vez
+    pre_cita_expira = db.Column(db.DateTime, nullable=True)
+
     reminder_24h_sent = db.Column(db.Boolean, default=False)
     postconsulta_sent = db.Column(db.Boolean, default=False)
     confirmacion_fecha = db.Column(db.DateTime, nullable=True)
@@ -394,12 +402,14 @@ class Cita(db.Model):
             'anticipo_pagado': self.anticipo_pagado,
             'anticipo_monto': float(self.anticipo_monto) if self.anticipo_monto else 0,
             'confirmacion_fecha': self.confirmacion_fecha.isoformat() if self.confirmacion_fecha else None,
+            'pre_cita_expira': self.pre_cita_expira.isoformat() if self.pre_cita_expira else None,
         }
 
     def to_calendar_event(self):
         """Formato FullCalendar con resource (consultorio) y color del dentista."""
         status_colors = {
-            EstatusCita.pendiente: None,  # usa color del dentista
+            EstatusCita.pre_cita: None,   # usa color del dentista pero con estilo especial
+            EstatusCita.pendiente: None,   # usa color del dentista
             EstatusCita.confirmada: None,
             EstatusCita.completada: '#4CAF50',
             EstatusCita.no_asistencia: '#9e9e9e',
@@ -407,9 +417,15 @@ class Cita(db.Model):
         }
         color = status_colors.get(self.status) or (self.dentista.color if self.dentista else '#3788d8')
 
-        return {
+        # Pre-cita: titulo especial y marcador visual
+        es_pre_cita = self.status == EstatusCita.pre_cita
+        nombre_paciente = self.paciente.nombre_completo if self.paciente else '?'
+        nombre_dentista = self.dentista.nombre if self.dentista else '?'
+        titulo = f'{"PRE-CITA " if es_pre_cita else ""}{nombre_paciente} - {nombre_dentista}'
+
+        event = {
             'id': self.id,
-            'title': f'{self.paciente.nombre_completo if self.paciente else "?"} - {self.dentista.nombre if self.dentista else "?"}',
+            'title': titulo,
             'start': self.fecha_inicio.isoformat(),
             'end': self.fecha_fin.isoformat(),
             'resourceId': str(self.consultorio_id),
@@ -424,8 +440,17 @@ class Cita(db.Model):
                 'tipo_cita': self.tipo_cita.nombre if self.tipo_cita else '',
                 'anticipo_pagado': self.anticipo_pagado,
                 'notas': self.notas or '',
+                'es_pre_cita': es_pre_cita,
+                'pre_cita_expira': self.pre_cita_expira.isoformat() if self.pre_cita_expira else None,
             }
         }
+
+        # Pre-citas se muestran con borde punteado y opacidad reducida
+        if es_pre_cita:
+            event['classNames'] = ['fc-event-pre-cita']
+            event['borderColor'] = '#F2853D'
+
+        return event
 
 
 class Recordatorio(db.Model):

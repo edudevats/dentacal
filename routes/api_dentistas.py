@@ -92,6 +92,10 @@ def actualizar(dentista_id):
         d.telefono = data['telefono']
     if 'email' in data:
         d.email = data['email']
+    if 'atiende_ninos' in data:
+        d.atiende_ninos = bool(data['atiende_ninos'])
+    if 'atiende_adultos' in data:
+        d.atiende_adultos = bool(data['atiende_adultos'])
     if 'activo' in data:
         d.activo = bool(data['activo'])
 

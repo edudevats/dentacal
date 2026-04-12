@@ -287,6 +287,23 @@ def _seed_initial_data():
             ),
         ))
 
+    if not PlantillaMensaje.query.filter_by(tipo='anticipo_recibido').first():
+        db.session.add(PlantillaMensaje(
+            nombre='Anticipo Recibido',
+            tipo='anticipo_recibido',
+            contenido=(
+                'Hola {nombre_paciente} :)\n\n'
+                'Hemos recibido su anticipo correctamente. '
+                'Su cita queda confirmada:\n\n'
+                'Fecha: {fecha}\n'
+                'Horario: {hora_inicio} a {hora_fin}\n'
+                'Doctor(a): {dentista}\n\n'
+                'Le esperamos en La Casa del Sr. Perez. '
+                'Si necesita reagendar, por favor hagalo con al menos 24hrs de anticipacion.\n'
+                'Gracias por su confianza!'
+            ),
+        ))
+
     # Origenes de paciente
     if not OrigenPaciente.query.first():
         for nombre in ['Redes Sociales', 'Anuncios', 'Recomendacion', 'Paso por el consultorio', 'Otro']:
