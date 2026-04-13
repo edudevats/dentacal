@@ -1019,7 +1019,7 @@ def _buscar_alternativa_cercana(fecha_original, dentistas, duracion, hora_prefer
 
 
 def _tool_crear_cita(args):
-    from models import Cita, Paciente, Dentista, EstatusCRM
+    from models import Cita, Paciente, Dentista, EstatusCita, EstatusCRM
     from extensions import db
     from services.scheduler_service import verificar_disponibilidad
 
