@@ -304,6 +304,19 @@ def _seed_initial_data():
             ),
         ))
 
+    if not PlantillaMensaje.query.filter_by(tipo='confirmacion_mismo_dia').first():
+        db.session.add(PlantillaMensaje(
+            nombre='Confirmacion Mismo Dia',
+            tipo='confirmacion_mismo_dia',
+            contenido=(
+                'Buenos dias! \U0001f60a\n'
+                'Le recordamos que {nombre_paciente} tiene cita '
+                'el dia de HOY a las {hora} con {dentista}.\n'
+                'Les esperamos en La Casa del Sr. Perez \U0001f9b7\u2728\n'
+                'Si necesita reagendar, por favor respondanos lo antes posible.'
+            ),
+        ))
+
     # Origenes de paciente
     if not OrigenPaciente.query.first():
         for nombre in ['Redes Sociales', 'Anuncios', 'Recomendacion', 'Paso por el consultorio', 'Otro']:

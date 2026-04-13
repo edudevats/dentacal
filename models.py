@@ -383,6 +383,19 @@ class Cita(db.Model):
                                     lazy=True, cascade='all, delete-orphan')
     justificantes = db.relationship('Justificante', backref='cita', lazy=True)
 
+    @property
+    def paciente_requiere_anticipo(self):
+        """El paciente requiere anticipo solo si no tiene citas previas completadas."""
+        if not self.paciente_id:
+            return True
+        citas_previas = Cita.query.filter(
+            Cita.paciente_id == self.paciente_id,
+            Cita.id != self.id,
+            Cita.fecha_inicio < datetime.utcnow(),
+            Cita.status.in_([EstatusCita.completada]),
+        ).count()
+        return citas_previas == 0
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -403,6 +416,7 @@ class Cita(db.Model):
             'anticipo_monto': float(self.anticipo_monto) if self.anticipo_monto else 0,
             'confirmacion_fecha': self.confirmacion_fecha.isoformat() if self.confirmacion_fecha else None,
             'pre_cita_expira': self.pre_cita_expira.isoformat() if self.pre_cita_expira else None,
+            'requiere_anticipo': self.paciente_requiere_anticipo,
         }
 
     def to_calendar_event(self):
@@ -439,6 +453,7 @@ class Cita(db.Model):
                 'status': self.status.value,
                 'tipo_cita': self.tipo_cita.nombre if self.tipo_cita else '',
                 'anticipo_pagado': self.anticipo_pagado,
+                'requiere_anticipo': self.paciente_requiere_anticipo,
                 'notas': self.notas or '',
                 'es_pre_cita': es_pre_cita,
                 'pre_cita_expira': self.pre_cita_expira.isoformat() if self.pre_cita_expira else None,
@@ -685,4 +700,31 @@ class RecordatorioManual(db.Model):
             'fecha_envio': self.fecha_envio.isoformat() if self.fecha_envio else None,
             'status': self.status,
             'creado_en': self.creado_en.isoformat() if self.creado_en else None,
+        }
+
+
+class LogBot(db.Model):
+    __tablename__ = 'logs_bot'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nivel = db.Column(db.String(10), nullable=False, default='error')  # error, warning, info
+    numero_telefono = db.Column(db.String(20))
+    paciente_id = db.Column(db.Integer, db.ForeignKey('pacientes.id'), nullable=True)
+    tool_name = db.Column(db.String(50))
+    mensaje = db.Column(db.Text, nullable=False)
+    detalle = db.Column(db.Text)  # traceback o args
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    paciente = db.relationship('Paciente', backref=db.backref('logs_bot', lazy=True))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'nivel': self.nivel,
+            'numero_telefono': self.numero_telefono,
+            'paciente': self.paciente.nombre_completo if self.paciente else None,
+            'tool_name': self.tool_name,
+            'mensaje': self.mensaje,
+            'detalle': self.detalle,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
         }

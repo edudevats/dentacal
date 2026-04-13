@@ -305,6 +305,12 @@ function abrirModalEditar(evento) {
   document.getElementById('status_cita').value = ext.status || 'pendiente';
   document.getElementById('anticipo_pagado').checked = ext.anticipo_pagado || false;
 
+  // Anticipo: solo mostrar si el paciente lo requiere
+  const anticipoWrapper = document.getElementById('anticipoWrapper');
+  if (anticipoWrapper) {
+    anticipoWrapper.style.display = ext.requiere_anticipo ? 'block' : 'none';
+  }
+
   // Proxima visita: mostrar solo si completada
   const pvw = document.getElementById('proximaVisitaWrapper');
   if (pvw) pvw.style.display = ext.status === 'completada' ? 'block' : 'none';
@@ -332,6 +338,8 @@ function limpiarFormulario() {
     });
   const ap = document.getElementById('anticipo_pagado');
   if (ap) ap.checked = false;
+  const aw = document.getElementById('anticipoWrapper');
+  if (aw) aw.style.display = 'block';
   const pi = document.getElementById('paciente_info');
   if (pi) pi.textContent = '';
   const pvw = document.getElementById('proximaVisitaWrapper');

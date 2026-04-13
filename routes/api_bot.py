@@ -4,7 +4,7 @@ from flask import Blueprint, jsonify, request, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import func, text
 from extensions import db, permiso_requerido
-from models import ConversacionWhatsapp, Paciente
+from models import ConversacionWhatsapp, Paciente, LogBot
 
 log = logging.getLogger(__name__)
 
@@ -284,3 +284,45 @@ def status_apis():
             'status_callback': status_cb,
         }
     })
+
+
+@bot_bp.route('/logs', methods=['GET'])
+@login_required
+def logs_bot():
+    """Lista los logs del bot con paginación y filtros."""
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+    nivel = request.args.get('nivel')  # error, warning, info
+
+    q = LogBot.query.order_by(LogBot.created_at.desc())
+    if nivel:
+        q = q.filter(LogBot.nivel == nivel)
+
+    total = q.count()
+    logs = q.offset((page - 1) * per_page).limit(per_page).all()
+
+    return jsonify({
+        'logs': [l.to_dict() for l in logs],
+        'total': total,
+        'page': page,
+        'pages': (total + per_page - 1) // per_page,
+    })
+
+
+@bot_bp.route('/logs/<int:log_id>', methods=['DELETE'])
+@login_required
+def eliminar_log(log_id):
+    """Elimina un log específico."""
+    log_entry = LogBot.query.get_or_404(log_id)
+    db.session.delete(log_entry)
+    db.session.commit()
+    return jsonify(ok=True)
+
+
+@bot_bp.route('/logs/clear', methods=['DELETE'])
+@login_required
+def limpiar_logs():
+    """Elimina todos los logs."""
+    LogBot.query.delete()
+    db.session.commit()
+    return jsonify(ok=True)

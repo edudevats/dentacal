@@ -322,12 +322,12 @@ def _notificar_anticipo_recibido(cita):
         enviar_mensaje(numero, mensaje)
         log.info(f'Notificacion anticipo enviada a {numero} (cita #{cita.id})')
 
-        # Guardar en historial de conversacion
+        # Guardar en historial de conversacion (marcado como notificacion del sistema)
         from models import ConversacionWhatsapp
         conv = ConversacionWhatsapp(
             numero_telefono=numero,
             paciente_id=paciente.id,
-            mensaje=mensaje,
+            mensaje=f'[NOTIFICACION AUTOMATICA DEL SISTEMA — anticipo confirmado por recepcionista]\n{mensaje}',
             es_bot=True,
         )
         db.session.add(conv)

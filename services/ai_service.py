@@ -12,6 +12,26 @@ logger = logging.getLogger(__name__)
 
 MAX_HISTORIAL = 15  # mensajes de contexto en memoria
 
+
+def _guardar_log_bot(nivel, mensaje, detalle=None, numero_telefono=None, paciente_id=None, tool_name=None):
+    """Guarda un log del bot en la BD para consulta desde la app."""
+    try:
+        from models import LogBot
+        from extensions import db
+        log = LogBot(
+            nivel=nivel,
+            mensaje=mensaje[:500],
+            detalle=detalle[:2000] if detalle else None,
+            numero_telefono=numero_telefono,
+            paciente_id=paciente_id,
+            tool_name=tool_name,
+        )
+        db.session.add(log)
+        db.session.commit()
+    except Exception:
+        # No fallar si el log mismo falla
+        pass
+
 # Definicion de tools (function declarations) del bot para el nuevo SDK
 BOT_FUNCTION_DECLARATIONS = [
     {
@@ -100,14 +120,15 @@ BOT_FUNCTION_DECLARATIONS = [
     },
     {
         "name": "confirmar_anticipo",
-        "description": "Marca el anticipo como pagado para una cita pendiente.",
+        "description": "Confirma el pago del anticipo para una pre-cita. Acepta cita_id O paciente_id (busca automaticamente la pre-cita activa del paciente). Usar cuando el paciente dice que ya pago/deposito/transfirio el anticipo.",
         "parameters": {
             "type": "object",
             "properties": {
-                "cita_id": {"type": "integer", "description": "ID de la cita"},
-                "monto": {"type": "number", "description": "Monto recibido"}
+                "cita_id": {"type": "integer", "description": "ID de la cita (opcional si se pasa paciente_id)"},
+                "paciente_id": {"type": "integer", "description": "ID del paciente (busca su pre-cita activa automaticamente)"},
+                "monto": {"type": "number", "description": "Monto recibido (opcional)"}
             },
-            "required": ["cita_id"]
+            "required": []
         }
     },
     {
@@ -346,7 +367,7 @@ COMPATIBILIDAD DOCTOR-PACIENTE (niños/adultos):
 - Si el paciente no tiene fecha de nacimiento registrada, no se aplica filtro.
 
 ANTICIPOS Y PRE-CITAS (REGLA CRITICA — revisar el historial del paciente antes de pedir anticipo):
-- PACIENTE RECURRENTE (tiene citas previas — historial_tag "RECURRENTE"): NO pidas anticipo. Agenda la cita directamente con crear_solicitud_cita y confirma el horario. La cita se crea como PENDIENTE normal.
+- PACIENTE RECURRENTE (tiene citas previas — historial_tag "RECURRENTE" o requiere_anticipo=false): NO pidas anticipo, NO menciones anticipo, NO compartas datos bancarios. Agenda la cita directamente con crear_solicitud_cita y confirma el horario. La cita se crea como PENDIENTE normal. Estos pacientes ya tienen historial con nosotros y no necesitan adelanto.
 - PACIENTE DE PRIMERA VEZ (historial_tag "PRIMERA VEZ"): El sistema creara automaticamente una PRE-CITA que reserva el espacio en el calendario por 12 horas. Explica al paciente:
   1. "Su espacio queda reservado por 12 horas."
   2. Comparte datos bancarios para el anticipo del {porcentaje_anticipo}%:
@@ -354,6 +375,13 @@ ANTICIPOS Y PRE-CITAS (REGLA CRITICA — revisar el historial del paciente antes
   3. "Una vez que nos envie su comprobante de pago, la cita queda confirmada."
   4. Si pagan con tarjeta llamando al consultorio, la recepcionista confirma desde el sistema.
   5. Si no se paga el anticipo en 12 horas, la pre-cita se cancela automaticamente y el horario queda libre.
+
+⚠️ CUANDO EL PACIENTE DICE QUE YA PAGO EL ANTICIPO (ej: "ya hice el deposito", "ya pague", "ya transferi"):
+  - SIEMPRE usa confirmar_anticipo con el paciente_id. NUNCA vuelvas a buscar disponibilidad.
+  - El sistema buscara automaticamente la pre-cita activa del paciente y la confirmara.
+  - Si la recepcionista ya lo marco como pagado desde el sistema, confirmar_anticipo te lo indicara (ya_confirmado=true). En ese caso simplemente confirma al paciente que todo esta listo.
+  - NUNCA intentes crear otra cita ni buscar disponibilidad de nuevo despues de que el paciente diga que pago.
+
 - Si la cita dice "Anticipo PENDIENTE" y es de primera vez, recuerda enviarlo para garantizar el espacio.
 - Si dice "Anticipo PAGADO", confirma alegremente que su cita esta 100% asegurada.
 - En grupos familiares, evalua el historial de CADA paciente por separado.
@@ -404,6 +432,11 @@ REGLAS IMPORTANTES:
 - Manejar cancelaciones con empatia, recordar politica de 24h.
 - Si hay dudas tecnicas: "Permita que transfiera su consulta a nuestra recepcionista."
 
+NOTIFICACIONES DEL SISTEMA EN EL HISTORIAL:
+- Mensajes que empiecen con "[NOTIFICACION AUTOMATICA DEL SISTEMA]" fueron enviados por el sistema (no por ti).
+- Si ves una notificacion de "anticipo confirmado por recepcionista", significa que la recepcionista YA confirmo el pago desde el sistema.
+- En ese caso, si el paciente te escribe, simplemente confirma alegremente que su cita esta asegurada. NO busques disponibilidad de nuevo ni intentes crear otra cita.
+
 FORMATO DE RESPUESTA: Mensajes cortos y naturales para WhatsApp, usa emojis con moderacion."""
 
 
@@ -439,11 +472,17 @@ def _get_config():
     }
 
 
+SESSION_TIMEOUT_HOURS = 4  # Iniciar conversacion fresca despues de 4 horas de inactividad
+
+
 def _cargar_historial(numero):
-    """Carga ultimos mensajes de la conversacion para dar contexto al bot."""
+    """Carga ultimos mensajes de la conversacion dentro de la sesion activa (max 4h)."""
     from models import ConversacionWhatsapp
-    mensajes = ConversacionWhatsapp.query.filter_by(numero_telefono=numero)\
-        .order_by(ConversacionWhatsapp.timestamp.desc())\
+    corte = datetime.utcnow() - timedelta(hours=SESSION_TIMEOUT_HOURS)
+    mensajes = ConversacionWhatsapp.query.filter(
+        ConversacionWhatsapp.numero_telefono == numero,
+        ConversacionWhatsapp.timestamp >= corte,
+    ).order_by(ConversacionWhatsapp.timestamp.desc())\
         .limit(MAX_HISTORIAL).all()
     mensajes.reverse()
 
@@ -552,7 +591,12 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
 
     except Exception as e:
         logger.error(f'Error procesando mensaje con Gemini: {e}')
-        logger.error(f'Traceback completo:\n{traceback.format_exc()}')
+        tb = traceback.format_exc()
+        logger.error(f'Traceback completo:\n{tb}')
+        _guardar_log_bot(
+            'error', f'Error Gemini: {e}', detalle=tb,
+            numero_telefono=numero_telefono,
+        )
         return 'Lo siento, no pude procesar tu solicitud. Por favor contacta al consultorio directamente.'
 
     return 'Lo siento, no pude procesar tu solicitud. Por favor contacta al consultorio directamente.'
@@ -586,9 +630,15 @@ def _ejecutar_tool(nombre, args, numero_telefono=None):
                 args['numero_whatsapp'] = numero_telefono
             return _tool_registrar_solicitud_contacto(args)
         else:
+            _guardar_log_bot('warning', f'Tool desconocida: {nombre}', detalle=json.dumps(args), tool_name=nombre, numero_telefono=numero_telefono)
             return {'error': f'Tool desconocida: {nombre}'}
     except Exception as e:
         logger.error(f'Error ejecutando tool {nombre}: {e}')
+        _guardar_log_bot(
+            'error', f'Error en tool {nombre}: {e}',
+            detalle=traceback.format_exc(), tool_name=nombre,
+            numero_telefono=numero_telefono,
+        )
         return {'error': str(e)}
 
 
@@ -642,6 +692,12 @@ def _tool_buscar_paciente(args):
             Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
         ).order_by(Cita.fecha_inicio).first()
 
+        # Pre-cita activa pendiente de anticipo
+        pre_cita_activa = Cita.query.filter(
+            Cita.paciente_id == paciente.id,
+            Cita.status == EstatusCita.pre_cita,
+        ).order_by(Cita.fecha_inicio.desc()).first()
+
         # Historial: citas previas concretadas (sin contar canceladas/no asistencias)
         citas_previas = Cita.query.filter(
             Cita.paciente_id == paciente.id,
@@ -670,6 +726,17 @@ def _tool_buscar_paciente(args):
                 else 'Requiere anticipo del 50% (primera vez)'
             ),
         }
+
+        # Agregar info de pre-cita activa si existe
+        if pre_cita_activa:
+            info['pre_cita_activa'] = {
+                'cita_id': pre_cita_activa.id,
+                'fecha': pre_cita_activa.fecha_inicio.strftime('%d/%m/%Y'),
+                'hora': pre_cita_activa.fecha_inicio.strftime('%H:%M'),
+                'anticipo_pagado': pre_cita_activa.anticipo_pagado,
+                'expira': pre_cita_activa.pre_cita_expira.strftime('%d/%m/%Y %H:%M') if pre_cita_activa.pre_cita_expira else None,
+                'nota': 'TIENE PRE-CITA ACTIVA — si el paciente dice que ya pago, usa confirmar_anticipo con paciente_id. NO busques disponibilidad de nuevo.',
+            }
         familia_info.append(info)
 
     result = {
@@ -1125,18 +1192,75 @@ def _tool_crear_cita(args):
 def _tool_confirmar_anticipo(args):
     from models import Cita, EstatusCita
     from extensions import db
-    cita = Cita.query.get(args.get('cita_id'))
+
+    cita = None
+    cita_id = args.get('cita_id')
+    paciente_id = args.get('paciente_id')
+
+    if cita_id:
+        cita = Cita.query.get(int(cita_id))
+    elif paciente_id:
+        pid = int(paciente_id)
+        # Buscar pre-cita activa del paciente
+        cita = Cita.query.filter(
+            Cita.paciente_id == pid,
+            Cita.status == EstatusCita.pre_cita,
+        ).order_by(Cita.fecha_inicio.desc()).first()
+        # Si no hay pre-cita, buscar pendiente sin anticipo
+        if not cita:
+            cita = Cita.query.filter(
+                Cita.paciente_id == pid,
+                Cita.status == EstatusCita.pendiente,
+                Cita.anticipo_pagado == False,
+                Cita.fecha_inicio >= datetime.utcnow(),
+            ).order_by(Cita.fecha_inicio).first()
+        # Si tampoco, buscar si ya tiene una cita futura con anticipo pagado (ya confirmada)
+        if not cita:
+            cita_ya_pagada = Cita.query.filter(
+                Cita.paciente_id == pid,
+                Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
+                Cita.anticipo_pagado == True,
+                Cita.fecha_inicio >= datetime.utcnow(),
+            ).order_by(Cita.fecha_inicio).first()
+            if cita_ya_pagada:
+                return {
+                    'ok': True,
+                    'ya_confirmado': True,
+                    'cita_id': cita_ya_pagada.id,
+                    'fecha': cita_ya_pagada.fecha_inicio.strftime('%d/%m/%Y'),
+                    'hora': cita_ya_pagada.fecha_inicio.strftime('%H:%M'),
+                    'mensaje': f'El anticipo ya fue confirmado previamente. La cita del {cita_ya_pagada.fecha_inicio.strftime("%d/%m/%Y")} a las {cita_ya_pagada.fecha_inicio.strftime("%H:%M")} esta asegurada.',
+                }
+
     if not cita:
-        return {'error': 'Cita no encontrada'}
+        return {'error': 'No se encontro una pre-cita o cita pendiente de anticipo para este paciente.'}
+
+    # Si el anticipo ya fue marcado como pagado (por cita_id directo)
+    if cita.anticipo_pagado:
+        return {
+            'ok': True,
+            'ya_confirmado': True,
+            'cita_id': cita.id,
+            'fecha': cita.fecha_inicio.strftime('%d/%m/%Y'),
+            'hora': cita.fecha_inicio.strftime('%H:%M'),
+            'mensaje': f'El anticipo ya fue confirmado previamente. La cita del {cita.fecha_inicio.strftime("%d/%m/%Y")} a las {cita.fecha_inicio.strftime("%H:%M")} esta asegurada.',
+        }
+
     cita.anticipo_pagado = True
     if args.get('monto'):
         cita.anticipo_monto = args['monto']
-    # Si era pre-cita, promover a pendiente (confirmada con anticipo)
+    # Si era pre-cita, promover a pendiente
     if cita.status == EstatusCita.pre_cita:
         cita.status = EstatusCita.pendiente
-        cita.pre_cita_expira = None  # ya no expira
+        cita.pre_cita_expira = None
     db.session.commit()
-    return {'ok': True, 'mensaje': 'Anticipo confirmado. Su cita esta garantizada.'}
+    return {
+        'ok': True,
+        'cita_id': cita.id,
+        'fecha': cita.fecha_inicio.strftime('%d/%m/%Y'),
+        'hora': cita.fecha_inicio.strftime('%H:%M'),
+        'mensaje': f'Anticipo confirmado. La cita del {cita.fecha_inicio.strftime("%d/%m/%Y")} a las {cita.fecha_inicio.strftime("%H:%M")} esta garantizada.',
+    }
 
 
 def _tool_cancelar_cita(args):
@@ -1208,17 +1332,17 @@ def _tool_confirmar_asistencia_cita(args):
     if cita_id:
         cita = Cita.query.get(cita_id)
     elif paciente_id:
-        # Buscar la proxima cita pendiente del paciente
+        # Buscar la proxima cita pendiente o confirmada del paciente
         cita = Cita.query.filter(
             Cita.paciente_id == paciente_id,
             Cita.fecha_inicio >= datetime.utcnow() - timedelta(hours=1),
-            Cita.status == EstatusCita.pendiente,
+            Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
         ).order_by(Cita.fecha_inicio).first()
     else:
         return {'error': 'Se requiere cita_id o paciente_id'}
 
     if not cita:
-        return {'error': 'No se encontro cita pendiente para este paciente'}
+        return {'error': 'No se encontro cita proxima para este paciente'}
 
     if cita.status == EstatusCita.confirmada:
         return {

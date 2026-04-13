@@ -119,7 +119,63 @@ def setup_scheduler_jobs(scheduler, app):
         kwargs={'app': app},
     )
 
+    # Confirmacion mismo dia - a las 7am para citas que no recibieron el recordatorio de 24h
+    scheduler.add_job(
+        func=_job_confirmacion_mismo_dia,
+        trigger='cron',
+        hour=7,
+        minute=0,
+        id='confirmacion_mismo_dia',
+        replace_existing=True,
+        kwargs={'app': app},
+    )
+
     logger.info('Jobs del scheduler registrados.')
+
+
+def _job_confirmacion_mismo_dia(app):
+    """
+    Envia confirmacion temprana a citas de HOY que no recibieron el recordatorio de 24h.
+    Esto cubre citas reservadas con menos de 24h de anticipacion.
+    Se ejecuta a las 7am.
+    """
+    with app.app_context():
+        from models import Cita, EstatusCita, Recordatorio, TipoRecordatorio, EstatusRecordatorio
+        from extensions import db
+
+        ahora = _ahora_local()
+        hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+        hoy_fin = ahora.replace(hour=23, minute=59, second=59, microsecond=0)
+
+        # Citas de hoy, pendientes/confirmadas, que NO recibieron recordatorio 24h
+        citas = Cita.query.filter(
+            Cita.fecha_inicio >= hoy_inicio,
+            Cita.fecha_inicio <= hoy_fin,
+            Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
+            Cita.reminder_24h_sent == False,
+        ).all()
+
+        for cita in citas:
+            if cita.paciente and cita.paciente.es_problematico:
+                continue
+            try:
+                from services.whatsapp_service import enviar_confirmacion_mismo_dia
+                enviado = enviar_confirmacion_mismo_dia(cita)
+                status = EstatusRecordatorio.enviado if enviado else EstatusRecordatorio.fallido
+
+                recordatorio = Recordatorio(
+                    cita_id=cita.id,
+                    tipo=TipoRecordatorio.confirmacion_24h,
+                    fecha_envio=ahora,
+                    status=status,
+                )
+                db.session.add(recordatorio)
+                cita.reminder_24h_sent = True
+                db.session.commit()
+                logger.info(f'Confirmacion mismo dia enviada para cita {cita.id}')
+            except Exception as e:
+                logger.error(f'Error confirmacion mismo dia cita {cita.id}: {e}')
+                db.session.rollback()
 
 
 def _job_cancelar_pre_citas_expiradas(app):

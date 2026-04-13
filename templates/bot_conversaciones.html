@@ -106,6 +106,23 @@
 </style>
 {% endif %}
 
+<!-- Tabs -->
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-conversaciones" type="button">
+      <i class="bi bi-chat-dots me-1"></i>Conversaciones
+    </button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-logs" type="button" onclick="cargarLogsBotTab()">
+      <i class="bi bi-exclamation-triangle me-1"></i>Logs
+      <span class="badge bg-danger ms-1 d-none" id="logsCountBadge">0</span>
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="tab-conversaciones">
 <div class="bot-container">
 
   <!-- Panel izquierdo: lista de conversaciones -->
@@ -173,8 +190,51 @@
     </div>
   </div>
 </div>
+</div><!-- /bot-container -->
+</div><!-- /tab-conversaciones -->
+
+<!-- Tab Logs -->
+<div class="tab-pane fade" id="tab-logs">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex gap-2 align-items-center">
+      <select id="logNivelFiltro" class="form-select form-select-sm" style="width:auto" onchange="cargarLogsBotTab()">
+        <option value="">Todos los niveles</option>
+        <option value="error">Error</option>
+        <option value="warning">Warning</option>
+        <option value="info">Info</option>
+      </select>
+      <span class="text-muted small" id="logsTotalText"></span>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-outline-secondary" onclick="cargarLogsBotTab()">
+        <i class="bi bi-arrow-clockwise me-1"></i>Refrescar
+      </button>
+      <button class="btn btn-sm btn-outline-danger" onclick="limpiarLogsBot()">
+        <i class="bi bi-trash me-1"></i>Limpiar todo
+      </button>
+    </div>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle" id="tablaLogs">
+      <thead class="table-light">
+        <tr>
+          <th style="width:150px">Fecha</th>
+          <th style="width:80px">Nivel</th>
+          <th style="width:100px">Tool</th>
+          <th>Mensaje</th>
+          <th style="width:130px">Telefono</th>
+          <th style="width:50px"></th>
+        </tr>
+      </thead>
+      <tbody id="logsBody"></tbody>
+    </table>
+  </div>
+  <div id="logsPaginacion" class="d-flex justify-content-center mt-2"></div>
+</div>
+</div><!-- /tab-content -->
 {% endblock %}
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/bot_conversaciones.js') }}"></script>
+<script src="{{ url_for('static', filename='js/bot_logs.js') }}"></script>
 {% endblock %}
