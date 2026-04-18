@@ -17,6 +17,13 @@ document.addEventListener('DOMContentLoaded', () => {
     paginaActual = 1; cargarPacientes();
   });
   document.getElementById('btnGuardarPaciente')?.addEventListener('click', guardarPaciente);
+
+  // Defensa en profundidad: prevenir submit del form que recargaria la pagina
+  // y causaria perdida de datos. Adicional al onsubmit inline en el HTML.
+  document.getElementById('formPaciente')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    guardarPaciente();
+  });
   document.getElementById('btnEliminarPaciente')?.addEventListener('click', eliminarPaciente);
   document.getElementById('btnGenerarJustificante')?.addEventListener('click', generarJustificante);
 
@@ -388,12 +395,28 @@ function limpiarFormPaciente() {
   if (recList) recList.textContent = '';
 }
 
+// Lee un número formateado de intl-tel-input con fallback robusto al input raw.
+// Evita pérdida de datos cuando utils.js está bloqueado por Tracking Prevention
+// o cuando getNumber() retorna un valor parcial/inválido.
+function _leerNumeroSeguro(iti, inputId) {
+  const raw = document.getElementById(inputId)?.value.trim() || '';
+  if (!iti) return raw;
+  let formatted = '';
+  try { formatted = iti.getNumber() || ''; } catch (_) { formatted = ''; }
+  // Si getNumber retorna algo más corto que lo que escribió el usuario,
+  // el formateador falló — preferir el valor raw del usuario.
+  if (formatted.replace(/\D/g, '').length < raw.replace(/\D/g, '').length) {
+    return raw;
+  }
+  return formatted || raw;
+}
+
 async function guardarPaciente() {
   const body = {
     nombre: document.getElementById('p_nombre').value.trim(),
     fecha_nacimiento: document.getElementById('p_fecha_nac').value || null,
-    telefono: itiTelefono ? itiTelefono.getNumber() : document.getElementById('p_telefono').value.trim(),
-    whatsapp: itiWhatsapp ? itiWhatsapp.getNumber() : document.getElementById('p_whatsapp').value.trim(),
+    telefono: _leerNumeroSeguro(itiTelefono, 'p_telefono'),
+    whatsapp: _leerNumeroSeguro(itiWhatsapp, 'p_whatsapp'),
     nombre_tutor: document.getElementById('p_tutor').value.trim(),
     telefono_tutor: document.getElementById('p_tel_tutor').value.trim(),
     origen_paciente_id: document.getElementById('p_origen').value || null,
@@ -404,47 +427,75 @@ async function guardarPaciente() {
     proximo_recordatorio_fecha: document.getElementById('p_proxima_visita').value
       ? document.getElementById('p_proxima_visita').value + '-01' : null,
   };
+
+  const msg = document.getElementById('pacienteMsg');
+  msg.textContent = '';
+
   if (!body.nombre) {
-    document.getElementById('pacienteMsg').textContent = 'El nombre es requerido.';
+    msg.className = 'mt-2 text-danger small';
+    msg.textContent = 'El nombre es requerido.';
     return;
   }
+
   const url = pacienteEditandoId ? `/api/pacientes/${pacienteEditandoId}` : '/api/pacientes';
   const method = pacienteEditandoId ? 'PUT' : 'POST';
-  const resp = await apiFetch(url, { method, body: JSON.stringify(body) });
-  const data = await resp.json();
-  const msg = document.getElementById('pacienteMsg');
 
-  if (resp.status === 409 && data.error === 'duplicate_whatsapp') {
-    const nombres = (data.pacientes_existentes || []).map(p => p.nombre).join(', ');
-    const confirmar = confirm(
-      `Ya existe(n) paciente(s) con ese WhatsApp: ${nombres}.\n\n` +
-      `Desea agregar a "${body.nombre}" como miembro del grupo familiar?`
-    );
-    if (confirmar) {
-      if (data.grupo_familiar) {
-        body.grupo_familiar_id = data.grupo_familiar.id;
-      } else {
-        body.crear_grupo_familiar = true;
+  const btnGuardar = document.getElementById('btnGuardarPaciente');
+  btnGuardar.disabled = true;
+
+  const _parseJson = async (r) => {
+    try { return await r.json(); } catch (_) { return {}; }
+  };
+
+  try {
+    const resp = await apiFetch(url, { method, body: JSON.stringify(body) });
+    const data = await _parseJson(resp);
+
+    if (resp.status === 409 && data.error === 'duplicate_whatsapp') {
+      const nombres = (data.pacientes_existentes || []).map(p => p.nombre).join(', ');
+      const confirmar = confirm(
+        `Ya existe(n) paciente(s) con ese WhatsApp: ${nombres}.\n\n` +
+        `Desea agregar a "${body.nombre}" como miembro del grupo familiar?`
+      );
+      if (confirmar) {
+        if (data.grupo_familiar) {
+          body.grupo_familiar_id = data.grupo_familiar.id;
+        } else {
+          body.crear_grupo_familiar = true;
+        }
+        const resp2 = await apiFetch(url, { method, body: JSON.stringify(body) });
+        if (resp2.ok) {
+          btnGuardar.blur();
+          bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPaciente')).hide();
+          cargarPacientes();
+          showToast('Paciente guardado correctamente', 'success');
+        } else {
+          const data2 = await _parseJson(resp2);
+          msg.className = 'mt-2 text-danger small';
+          msg.textContent = data2.error || data2.mensaje || ('Error HTTP ' + resp2.status);
+        }
       }
-      const resp2 = await apiFetch(url, { method, body: JSON.stringify(body) });
-      if (resp2.ok) {
-        bootstrap.Modal.getInstance(document.getElementById('modalPaciente'))?.hide();
-        cargarPacientes();
-      } else {
-        const data2 = await resp2.json();
-        msg.className = 'mt-2 text-danger small';
-        msg.textContent = data2.error || 'Error al guardar';
-      }
+      return;
     }
-    return;
-  }
 
-  if (resp.ok) {
-    bootstrap.Modal.getInstance(document.getElementById('modalPaciente'))?.hide();
-    cargarPacientes();
-  } else {
+    if (resp.ok) {
+      btnGuardar.blur();
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPaciente')).hide();
+      cargarPacientes();
+      showToast(
+        pacienteEditandoId ? 'Cambios guardados correctamente' : 'Paciente creado correctamente',
+        'success'
+      );
+    } else {
+      msg.className = 'mt-2 text-danger small';
+      msg.textContent = data.mensaje || data.error || 'Error al guardar';
+    }
+  } catch (err) {
     msg.className = 'mt-2 text-danger small';
-    msg.textContent = data.mensaje || data.error || 'Error al guardar';
+    msg.textContent = 'Error de conexion. Verifique la red e intente de nuevo.';
+    console.error('guardarPaciente error:', err);
+  } finally {
+    btnGuardar.disabled = false;
   }
 }
 
@@ -452,7 +503,7 @@ async function eliminarPaciente() {
   if (!pacienteEditandoId || !confirm('Eliminar este paciente del sistema?')) return;
   const resp = await apiFetch(`/api/pacientes/${pacienteEditandoId}`, { method: 'DELETE' });
   if (resp.ok) {
-    bootstrap.Modal.getInstance(document.getElementById('modalPaciente'))?.hide();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPaciente')).hide();
     cargarPacientes();
   }
 }
