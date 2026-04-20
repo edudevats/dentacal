@@ -171,17 +171,16 @@ BOT_FUNCTION_DECLARATIONS = [
     },
     {
         "name": "registrar_solicitud_contacto",
-        "description": "Registra la solicitud de un paciente NUEVO (no registrado en el sistema) que desea que la recepcionista le llame para darlo de alta. Usar SOLO cuando el numero del contacto no esta en la BD.",
+        "description": "Registra la solicitud de un paciente NUEVO (no registrado en el sistema) que desea que la recepcionista le llame para darlo de alta. Usar SOLO cuando el numero del contacto no esta en la BD. El numero de WhatsApp se toma automaticamente del contexto de la conversacion — NO lo incluyas en los argumentos.",
         "parameters": {
             "type": "object",
             "properties": {
                 "nombre": {"type": "string", "description": "Nombre completo de la persona"},
-                "numero_whatsapp": {"type": "string", "description": "Numero de WhatsApp del contacto"},
                 "fecha_preferida": {"type": "string", "description": "Fecha u horario preferido para recibir la llamada (texto libre, ej: 'lunes en la manana', '14 de abril')"},
                 "hora_preferida": {"type": "string", "description": "Hora preferida para la llamada, formato HH:MM (opcional)"},
                 "notas": {"type": "string", "description": "Notas adicionales: motivo de consulta, tipo de tratamiento, nombre del paciente si es para un familiar, etc."}
             },
-            "required": ["nombre", "numero_whatsapp"]
+            "required": ["nombre"]
         }
     },
 ]
@@ -625,9 +624,16 @@ def _ejecutar_tool(nombre, args, numero_telefono=None):
         elif nombre == 'confirmar_asistencia_cita':
             return _tool_confirmar_asistencia_cita(args)
         elif nombre == 'registrar_solicitud_contacto':
-            # Forzar el numero real del contacto (no el que Gemini invente)
-            if numero_telefono:
-                args['numero_whatsapp'] = numero_telefono
+            # Forzar SIEMPRE el numero real del remitente — nunca confiar en lo
+            # que Gemini haya puesto en args (puede inventar "+52XXXXXXXXXX").
+            if not numero_telefono:
+                _guardar_log_bot(
+                    'error',
+                    'registrar_solicitud_contacto invocada sin numero_telefono del remitente',
+                    detalle=json.dumps(args), tool_name=nombre,
+                )
+                return {'error': 'Falta numero del remitente'}
+            args['numero_whatsapp'] = numero_telefono
             return _tool_registrar_solicitud_contacto(args)
         else:
             _guardar_log_bot('warning', f'Tool desconocida: {nombre}', detalle=json.dumps(args), tool_name=nombre, numero_telefono=numero_telefono)
@@ -1368,6 +1374,7 @@ def _tool_confirmar_asistencia_cita(args):
 
 def _tool_registrar_solicitud_contacto(args):
     """Guarda la solicitud de un paciente nuevo para ser contactado por la recepcionista."""
+    import re
     from models import SolicitudRegistro
     from extensions import db
 
@@ -1376,6 +1383,17 @@ def _tool_registrar_solicitud_contacto(args):
 
     if not nombre or not numero:
         return {'error': 'Se requiere nombre y numero_whatsapp'}
+
+    # Rechazar numeros placeholder que Gemini pudo haber inventado
+    # (ej: "+52XXXXXXXXXX", "1234567890", etc.). Un numero valido tiene al
+    # menos 10 digitos reales y no contiene letras.
+    digitos = re.sub(r'\D', '', numero)
+    if len(digitos) < 10 or re.search(r'[A-Za-z]', numero):
+        logger.warning(f'Rechazando numero inválido en solicitud: {numero}')
+        return {
+            'error': 'numero_invalido',
+            'mensaje': 'Numero de WhatsApp invalido. El sistema debe pasar el numero real del contacto.',
+        }
 
     solicitud = SolicitudRegistro(
         nombre=nombre,

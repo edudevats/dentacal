@@ -58,11 +58,18 @@ def _init_extensions(app):
         from models import User
         return User.query.get(int(user_id))
 
-    # Crear tablas si no existen (util en PythonAnywhere sin migrations)
+    # Verificar que la BD existe antes de iniciar
     with app.app_context():
         import models  # noqa: F401 — registers all models with SQLAlchemy metadata
+        db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+        if db_uri.startswith('sqlite:///'):
+            db_path = db_uri.replace('sqlite:///', '')
+            if os.path.exists(db_path):
+                app.logger.info('BD encontrada: %s (%d bytes)', db_path, os.path.getsize(db_path))
+            else:
+                app.logger.warning('BD NO encontrada en %s — se crearan tablas vacias.', db_path)
+        # Crear tablas que falten (no borra ni modifica tablas existentes)
         db.create_all()
-        _seed_initial_data()
 
 
 def _register_blueprints(app):
@@ -128,201 +135,6 @@ def _start_scheduler(app):
         setup_scheduler_jobs(scheduler, app)
         scheduler.start()
         app.logger.info('APScheduler iniciado.')
-
-
-def _seed_initial_data():
-    """Inserta datos iniciales si la BD esta vacia."""
-    from models import (Consultorio, TipoCita, PlantillaMensaje,
-                        ConfiguracionConsultorio, Dentista, HorarioDentista,
-                        OrigenPaciente)
-    from extensions import db
-
-    # Consultorios
-    if not Consultorio.query.first():
-        for i in range(1, 4):
-            db.session.add(Consultorio(nombre=f'Consultorio {i}'))
-
-    # Tipos de cita
-    if not TipoCita.query.first():
-        tipos = [
-            TipoCita(nombre='Primera Consulta', duracion_minutos=60, precio=550,
-                     requiere_anticipo=True, color='#E84375'),
-            TipoCita(nombre='Limpieza y Fluor', duracion_minutos=45, precio=600,
-                     requiere_anticipo=False, color='#00B5AD'),
-            TipoCita(nombre='Ortodoncia', duracion_minutos=30, precio=800,
-                     requiere_anticipo=False, color='#72B843'),
-            TipoCita(nombre='Operatoria / Restauracion', duracion_minutos=60, precio=700,
-                     requiere_anticipo=False, color='#F2853D'),
-            TipoCita(nombre='Revision / Control', duracion_minutos=30, precio=300,
-                     requiere_anticipo=False, color='#F5DC57'),
-            TipoCita(nombre='Extraccion', duracion_minutos=45, precio=500,
-                     requiere_anticipo=False, color='#AB47BC'),
-            TipoCita(nombre='Endodoncia', duracion_minutos=90, precio=2500,
-                     requiere_anticipo=True, color='#1E88E5'),
-            TipoCita(nombre='Sonrisas Magicas (Seguimiento)', duracion_minutos=45, precio=600,
-                     requiere_anticipo=False, color='#00B5AD'),
-        ]
-        db.session.add_all(tipos)
-
-    # Dentistas con sus colores del cliente
-    if not Dentista.query.first():
-        dentistas_data = [
-            ('Fernanda', 'Odontologia General', '#FF7043'),
-            ('Karen', 'Odontologia General', '#E53935'),
-            ('Ale', 'Odontopediatria', '#7B1FA2'),
-            ('Sofia', 'Endodoncia', '#2E7D32'),
-            ('Carmen', 'Odontopediatria', '#1565C0'),
-            ('Giovanni', 'Ortodoncia', '#F48FB1'),
-            ('Daniel Martinez', 'Periodoncia', '#F9A825'),
-            ('Antonio', 'Cirugia Maxilofacial', '#757575'),
-            ('Eli', 'Tecnico de Laboratorio', '#546E7A'),
-            ('Jose', 'Protesis Dental', '#1E88E5'),
-            ('Paulina', 'Odontopediatria', '#AB47BC'),
-        ]
-        for nombre, especialidad, color in dentistas_data:
-            d = Dentista(nombre=nombre, especialidad=especialidad, color=color)
-            db.session.add(d)
-            db.session.flush()
-            # Horario L-V 9-18
-            for dia in range(5):
-                from datetime import time as t
-                db.session.add(HorarioDentista(
-                    dentista_id=d.id, dia_semana=dia,
-                    hora_inicio=t(9, 0), hora_fin=t(18, 0)
-                ))
-
-    # Configuracion consultorio
-    if not ConfiguracionConsultorio.query.first():
-        db.session.add(ConfiguracionConsultorio())
-
-    # Plantillas de mensajes
-    if not PlantillaMensaje.query.first():
-        plantillas = [
-            PlantillaMensaje(
-                nombre='Info Primera Consulta',
-                tipo='info_consulta',
-                contenido='Hola buenos dias/ buenas tardes\nClaro\nLa consulta tiene un costo de $550.00 le incluye su diagnostico, plan de tratamiento, presupuesto y radiografias intraorales que requiera su pequeno o pequena :)'
-            ),
-            PlantillaMensaje(
-                nombre='Solicitud de Anticipo',
-                tipo='anticipo',
-                contenido='Con gusto :) para las citas de pacientes que vienen por 1a vez a nuestro consultorio dental, solicitamos un pago anticipado del 50% del total de la consulta. Esto nos ayuda a garantizar tu cita y a ofrecerte el mejor servicio posible.\n\nTRANSFERENCIAS:\nPaulina Mendoza Ordonez\nBBVA\nTarjeta: 4152314207155287\nCLABE: 012180015419659725\n\nEn caso de no poder acudir les pedimos reagendar con 24hrs de anticipacion, si no acuden no sera reembolsable.'
-            ),
-            PlantillaMensaje(
-                nombre='Confirmacion de Cita',
-                tipo='confirmacion',
-                contenido='Perfecto\nLe compartimos toda la informacion\n\nNos vemos el dia {fecha} de {hora_inicio} a las {hora_fin}'
-            ),
-            PlantillaMensaje(
-                nombre='Recordatorio 24h',
-                tipo='recordatorio_24h',
-                contenido='Hola buenas tardes\nComo esta? Le escribo para confirmar la cita de {nombre_paciente} manana a las {hora}.\nGracias :)'
-            ),
-            PlantillaMensaje(
-                nombre='Sonrisas Magicas',
-                tipo='sonrisas_magicas',
-                contenido='Hola buenos dias/tardes :) Como esta? Le escribo para agendar la cita de {nombre_paciente}, ya nos toca su cita de revision, control y mantenimiento para realizar su limpieza y aplicacion de fluor\nLes acomoda vernos (ofrecer dias de acuerdo cuando viene el Dr/a y entre semana o sabado de acuerdo a las necesidades del Px)?'
-            ),
-            PlantillaMensaje(
-                nombre='Protocolo Postconsulta',
-                tipo='postconsulta',
-                contenido='Hola Sra/Sr buenas tardes :) Como esta? Le comparto la foto (DIPLOMA Y PIN) de {nombre_paciente}, nos encantaria conocer su experiencia con nosotros le mandare un link {google_reviews_link} y solo debe dar clic, muchas gracias :)'
-            ),
-            PlantillaMensaje(
-                nombre='Cumpleanos',
-                tipo='cumpleanos',
-                contenido='Hola {nombre_tutor}! En el mes de cumpleanos de {nombre_paciente} tiene un regalo especial esperandole: su PIN cumpleanero. Solo tiene que venir a su cita este mes para recibirlo. Le esperamos con gusto!'
-            ),
-        ]
-        db.session.add_all(plantillas)
-
-    # Plantillas nuevas (agregar si no existen, para BDs existentes)
-    if not PlantillaMensaje.query.filter_by(tipo='no_asistencia_reagendar').first():
-        db.session.add(PlantillaMensaje(
-            nombre='Reagendar No Asistencia',
-            tipo='no_asistencia_reagendar',
-            contenido='Estimado/a, le escribimos de La Casa del Sr. Perez.\nLamentamos que {nombre_paciente} no haya podido asistir a su cita programada el {fecha}.\nNos encantaria poder atenderle en otra fecha. Responda a este mensaje y con gusto le ayudamos a reagendar su cita.',
-        ))
-    if not PlantillaMensaje.query.filter_by(tipo='proxima_visita').first():
-        db.session.add(PlantillaMensaje(
-            nombre='Recordatorio Proxima Visita',
-            tipo='proxima_visita',
-            contenido='Hola {nombre_tutor}! Le recordamos que ya es momento de programar la proxima cita de {nombre_paciente} en La Casa del Sr. Perez.\nEscribanos para buscarle un horario disponible :)',
-        ))
-
-    # Plantillas de recordatorio manual (seguimiento post-cita)
-    if not PlantillaMensaje.query.filter_by(tipo='recordatorio_seguimiento').first():
-        db.session.add(PlantillaMensaje(
-            nombre='Seguimiento Post-Consulta',
-            tipo='recordatorio_seguimiento',
-            contenido='Hola {nombre_tutor} :) Le escribimos de La Casa del Sr. Perez. Esperamos que {nombre_paciente} se encuentre muy bien despues de su cita. Si tiene alguna duda o necesita agendar su proxima visita, con gusto le ayudamos. Que tenga un excelente dia!',
-        ))
-    if not PlantillaMensaje.query.filter_by(tipo='recordatorio_tratamiento').first():
-        db.session.add(PlantillaMensaje(
-            nombre='Continuar Tratamiento',
-            tipo='recordatorio_tratamiento',
-            contenido='Hola {nombre_tutor} :) Le escribimos de La Casa del Sr. Perez para recordarle que {nombre_paciente} tiene pendiente continuar con su tratamiento dental. Es importante no interrumpirlo para obtener los mejores resultados. Le podemos buscar un horario que le acomode, cuando guste escribanos!',
-        ))
-    if not PlantillaMensaje.query.filter_by(tipo='recordatorio_recuperacion').first():
-        db.session.add(PlantillaMensaje(
-            nombre='Recuperar Paciente',
-            tipo='recordatorio_recuperacion',
-            contenido='Hola {nombre_tutor}! Le escribimos de La Casa del Sr. Perez, hace tiempo que no vemos a {nombre_paciente} por aqui y queremos saber como esta :) Si desea agendar una cita de revision o limpieza dental, con gusto le buscamos espacio. Cualquier duda estamos a sus ordenes!',
-        ))
-    if not PlantillaMensaje.query.filter_by(tipo='bienvenida_bot').first():
-        db.session.add(PlantillaMensaje(
-            nombre='Bienvenida Bot (Menu)',
-            tipo='bienvenida_bot',
-            contenido=(
-                'Hola! Soy la recepcionista virtual de La Casa del Sr. Perez \U0001f60a\n'
-                'Puedo ayudarte con:\n'
-                '1\ufe0f\u20e3  Agendar una cita\n'
-                '2\ufe0f\u20e3  Cancelar una cita\n'
-                '3\ufe0f\u20e3  Mover tu cita a otro dia u hora\n'
-                '4\ufe0f\u20e3  Consultar tus citas proximas\n'
-                '5\ufe0f\u20e3  Informacion del consultorio (ubicacion, horarios, precios)\n\n'
-                'Si eres paciente nuevo, con gusto coordinamos una llamada para registrarte '
-                'y darte la mejor atencion \U0001f9b7\u2728\n\n'
-                'Escribenos lo que necesitas!'
-            ),
-        ))
-
-    if not PlantillaMensaje.query.filter_by(tipo='anticipo_recibido').first():
-        db.session.add(PlantillaMensaje(
-            nombre='Anticipo Recibido',
-            tipo='anticipo_recibido',
-            contenido=(
-                'Hola {nombre_paciente} :)\n\n'
-                'Hemos recibido su anticipo correctamente. '
-                'Su cita queda confirmada:\n\n'
-                'Fecha: {fecha}\n'
-                'Horario: {hora_inicio} a {hora_fin}\n'
-                'Doctor(a): {dentista}\n\n'
-                'Le esperamos en La Casa del Sr. Perez. '
-                'Si necesita reagendar, por favor hagalo con al menos 24hrs de anticipacion.\n'
-                'Gracias por su confianza!'
-            ),
-        ))
-
-    if not PlantillaMensaje.query.filter_by(tipo='confirmacion_mismo_dia').first():
-        db.session.add(PlantillaMensaje(
-            nombre='Confirmacion Mismo Dia',
-            tipo='confirmacion_mismo_dia',
-            contenido=(
-                'Buenos dias! \U0001f60a\n'
-                'Le recordamos que {nombre_paciente} tiene cita '
-                'el dia de HOY a las {hora} con {dentista}.\n'
-                'Les esperamos en La Casa del Sr. Perez \U0001f9b7\u2728\n'
-                'Si necesita reagendar, por favor respondanos lo antes posible.'
-            ),
-        ))
-
-    # Origenes de paciente
-    if not OrigenPaciente.query.first():
-        for nombre in ['Redes Sociales', 'Anuncios', 'Recomendacion', 'Paso por el consultorio', 'Otro']:
-            db.session.add(OrigenPaciente(nombre=nombre))
-
-    db.session.commit()
 
 
 if __name__ == '__main__':
