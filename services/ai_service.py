@@ -499,7 +499,7 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
     Retorna la respuesta en texto.
     """
     api_key = current_app.config.get('GEMINI_API_KEY', '')
-    model_name = current_app.config.get('AI_MODEL', 'gemini-3.1-flash-lite-preview')
+    model_name = current_app.config.get('AI_MODEL', 'gemini-3.1-flash-lite')
 
     if not api_key or api_key.startswith('test'):
         return 'Hola! Gracias por contactarnos. En este momento el bot no esta disponible. Por favor llama al consultorio.'

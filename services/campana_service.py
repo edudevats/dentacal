@@ -49,6 +49,14 @@ def obtener_audiencia(filtros_dict):
             )
         )
 
+    # Filtro por doctor asignado
+    doctor_id = filtros_dict.get('doctor_id')
+    if doctor_id:
+        try:
+            q = q.filter(Paciente.doctor_id == int(doctor_id))
+        except (TypeError, ValueError):
+            pass
+
     pacientes = q.all()
 
     # Solo pacientes con numero de WhatsApp valido

@@ -5,6 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
   cargarCRM();
   initCrmFilters();
   initCrmBuscar();
+  cargarDoctoresCRM();
+  document.getElementById('crmDoctorFiltro')?.addEventListener('change', filtrarTarjetasCRM);
 
   document.getElementById('btnGuardarCRM')?.addEventListener('click', guardarStatusCRM);
   document.getElementById('btnEnviarWA')?.addEventListener('click', enviarWhatsApp);
@@ -18,11 +20,31 @@ function initCrmBuscar() {
   input.addEventListener('input', () => filtrarTarjetasCRM());
 }
 
+async function cargarDoctoresCRM() {
+  const select = document.getElementById('crmDoctorFiltro');
+  if (!select) return;
+  try {
+    const resp = await apiFetch('/api/dentistas?activos=true');
+    const data = await resp.json();
+    data.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = String(d.id);
+      opt.textContent = d.nombre;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    console.error('Error cargando doctores (crm):', e);
+  }
+}
+
 function filtrarTarjetasCRM() {
   const query = (document.getElementById('crmBuscar')?.value || '').toLowerCase().trim();
+  const doctorSel = document.getElementById('crmDoctorFiltro')?.value || '';
   document.querySelectorAll('#crmKanban .crm-card').forEach(card => {
     const texto = card.textContent.toLowerCase();
-    card.style.display = (!query || texto.includes(query)) ? '' : 'none';
+    const matchTexto = (!query || texto.includes(query));
+    const matchDoctor = (!doctorSel || card.dataset.doctorId === doctorSel);
+    card.style.display = (matchTexto && matchDoctor) ? '' : 'none';
   });
   // Update visible counts
   ['alta', 'activo', 'prospecto', 'baja'].forEach(status => {
@@ -92,6 +114,7 @@ async function cargarCRM() {
 function crearTarjetaCRM(p) {
   const div = document.createElement('div');
   div.className = 'crm-card';
+  div.dataset.doctorId = (p.doctor_id != null) ? String(p.doctor_id) : '';
   div.addEventListener('click', () => abrirDetalleCRM(p.id));
 
   const nombre = document.createElement('div');
@@ -111,6 +134,11 @@ function crearTarjetaCRM(p) {
   const wa = p.whatsapp || p.telefono_tutor || '—';
   meta.textContent = wa;
   div.appendChild(meta);
+
+  const docMeta = document.createElement('div');
+  docMeta.className = 'patient-meta';
+  docMeta.textContent = 'Dr: ' + (p.doctor_nombre || 'Sin asignar');
+  div.appendChild(docMeta);
 
   if (p.ultima_cita) {
     const ult = document.createElement('div');

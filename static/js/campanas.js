@@ -7,6 +7,8 @@ let campanaRefreshInterval = null;
 
 // Cargar campanas cuando se activa el tab
 document.addEventListener('DOMContentLoaded', function() {
+  cargarDoctoresCampana();
+
   const tabCampanas = document.getElementById('tab-campanas');
   if (tabCampanas) {
     tabCampanas.addEventListener('shown.bs.tab', function() {
@@ -33,6 +35,24 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 });
+
+
+async function cargarDoctoresCampana() {
+  const select = document.getElementById('campDoctorFiltro');
+  if (!select) return;
+  try {
+    const resp = await apiFetch('/api/dentistas?activos=true');
+    const data = await resp.json();
+    data.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = d.nombre;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    console.error('Error cargando doctores (campana):', e);
+  }
+}
 
 
 /** Escape HTML entities to prevent XSS */
@@ -243,7 +263,8 @@ function _getFiltros() {
     estatus_crm.push(cb.value);
   });
   const meses = parseInt(document.getElementById('campMesesSinCita').value) || 0;
-  return { estatus_crm, meses_sin_cita: meses };
+  const doctor_id = document.getElementById('campDoctorFiltro')?.value || '';
+  return { estatus_crm, meses_sin_cita: meses, doctor_id };
 }
 
 
@@ -361,6 +382,8 @@ function enviarCampanaDirecto(campanaId) {
     .then(r => r.json())
     .then(data => {
       const filtros = data.filtros || {};
+      const campDoc = document.getElementById('campDoctorFiltro');
+      if (campDoc) campDoc.value = filtros.doctor_id || '';
       return apiFetch('/api/crm/campanas/preview', {
         method: 'POST',
         body: JSON.stringify({ filtros }),

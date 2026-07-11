@@ -120,7 +120,7 @@ def _mask(value, show=4):
 def _check_gemini():
     """Verifica conexion con Gemini haciendo una peticion minima."""
     api_key = current_app.config.get('GEMINI_API_KEY', '')
-    model = current_app.config.get('AI_MODEL', 'gemini-3.1-flash-lite-preview')
+    model = current_app.config.get('AI_MODEL', 'gemini-3.1-flash-lite')
 
     if not api_key:
         return {'ok': False, 'estado': 'no_configurado',

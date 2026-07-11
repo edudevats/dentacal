@@ -21,12 +21,15 @@
   <div class="tab-content">
     <!-- ===== TAB KANBAN ===== -->
     <div class="tab-pane fade show active" id="tabKanban" role="tabpanel">
-      <!-- Search bar -->
-      <div class="mb-3">
+      <!-- Search bar + filtro doctor -->
+      <div class="mb-3 d-flex flex-wrap gap-2 align-items-center">
         <div class="input-group filter-responsive" style="max-width:400px">
           <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
           <input type="text" id="crmBuscar" class="form-control" placeholder="Buscar paciente por nombre o telefono...">
         </div>
+        <select id="crmDoctorFiltro" class="form-select" style="max-width:240px">
+          <option value="">Todos los doctores</option>
+        </select>
       </div>
 
       <!-- Filter buttons -->
@@ -217,6 +220,13 @@
                   <input type="checkbox" class="form-check-input" value="baja"> Baja
                 </label>
               </div>
+            </div>
+
+            <div class="mb-2">
+              <small class="fw-semibold text-muted">Doctor asignado</small>
+              <select id="campDoctorFiltro" class="form-select form-select-sm mt-1">
+                <option value="">Cualquier doctor</option>
+              </select>
             </div>
 
             <div class="mb-2">
