@@ -300,6 +300,7 @@ function abrirModalEditar(evento) {
   document.getElementById('paciente_search').value = evento.title.split(' - ')[0];
   document.getElementById('paciente_info').textContent = '';
   document.getElementById('dentista_id').value = ext.dentista_id || '';
+  document.getElementById('dentista_cabecera_hint')?.classList.add('d-none');
   document.getElementById('consultorio_id').value = ext.consultorio_id || '';
   document.getElementById('notas_cita').value = ext.notas || '';
   document.getElementById('status_cita').value = ext.status || 'pendiente';
@@ -342,6 +343,8 @@ function limpiarFormulario() {
   if (aw) aw.style.display = 'block';
   const pi = document.getElementById('paciente_info');
   if (pi) pi.textContent = '';
+  const hint = document.getElementById('dentista_cabecera_hint');
+  if (hint) hint.classList.add('d-none');
   const pvw = document.getElementById('proximaVisitaWrapper');
   if (pvw) pvw.style.display = 'none';
   const tpv = document.getElementById('toggle_proxima_visita');
@@ -480,7 +483,8 @@ async function buscarPacientes(q) {
         a.appendChild(badge);
 
         a.addEventListener('click', () =>
-          seleccionarPaciente(p.id, p.nombre_completo || p.nombre, p.whatsapp || p.telefono || '')
+          seleccionarPaciente(p.id, p.nombre_completo || p.nombre, p.whatsapp || p.telefono || '',
+                              p.doctor_id, p.doctor_nombre)
         );
         listEl.appendChild(a);
       });
@@ -491,12 +495,27 @@ async function buscarPacientes(q) {
   }
 }
 
-function seleccionarPaciente(id, nombre, telefono) {
+function seleccionarPaciente(id, nombre, telefono, doctorId, doctorNombre) {
   document.getElementById('paciente_id').value = id;
   document.getElementById('paciente_search').value = nombre;
   const pi = document.getElementById('paciente_info');
   pi.textContent = telefono ? `Tel: ${telefono}` : '';
   document.getElementById('paciente_results').classList.add('d-none');
+
+  // Auto-llenar dentista con el doctor de cabecera (solo en citas nuevas).
+  // Queda editable: en emergencia se cambia el select manualmente.
+  const esNueva = !document.getElementById('cita_id').value;
+  const hint = document.getElementById('dentista_cabecera_hint');
+  if (esNueva && doctorId) {
+    document.getElementById('dentista_id').value = String(doctorId);
+    if (hint) {
+      hint.querySelector('span').textContent =
+        `Doctor de cabecera: ${doctorNombre || 'asignado'} — cambialo solo en emergencia`;
+      hint.classList.remove('d-none');
+    }
+  } else if (hint) {
+    hint.classList.add('d-none');
+  }
 }
 
 // ==================== DRAG & DROP ====================

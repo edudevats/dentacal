@@ -124,6 +124,9 @@
                 <option value="{{ d.id }}" data-color="{{ d.color }}">{{ d.nombre }} - {{ d.especialidad }}</option>
                 {% endfor %}
               </select>
+              <small id="dentista_cabecera_hint" class="text-muted d-none">
+                <i class="bi bi-star-fill me-1" style="color:var(--primary)"></i><span></span>
+              </small>
             </div>
 
             <!-- Consultorio -->
