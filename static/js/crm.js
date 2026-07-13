@@ -16,8 +16,36 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 /* ── Etiquetas de seguimiento y cita ── */
-const SEG_LABEL = { whatsapp_1: 'WhatsApp 1', whatsapp_2: 'WhatsApp 2', llamada: 'Llamada' };
-const SEG_ICON  = { whatsapp_1: 'bi-whatsapp', whatsapp_2: 'bi-whatsapp', llamada: 'bi-telephone' };
+const SEG_LABEL = {
+  confirmacion_cita: 'Confirmación de cita',
+  recordatorio_cita: 'Recordatorio de cita',
+  post_consulta: 'Post-consulta',
+  reactivacion: 'Reactivación (inactivo)',
+  presupuesto: 'Seguimiento de presupuesto',
+  tratamiento_pendiente: 'Tratamiento pendiente',
+  limpieza_control: 'Limpieza / control semestral',
+  anticipo_pendiente: 'Anticipo pendiente',
+  resena: 'Reseña Google',
+  cumpleanos: 'Felicitación cumpleaños',
+  whatsapp_1: 'WhatsApp 1',
+  whatsapp_2: 'WhatsApp 2',
+  llamada: 'Llamada',
+};
+const SEG_ICON = {
+  confirmacion_cita: 'bi-calendar-check',
+  recordatorio_cita: 'bi-alarm',
+  post_consulta: 'bi-heart-pulse',
+  reactivacion: 'bi-arrow-repeat',
+  presupuesto: 'bi-cash-coin',
+  tratamiento_pendiente: 'bi-clipboard2-pulse',
+  limpieza_control: 'bi-calendar2-week',
+  anticipo_pendiente: 'bi-credit-card',
+  resena: 'bi-star',
+  cumpleanos: 'bi-gift',
+  whatsapp_1: 'bi-whatsapp',
+  whatsapp_2: 'bi-whatsapp',
+  llamada: 'bi-telephone',
+};
 const CITA_BADGE = {
   pre_cita:      { cls: 'bg-info text-dark',    label: 'Pre-cita' },
   pendiente:     { cls: 'bg-warning text-dark', label: 'Pendiente' },
@@ -408,7 +436,7 @@ function ocultarFormSeguimiento() {
   const form = document.getElementById('crm_seg_form');
   if (!form) return;
   form.style.display = 'none';
-  document.getElementById('seg_tipo').value = 'whatsapp_1';
+  document.getElementById('seg_tipo').value = 'confirmacion_cita';
   document.getElementById('seg_fecha').value = '';
   document.getElementById('seg_notas').value = '';
 }

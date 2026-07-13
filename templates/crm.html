@@ -175,9 +175,23 @@
             <div class="col-sm-5">
               <label class="form-label small mb-1">Tipo</label>
               <select id="seg_tipo" class="form-select form-select-sm">
-                <option value="whatsapp_1">WhatsApp 1</option>
-                <option value="whatsapp_2">WhatsApp 2</option>
-                <option value="llamada">Llamada</option>
+                <optgroup label="Motivo">
+                  <option value="confirmacion_cita">Confirmación de cita</option>
+                  <option value="recordatorio_cita">Recordatorio de cita</option>
+                  <option value="post_consulta">Post-consulta</option>
+                  <option value="reactivacion">Reactivación (inactivo)</option>
+                  <option value="presupuesto">Seguimiento de presupuesto</option>
+                  <option value="tratamiento_pendiente">Tratamiento pendiente</option>
+                  <option value="limpieza_control">Limpieza / control semestral</option>
+                  <option value="anticipo_pendiente">Anticipo pendiente</option>
+                  <option value="resena">Reseña Google</option>
+                  <option value="cumpleanos">Felicitación cumpleaños</option>
+                </optgroup>
+                <optgroup label="Canal">
+                  <option value="whatsapp_1">WhatsApp 1</option>
+                  <option value="whatsapp_2">WhatsApp 2</option>
+                  <option value="llamada">Llamada</option>
+                </optgroup>
               </select>
             </div>
             <div class="col-sm-7">
