@@ -10,8 +10,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('btnGuardarCRM')?.addEventListener('click', guardarStatusCRM);
   document.getElementById('btnEnviarWA')?.addEventListener('click', enviarWhatsApp);
-  document.getElementById('btnAgregarSeguimiento')?.addEventListener('click', agregarSeguimiento);
+  document.getElementById('btnAgregarSeguimiento')?.addEventListener('click', mostrarFormSeguimiento);
+  document.getElementById('btnCancelarSeg')?.addEventListener('click', ocultarFormSeguimiento);
+  document.getElementById('btnGuardarSeg')?.addEventListener('click', guardarSeguimiento);
 });
+
+/* ── Etiquetas de seguimiento y cita ── */
+const SEG_LABEL = { whatsapp_1: 'WhatsApp 1', whatsapp_2: 'WhatsApp 2', llamada: 'Llamada' };
+const SEG_ICON  = { whatsapp_1: 'bi-whatsapp', whatsapp_2: 'bi-whatsapp', llamada: 'bi-telephone' };
+const CITA_BADGE = {
+  pre_cita:      { cls: 'bg-info text-dark',    label: 'Pre-cita' },
+  pendiente:     { cls: 'bg-warning text-dark', label: 'Pendiente' },
+  confirmada:    { cls: 'bg-success',           label: 'Confirmada' },
+  completada:    { cls: 'bg-success',           label: 'Completada' },
+  no_asistencia: { cls: 'bg-danger',            label: 'No asistio' },
+};
 
 /* ── Search ── */
 function initCrmBuscar() {
@@ -140,7 +153,20 @@ function crearTarjetaCRM(p) {
   docMeta.textContent = 'Dr: ' + (p.doctor_nombre || 'Sin asignar');
   div.appendChild(docMeta);
 
-  if (p.ultima_cita) {
+  if (p.proxima_cita) {
+    const prox = document.createElement('div');
+    prox.className = 'mt-1';
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.style.background = 'var(--primary)';
+    badge.style.color = '#fff';
+    const ico = document.createElement('i');
+    ico.className = 'bi bi-calendar-check me-1';
+    badge.appendChild(ico);
+    badge.appendChild(document.createTextNode('Proxima: ' + formatearFechaCita(p.proxima_cita)));
+    prox.appendChild(badge);
+    div.appendChild(prox);
+  } else if (p.ultima_cita) {
     const ult = document.createElement('div');
     ult.className = 'patient-meta';
     ult.textContent = 'Ultima cita: ' + p.ultima_cita.slice(0, 10);
@@ -208,17 +234,41 @@ async function abrirDetalleCRM(pacienteId) {
     histDiv.scrollTop = histDiv.scrollHeight;
   }
 
-  // Citas
+  // Proximas citas (solo futuras)
   const citasDiv = document.getElementById('crm_citas');
   while (citasDiv.firstChild) citasDiv.removeChild(citasDiv.firstChild);
-  (p.citas || []).slice(0, 3).forEach(c => {
-    const div = document.createElement('div');
-    div.className = `mb-1 p-1 border-start border-3 ps-2 cita-${c.status}`;
-    const txt = document.createElement('span');
-    txt.textContent = `${c.fecha_inicio.slice(0,16).replace('T',' ')} - ${c.dentista} (${c.status})`;
-    div.appendChild(txt);
-    citasDiv.appendChild(div);
-  });
+  const proximas = p.proximas_citas || [];
+  if (proximas.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'text-muted text-center mb-0';
+    empty.textContent = 'Sin citas proximas';
+    citasDiv.appendChild(empty);
+  } else {
+    proximas.forEach(c => {
+      const div = document.createElement('div');
+      div.className = `d-flex justify-content-between align-items-center mb-1 p-2 border-start border-3 ps-2 cita-${c.status}`;
+
+      const info = document.createElement('div');
+      const fecha = document.createElement('div');
+      fecha.className = 'fw-semibold';
+      fecha.textContent = formatearFechaCita(c.fecha_inicio);
+      const detalle = document.createElement('div');
+      detalle.className = 'text-muted';
+      detalle.style.fontSize = '11px';
+      detalle.textContent = `${c.dentista}${c.tipo_cita ? ' · ' + c.tipo_cita : ''}`;
+      info.appendChild(fecha);
+      info.appendChild(detalle);
+      div.appendChild(info);
+
+      const b = CITA_BADGE[c.status] || { cls: 'bg-secondary', label: c.status };
+      const badge = document.createElement('span');
+      badge.className = `badge ${b.cls}`;
+      badge.textContent = b.label;
+      div.appendChild(badge);
+
+      citasDiv.appendChild(div);
+    });
+  }
 
   // Historial de asistencias
   const asistDiv = document.getElementById('crm_historial_asistencias');
@@ -262,30 +312,55 @@ async function abrirDetalleCRM(pacienteId) {
   }
 
   // Seguimientos
+  ocultarFormSeguimiento();
   const segDiv = document.getElementById('crm_seguimientos');
   while (segDiv.firstChild) segDiv.removeChild(segDiv.firstChild);
-  (p.seguimientos || []).forEach(s => {
-    const div = document.createElement('div');
-    div.className = `d-flex justify-content-between align-items-center mb-1 p-1 border rounded ${s.completado ? 'bg-light text-muted' : ''}`;
+  const seguimientos = p.seguimientos || [];
+  if (seguimientos.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'text-muted text-center mb-0';
+    empty.textContent = 'Sin seguimientos';
+    segDiv.appendChild(empty);
+  } else {
+    seguimientos.forEach(s => {
+      const div = document.createElement('div');
+      div.className = `d-flex justify-content-between align-items-center mb-1 p-2 border rounded ${s.completado ? 'bg-light' : ''}`;
 
-    const info = document.createElement('span');
-    info.textContent = `${s.tipo} - ${s.fecha_programada ? s.fecha_programada.slice(0,10) : 'Sin fecha'}`;
-    div.appendChild(info);
+      const info = document.createElement('div');
+      info.className = 'd-flex align-items-center gap-2';
+      const icon = document.createElement('i');
+      icon.className = `bi ${SEG_ICON[s.tipo] || 'bi-bell'}`;
+      icon.style.color = 'var(--primary)';
+      const texto = document.createElement('div');
+      const titulo = document.createElement('div');
+      titulo.className = `fw-semibold ${s.completado ? 'text-muted' : ''}`;
+      titulo.textContent = SEG_LABEL[s.tipo] || s.tipo;
+      const sub = document.createElement('div');
+      sub.className = 'text-muted';
+      sub.style.fontSize = '11px';
+      sub.textContent = s.fecha_programada ? formatearFechaCita(s.fecha_programada, false) : 'Sin fecha';
+      if (s.notas) sub.textContent += ' · ' + s.notas;
+      texto.appendChild(titulo);
+      texto.appendChild(sub);
+      info.appendChild(icon);
+      info.appendChild(texto);
+      div.appendChild(info);
 
-    if (!s.completado) {
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-sm btn-outline-success';
-      btn.textContent = 'Completado';
-      btn.addEventListener('click', () => completarSeguimiento(s.id));
-      div.appendChild(btn);
-    } else {
-      const span = document.createElement('span');
-      span.className = 'badge bg-success';
-      span.textContent = 'Listo';
-      div.appendChild(span);
-    }
-    segDiv.appendChild(div);
-  });
+      if (!s.completado) {
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-sm btn-outline-success';
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Completar';
+        btn.addEventListener('click', () => completarSeguimiento(s.id));
+        div.appendChild(btn);
+      } else {
+        const span = document.createElement('span');
+        span.className = 'badge bg-success';
+        span.innerHTML = '<i class="bi bi-check-lg me-1"></i>Listo';
+        div.appendChild(span);
+      }
+      segDiv.appendChild(div);
+    });
+  }
 
   new bootstrap.Modal(document.getElementById('modalCRM')).show();
 }
@@ -324,21 +399,54 @@ async function enviarWhatsApp() {
   }
 }
 
-async function agregarSeguimiento() {
-  const id   = document.getElementById('crm_paciente_id').value;
-  const tipo = prompt('Tipo de seguimiento:\n1. whatsapp_1\n2. whatsapp_2\n3. llamada\n\nEscribe el tipo:');
-  if (!tipo) return;
-  await apiFetch(`/api/crm/${id}/seguimiento`, {
+function mostrarFormSeguimiento() {
+  const form = document.getElementById('crm_seg_form');
+  if (form) form.style.display = '';
+}
+
+function ocultarFormSeguimiento() {
+  const form = document.getElementById('crm_seg_form');
+  if (!form) return;
+  form.style.display = 'none';
+  document.getElementById('seg_tipo').value = 'whatsapp_1';
+  document.getElementById('seg_fecha').value = '';
+  document.getElementById('seg_notas').value = '';
+}
+
+async function guardarSeguimiento() {
+  const id    = document.getElementById('crm_paciente_id').value;
+  const tipo  = document.getElementById('seg_tipo').value;
+  const fecha = document.getElementById('seg_fecha').value;
+  const notas = document.getElementById('seg_notas').value.trim();
+
+  const payload = { tipo };
+  if (fecha) payload.fecha_programada = fecha;
+  if (notas) payload.notas = notas;
+
+  const resp = await apiFetch(`/api/crm/${id}/seguimiento`, {
     method: 'POST',
-    body: JSON.stringify({ tipo: tipo.trim() }),
+    body: JSON.stringify(payload),
   });
-  abrirDetalleCRM(id);
+  if (resp.ok) {
+    abrirDetalleCRM(id);
+  } else {
+    const data = await resp.json().catch(() => ({}));
+    alert(data.error || 'Error al guardar el seguimiento');
+  }
 }
 
 async function completarSeguimiento(segId) {
   await apiFetch(`/api/crm/seguimiento/${segId}/completar`, { method: 'POST', body: '{}' });
   const id = document.getElementById('crm_paciente_id').value;
   abrirDetalleCRM(id);
+}
+
+function formatearFechaCita(isoStr, conHora = true) {
+  const fecha = new Date(isoStr);
+  if (isNaN(fecha)) return isoStr;
+  const opts = { day: '2-digit', month: 'short', year: 'numeric' };
+  if (conHora) { opts.hour = '2-digit'; opts.minute = '2-digit'; }
+  return fecha.toLocaleString('es-MX', opts);
 }
 
 function formatearFechaCorta(isoStr) {

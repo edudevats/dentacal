@@ -8,8 +8,16 @@ from extensions import db, scheduler, permiso_requerido
 from models import (Paciente, EstatusCRM, EstatusCita, SeguimientoCRM, TipoSeguimiento,
                     ConversacionWhatsapp, Cita, Campana, CampanaDestinatario, EstatusCampana)
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 crm_bp = Blueprint('crm', __name__, url_prefix='/api/crm')
+
+TIMEZONE = ZoneInfo('America/Mexico_City')
+
+
+def _ahora_local():
+    """Hora actual en la timezone del consultorio, naive (para comparar con la BD)."""
+    return datetime.now(TIMEZONE).replace(tzinfo=None)
 
 
 @crm_bp.before_request
@@ -41,6 +49,17 @@ def listar():
      .group_by(ConversacionWhatsapp.paciente_id).all()
     ultima_bot_map = {r.paciente_id: r.ultima_bot for r in ultima_bot_rows}
 
+    # Próxima cita futura por paciente (una sola query)
+    ahora = _ahora_local()
+    proxima_cita_rows = db.session.query(
+        Cita.paciente_id,
+        func.min(Cita.fecha_inicio).label('proxima')
+    ).filter(
+        Cita.fecha_inicio >= ahora,
+        Cita.status != EstatusCita.cancelada,
+    ).group_by(Cita.paciente_id).all()
+    proxima_cita_map = {r.paciente_id: r.proxima for r in proxima_cita_rows}
+
     resultado = []
     for p in pacientes:
         d = p.to_dict()
@@ -55,6 +74,9 @@ def listar():
         # Última interacción con el bot
         ub = ultima_bot_map.get(p.id)
         d['ultima_interaccion_bot'] = ub.isoformat() if ub else None
+        # Próxima cita agendada (futura)
+        pc = proxima_cita_map.get(p.id)
+        d['proxima_cita'] = pc.isoformat() if pc else None
         resultado.append(d)
     return jsonify(resultado)
 
@@ -80,6 +102,15 @@ def detalle_crm(paciente_id):
     citas = Cita.query.filter_by(paciente_id=paciente_id)\
         .order_by(Cita.fecha_inicio.desc()).limit(10).all()
     data['citas'] = [c.to_dict() for c in citas]
+
+    # Proximas citas: solo futuras (posteriores a ahora), la mas cercana primero
+    ahora = _ahora_local()
+    proximas = Cita.query.filter(
+        Cita.paciente_id == paciente_id,
+        Cita.fecha_inicio >= ahora,
+        Cita.status != EstatusCita.cancelada,
+    ).order_by(Cita.fecha_inicio.asc()).limit(5).all()
+    data['proximas_citas'] = [c.to_dict() for c in proximas]
 
     # Historial de asistencias (citas completadas o no_asistencia)
     asistencias_query = Cita.query.filter(

@@ -32,7 +32,7 @@ class Config:
 
     # Bot IA
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
-    AI_MODEL = 'gemini-3.1-flash-lite-preview'
+    AI_MODEL = 'gemini-3.1-flash-lite'
 
     # Twilio
     TWILIO_ACCOUNT_SID = os.environ.get('TWILIO_ACCOUNT_SID', '')
@@ -62,7 +62,7 @@ class DevelopmentConfig(Config):
 
 
 class ProductionConfig(Config):
-    SECRET_KEY = os.environ['SECRET_KEY']  # Obligatorio en produccion, falla si no existe
+    SECRET_KEY = os.environ['SECRET_KEY']
     DEBUG = False
     SESSION_COOKIE_SECURE = True
     LOG_LEVEL = logging.WARNING
