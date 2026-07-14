@@ -451,6 +451,32 @@ async function guardarPaciente() {
     const resp = await apiFetch(url, { method, body: JSON.stringify(body) });
     const data = await _parseJson(resp);
 
+    if (resp.status === 409 && data.error === 'overwrite_identity') {
+      const act = data.datos_actuales || {};
+      const nue = data.datos_nuevos || {};
+      const confirmar = confirm(
+        (data.mensaje || 'Vas a sobrescribir esta ficha.') + '\n\n' +
+        `Actual:  ${act.nombre || ''} (${act.whatsapp || 'sin WA'})\n` +
+        `Nuevo:   ${nue.nombre || ''} (${nue.whatsapp || 'sin WA'})\n\n` +
+        'Aceptar = modificar esta ficha. Cancelar = no hacer cambios.'
+      );
+      if (confirmar) {
+        body.confirmar_sobrescritura = true;
+        const resp2 = await apiFetch(url, { method, body: JSON.stringify(body) });
+        if (resp2.ok) {
+          btnGuardar.blur();
+          bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPaciente')).hide();
+          cargarPacientes();
+          showToast('Cambios guardados correctamente', 'success');
+        } else {
+          const data2 = await _parseJson(resp2);
+          msg.className = 'mt-2 text-danger small';
+          msg.textContent = data2.error || data2.mensaje || ('Error HTTP ' + resp2.status);
+        }
+      }
+      return;
+    }
+
     if (resp.status === 409 && data.error === 'duplicate_whatsapp') {
       const nombres = (data.pacientes_existentes || []).map(p => p.nombre).join(', ');
       const confirmar = confirm(

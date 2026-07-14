@@ -1,8 +1,9 @@
 from flask import Blueprint, jsonify, request
-from flask_login import login_required
+from flask_login import login_required, current_user
 from extensions import db, permiso_requerido
-from models import Paciente, GrupoFamiliar, EstatusCRM, SolicitudRegistro
+from models import Paciente, GrupoFamiliar, EstatusCRM, SolicitudRegistro, AuditLog
 from datetime import datetime, date
+import json
 
 pacientes_bp = Blueprint('pacientes', __name__, url_prefix='/api/pacientes')
 
@@ -165,6 +166,7 @@ def crear():
             pass
     db.session.add(p)
     db.session.commit()
+    _audit_paciente('crear_paciente', p.id, datos_nuevos=_snapshot_paciente(p))
     return jsonify(p.to_dict()), 201
 
 
@@ -175,6 +177,29 @@ def actualizar(paciente_id):
     data = request.get_json(silent=True)
     if not data:
         return jsonify(error='JSON inválido'), 400
+
+    # Foto ANTES de tocar nada, para la bitacora y para poder recuperar la ficha
+    # si resulta que se sobrescribio a otra persona.
+    datos_antes = _snapshot_paciente(p)
+
+    # Proteccion contra sobrescritura de identidad: cambiar nombre Y whatsapp a la
+    # vez, a valores distintos, suele indicar que se esta "reutilizando" la ficha
+    # para otra persona -> se perderia el paciente original sin dejar rastro.
+    # Se exige confirmacion explicita (confirmar_sobrescritura) antes de permitirlo.
+    nombre_nuevo = data.get('nombre')
+    wa_nuevo = _normalizar_numero(data['whatsapp']) if 'whatsapp' in data else None
+    cambia_nombre = nombre_nuevo is not None and nombre_nuevo.strip() and nombre_nuevo.strip() != (p.nombre or '')
+    cambia_wa = wa_nuevo is not None and wa_nuevo and wa_nuevo != (p.whatsapp or '')
+    if cambia_nombre and cambia_wa and not data.get('confirmar_sobrescritura'):
+        return jsonify(
+            error='overwrite_identity',
+            mensaje=('Estás cambiando el nombre y el WhatsApp al mismo tiempo. '
+                     'Si es otra persona, crea un paciente NUEVO en lugar de editar este, '
+                     'para no perder al paciente original. Confirma solo si de verdad quieres '
+                     'modificar esta ficha.'),
+            datos_actuales={'nombre': p.nombre, 'whatsapp': p.whatsapp or ''},
+            datos_nuevos={'nombre': nombre_nuevo.strip(), 'whatsapp': wa_nuevo},
+        ), 409
 
     if 'nombre' in data:
         p.nombre = data['nombre']
@@ -248,6 +273,8 @@ def actualizar(paciente_id):
             p.proximo_recordatorio_fecha = None
 
     db.session.commit()
+    _audit_paciente('editar_paciente', p.id,
+                    datos_anteriores=datos_antes, datos_nuevos=_snapshot_paciente(p))
     return jsonify(p.to_dict())
 
 
@@ -287,8 +314,10 @@ def buscar_adultos():
 @login_required
 def eliminar(paciente_id):
     p = Paciente.query.filter_by(id=paciente_id, eliminado=False).first_or_404()
+    datos_antes = _snapshot_paciente(p)
     p.eliminado = True
     db.session.commit()
+    _audit_paciente('eliminar_paciente', p.id, datos_anteriores=datos_antes)
     return jsonify(ok=True)
 
 
@@ -336,6 +365,45 @@ def _normalizar_numero(numero):
         return numero
     numero = numero.replace('whatsapp:', '').replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
     return numero
+
+
+def _snapshot_paciente(p):
+    """Foto de los campos de identidad de un paciente, para la bitacora."""
+    return {
+        'id': p.id,
+        'nombre': p.nombre,
+        'whatsapp': p.whatsapp,
+        'telefono': p.telefono,
+        'email': p.email,
+        'nombre_tutor': p.nombre_tutor,
+        'estatus_crm': p.estatus_crm.value if p.estatus_crm else None,
+        'grupo_familiar_id': p.grupo_familiar_id,
+        'doctor_id': p.doctor_id,
+        'eliminado': p.eliminado,
+    }
+
+
+def _audit_paciente(accion, registro_id, datos_anteriores=None, datos_nuevos=None):
+    """Registra en audit_logs un alta/edicion/borrado de paciente, guardando el
+    estado ANTERIOR para poder recuperar fichas sobrescritas. Nunca rompe la
+    operacion principal: si la bitacora falla, solo se descarta."""
+    try:
+        uid = current_user.id if getattr(current_user, 'is_authenticated', False) else None
+        log = AuditLog(
+            user_id=uid,
+            accion=accion,
+            tabla='pacientes',
+            registro_id=registro_id,
+            datos_anteriores=json.dumps(datos_anteriores, ensure_ascii=False, default=str)
+                if datos_anteriores is not None else None,
+            datos_nuevos=json.dumps(datos_nuevos, ensure_ascii=False, default=str)
+                if datos_nuevos is not None else None,
+            ip_address=request.remote_addr,
+        )
+        db.session.add(log)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 
 # ── Solicitudes de Registro (pacientes nuevos via bot) ──────────────────────

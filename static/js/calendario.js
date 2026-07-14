@@ -448,7 +448,11 @@ async function cancelarCitaActual() {
 async function buscarPacientes(q) {
   const listEl = document.getElementById('paciente_results');
   try {
-    const resp = await apiFetch(`/api/pacientes?q=${encodeURIComponent(q)}&per_page=10`);
+    // per_page alto para no ocultar pacientes existentes: con per_page=10 y
+    // apellidos comunes (p.ej. "hernandez" ~164) el paciente buscado quedaba
+    // fuera de la lista y parecia "borrado". Si aun asi hay mas coincidencias
+    // que las mostradas, se avisa al usuario que afine la busqueda.
+    const resp = await apiFetch(`/api/pacientes?q=${encodeURIComponent(q)}&per_page=50`);
     const data = await resp.json();
     const pacs = data.pacientes || [];
 
@@ -488,6 +492,18 @@ async function buscarPacientes(q) {
         );
         listEl.appendChild(a);
       });
+
+      // Aviso si hay mas coincidencias de las mostradas: el paciente buscado
+      // podria no estar en la lista. Se invita a escribir el nombre completo.
+      const total = data.total || pacs.length;
+      if (total > pacs.length) {
+        const aviso = document.createElement('div');
+        aviso.className = 'list-group-item small text-warning bg-light';
+        aviso.textContent =
+          `Mostrando ${pacs.length} de ${total} coincidencias. ` +
+          `Escribe el nombre o telefono completo para afinar la busqueda.`;
+        listEl.appendChild(aviso);
+      }
     }
     listEl.classList.remove('d-none');
   } catch (e) {
