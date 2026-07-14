@@ -740,3 +740,74 @@ class LogBot(db.Model):
             'detalle': self.detalle,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class TurnoRotativo(db.Model):
+    """Turno compartido que rota entre varios doctores semana a semana.
+    Ej: sabados que Sofia y Valeria se turnan (un sabado si, un sabado no)."""
+    __tablename__ = 'turnos_rotativos'
+
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(200), nullable=False)
+    dia_semana = db.Column(db.Integer, nullable=False)   # 0=Lun .. 6=Dom
+    hora_inicio = db.Column(db.Time, nullable=False, default=time(9, 0))
+    hora_fin = db.Column(db.Time, nullable=False, default=time(14, 0))
+    fecha_ancla = db.Column(db.Date, nullable=False)     # fecha (de ese dia) donde atiende el miembro orden 0
+    activo = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    miembros = db.relationship(
+        'TurnoRotativoMiembro', backref='turno',
+        lazy=True, cascade='all, delete-orphan',
+        order_by='TurnoRotativoMiembro.orden',
+    )
+
+    def to_dict(self):
+        from datetime import timedelta
+        from services.scheduler_service import resolver_turno
+        miembros_ord = sorted(self.miembros, key=lambda m: m.orden)
+        # preview: proximas 6 ocurrencias del dia_semana desde hoy
+        hoy = date.today()
+        dias_hasta = (self.dia_semana - hoy.weekday()) % 7
+        primera = hoy + timedelta(days=dias_hasta)
+        preview = []
+        for i in range(6):
+            f = primera + timedelta(weeks=i)
+            m = resolver_turno(f, self)
+            if m:
+                preview.append({
+                    'fecha': f.isoformat(),
+                    'dentista_id': m.dentista_id,
+                    'dentista': m.dentista.nombre if m.dentista else '',
+                })
+        return {
+            'id': self.id,
+            'nombre': self.nombre,
+            'dia_semana': self.dia_semana,
+            'hora_inicio': self.hora_inicio.strftime('%H:%M'),
+            'hora_fin': self.hora_fin.strftime('%H:%M'),
+            'fecha_ancla': self.fecha_ancla.isoformat(),
+            'activo': self.activo,
+            'miembros': [
+                {'dentista_id': m.dentista_id,
+                 'dentista': m.dentista.nombre if m.dentista else '',
+                 'orden': m.orden}
+                for m in miembros_ord
+            ],
+            'preview': preview,
+        }
+
+
+class TurnoRotativoMiembro(db.Model):
+    __tablename__ = 'turnos_rotativos_miembros'
+
+    id = db.Column(db.Integer, primary_key=True)
+    turno_id = db.Column(db.Integer, db.ForeignKey('turnos_rotativos.id'), nullable=False)
+    dentista_id = db.Column(db.Integer, db.ForeignKey('dentistas.id'), nullable=False)
+    orden = db.Column(db.Integer, nullable=False, default=0)
+
+    dentista = db.relationship('Dentista')
+
+    __table_args__ = (
+        db.UniqueConstraint('turno_id', 'dentista_id', name='uq_turno_dentista'),
+    )
