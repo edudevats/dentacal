@@ -12,9 +12,13 @@ class Config:
     SQLALCHEMY_ENGINE_OPTIONS = {'pool_pre_ping': True}
 
     WTF_CSRF_ENABLED = True
-    WTF_CSRF_TIME_LIMIT = 3600
+    # None = el token CSRF dura lo mismo que la sesion (12h). Antes eran 3600s (1h),
+    # lo que provocaba que, con la pestaña abierta mas de 1 hora, el token caducara
+    # antes que la sesion y TODO guardado (POST/PUT) fallara con error 400 CSRF —
+    # el paciente no se guardaba. Ahora CSRF y sesion caducan juntos.
+    WTF_CSRF_TIME_LIMIT = None
 
-    PERMANENT_SESSION_LIFETIME = timedelta(hours=8)
+    PERMANENT_SESSION_LIFETIME = timedelta(hours=12)
     SESSION_COOKIE_SECURE = False  # True en produccion con HTTPS
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'

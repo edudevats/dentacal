@@ -16,6 +16,17 @@ def create_app(config_name=None):
     from config import config_map
     app.config.from_object(config_map.get(config_name, config_map['default']))
 
+    # Salvaguarda: en producción NO permitir caer en SQLite. En PythonAnywhere
+    # SQLite provoca "disk I/O error" y pérdida de pacientes. Si DATABASE_URL
+    # falta, fallar ruidosamente al arrancar en vez de degradar en silencio.
+    if config_name == 'production' and \
+            str(app.config.get('SQLALCHEMY_DATABASE_URI', '')).startswith('sqlite'):
+        raise RuntimeError(
+            'Producción está apuntando a SQLite. Configura DATABASE_URL con la '
+            'cadena mysql+pymysql://... en el .env '
+            '(guía: scripts/migrate_sqlite_to_mysql.py).'
+        )
+
     # Logging
     logging.basicConfig(
         level=app.config.get('LOG_LEVEL', logging.INFO),
@@ -52,6 +63,27 @@ def _init_extensions(app):
     login_manager.login_view = 'auth.login'
     login_manager.login_message = 'Debes iniciar sesion para acceder.'
     login_manager.login_message_category = 'warning'
+
+    # Sesion o token CSRF expirados en llamadas /api/: responder JSON claro
+    # (401/400) en vez de redirigir al HTML de login. Antes, el fetch seguia el
+    # redirect 302 y recibia el HTML del login, rompiendo el guardado en silencio
+    # (el paciente NO se guardaba y la recepcionista no se enteraba).
+    from flask import request, jsonify, redirect, url_for
+    from flask_wtf.csrf import CSRFError
+
+    @login_manager.unauthorized_handler
+    def _unauthorized():
+        if request.path.startswith('/api/'):
+            return jsonify(error='session_expired',
+                           mensaje='Tu sesión expiró. Inicia sesión de nuevo.'), 401
+        return redirect(url_for('auth.login', next=request.path))
+
+    @app.errorhandler(CSRFError)
+    def _csrf_error(e):
+        if request.path.startswith('/api/'):
+            return jsonify(error='csrf_expired',
+                           mensaje='Tu sesión expiró. Inicia sesión de nuevo.'), 400
+        return redirect(url_for('auth.login'))
 
     @login_manager.user_loader
     def load_user(user_id):

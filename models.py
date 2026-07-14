@@ -29,6 +29,18 @@ class EstatusCRM(PyEnum):
 
 
 class TipoSeguimiento(PyEnum):
+    # Motivo del seguimiento
+    confirmacion_cita = 'confirmacion_cita'
+    recordatorio_cita = 'recordatorio_cita'
+    post_consulta = 'post_consulta'
+    reactivacion = 'reactivacion'
+    presupuesto = 'presupuesto'
+    tratamiento_pendiente = 'tratamiento_pendiente'
+    limpieza_control = 'limpieza_control'
+    anticipo_pendiente = 'anticipo_pendiente'
+    resena = 'resena'
+    cumpleanos = 'cumpleanos'
+    # Canal (genéricos, se conservan)
     whatsapp_1 = 'whatsapp_1'
     whatsapp_2 = 'whatsapp_2'
     llamada = 'llamada'
