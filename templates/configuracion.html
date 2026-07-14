@@ -7,6 +7,7 @@
   <ul class="nav nav-tabs mb-3" id="configTabs">
     <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tabConsultorio">Consultorio</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabDentistas">Doctores</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabTurnos">Turnos rotativos</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabTipos">Tipos de Cita</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabPlantillas">Plantillas</a></li>
     <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tabOrigenes">Origen Paciente</a></li>
@@ -132,6 +133,84 @@
           </div>
         </div>
         {% endfor %}
+      </div>
+    </div>
+
+    <!-- Tab Turnos rotativos -->
+    <div class="tab-pane fade" id="tabTurnos">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <h5 class="mb-0">Turnos rotativos</h5>
+          <small class="text-muted">Doctores que se turnan un mismo dia (ej. sabado si, sabado no).</small>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="nuevoTurno()">
+          <i class="bi bi-plus-lg me-1"></i>Nuevo turno
+        </button>
+      </div>
+      <div id="turnosLista" class="row g-3"></div>
+
+      <!-- Modal turno -->
+      <div class="modal fade" id="modalTurno" tabindex="-1">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="turnoTitulo">Nuevo turno</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <input type="hidden" id="t_id">
+              <div class="mb-2">
+                <label class="form-label small fw-semibold">Nombre</label>
+                <input type="text" class="form-control form-control-sm" id="t_nombre" placeholder="Sabados Sofia/Valeria">
+              </div>
+              <div class="row g-2">
+                <div class="col-6">
+                  <label class="form-label small fw-semibold">Dia</label>
+                  <select class="form-select form-select-sm" id="t_dia">
+                    <option value="0">Lunes</option>
+                    <option value="1">Martes</option>
+                    <option value="2">Miercoles</option>
+                    <option value="3">Jueves</option>
+                    <option value="4">Viernes</option>
+                    <option value="5" selected>Sabado</option>
+                    <option value="6">Domingo</option>
+                  </select>
+                </div>
+                <div class="col-6">
+                  <label class="form-label small fw-semibold">Fecha ancla</label>
+                  <input type="date" class="form-control form-control-sm" id="t_ancla">
+                  <small class="text-muted" style="font-size:11px">Un dia donde atiende el 1er doctor de la lista.</small>
+                </div>
+              </div>
+              <div class="row g-2 mt-1">
+                <div class="col-6">
+                  <label class="form-label small fw-semibold">Hora inicio</label>
+                  <input type="time" class="form-control form-control-sm" id="t_inicio" value="09:00">
+                </div>
+                <div class="col-6">
+                  <label class="form-label small fw-semibold">Hora fin</label>
+                  <input type="time" class="form-control form-control-sm" id="t_fin" value="14:00">
+                </div>
+              </div>
+              <hr class="my-3">
+              <label class="form-label small fw-semibold">Doctores en rotacion (en orden)</label>
+              <div id="t_miembros" class="mb-2"></div>
+              <div class="input-group input-group-sm">
+                <select class="form-select" id="t_add_doc"></select>
+                <button class="btn btn-outline-secondary" type="button" onclick="agregarMiembroTurno()">Agregar</button>
+              </div>
+              <div class="form-check form-switch mt-2">
+                <input class="form-check-input" type="checkbox" id="t_activo" checked>
+                <label class="form-check-label small" for="t_activo">Turno activo</label>
+              </div>
+              <div id="turnoMsg" class="mt-2 small"></div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-primary btn-sm" onclick="guardarTurno()">Guardar</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1038,5 +1117,165 @@
 
   // Cargar tipos al activar el tab
   document.querySelector('[href="#tabRecordatorios"]')?.addEventListener('shown.bs.tab', cargarTiposRecordatorio);
+
+  // ===== Turnos rotativos =====
+  const DIAS_TURNO = ['Lunes','Martes','Miercoles','Jueves','Viernes','Sabado','Domingo'];
+  let _turnoMiembros = [];   // [{dentista_id, dentista}]
+  let _dentistasCache = [];
+  let _turnosCache = [];
+
+  async function cargarTurnos() {
+    // cache de dentistas para el selector
+    if (!_dentistasCache.length) {
+      const r = await apiFetch('/api/dentistas?activos=true');
+      _dentistasCache = await r.json();
+    }
+    const resp = await apiFetch('/api/turnos');
+    const turnos = await resp.json();
+    _turnosCache = turnos;
+    const cont = document.getElementById('turnosLista');
+    if (!turnos.length) {
+      cont.innerHTML = '<div class="col-12 text-muted small">No hay turnos rotativos configurados.</div>';
+      return;
+    }
+    cont.innerHTML = turnos.map(t => {
+      const miembros = t.miembros.map(m => m.dentista).join(' ↔ ');
+      const preview = (t.preview || []).map(p => {
+        const [y, mo, d] = p.fecha.split('-');
+        return `<div class="d-flex justify-content-between"><span>${d}/${mo}</span><span class="fw-semibold">${p.dentista}</span></div>`;
+      }).join('');
+      return `
+      <div class="col-md-6">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start">
+              <div>
+                <h6 class="mb-1">${t.nombre}${t.activo ? '' : ' <span class="badge bg-secondary">inactivo</span>'}</h6>
+                <div class="small text-muted">${DIAS_TURNO[t.dia_semana]} ${t.hora_inicio}-${t.hora_fin}</div>
+                <div class="small mt-1">${miembros}</div>
+              </div>
+              <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-secondary" onclick="editarTurno(${t.id})"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-outline-danger" onclick="eliminarTurno(${t.id})"><i class="bi bi-trash"></i></button>
+              </div>
+            </div>
+            <div class="mt-2 small border-top pt-2">
+              <div class="text-muted mb-1">Proximas fechas:</div>
+              ${preview}
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function _renderMiembrosTurno() {
+    const cont = document.getElementById('t_miembros');
+    if (!_turnoMiembros.length) {
+      cont.innerHTML = '<div class="text-muted small">Agrega al menos 2 doctores.</div>';
+    } else {
+      cont.innerHTML = _turnoMiembros.map((m, i) => `
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="badge bg-light text-dark">${i + 1}</span>
+          <span class="flex-grow-1 small">${m.dentista}</span>
+          <button class="btn btn-sm btn-link p-0" ${i === 0 ? 'disabled' : ''} onclick="moverMiembro(${i}, -1)"><i class="bi bi-arrow-up"></i></button>
+          <button class="btn btn-sm btn-link p-0" ${i === _turnoMiembros.length - 1 ? 'disabled' : ''} onclick="moverMiembro(${i}, 1)"><i class="bi bi-arrow-down"></i></button>
+          <button class="btn btn-sm btn-link text-danger p-0" onclick="quitarMiembro(${i})"><i class="bi bi-x-lg"></i></button>
+        </div>`).join('');
+    }
+    // repoblar selector con doctores no agregados
+    const usados = new Set(_turnoMiembros.map(m => m.dentista_id));
+    document.getElementById('t_add_doc').innerHTML = _dentistasCache
+      .filter(d => !usados.has(d.id))
+      .map(d => `<option value="${d.id}">${d.nombre}</option>`).join('');
+  }
+
+  function agregarMiembroTurno() {
+    const sel = document.getElementById('t_add_doc');
+    const id = parseInt(sel.value);
+    if (!id) return;
+    const doc = _dentistasCache.find(d => d.id === id);
+    _turnoMiembros.push({ dentista_id: id, dentista: doc ? doc.nombre : '' });
+    _renderMiembrosTurno();
+  }
+
+  function quitarMiembro(i) { _turnoMiembros.splice(i, 1); _renderMiembrosTurno(); }
+
+  function moverMiembro(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= _turnoMiembros.length) return;
+    [_turnoMiembros[i], _turnoMiembros[j]] = [_turnoMiembros[j], _turnoMiembros[i]];
+    _renderMiembrosTurno();
+  }
+
+  async function nuevoTurno() {
+    if (!_dentistasCache.length) {
+      const r = await apiFetch('/api/dentistas?activos=true');
+      _dentistasCache = await r.json();
+    }
+    document.getElementById('t_id').value = '';
+    document.getElementById('t_nombre').value = '';
+    document.getElementById('t_dia').value = '5';
+    document.getElementById('t_ancla').value = '';
+    document.getElementById('t_inicio').value = '09:00';
+    document.getElementById('t_fin').value = '14:00';
+    document.getElementById('turnoMsg').textContent = '';
+    document.getElementById('turnoTitulo').textContent = 'Nuevo turno';
+    document.getElementById('t_activo').checked = true;
+    _turnoMiembros = [];
+    _renderMiembrosTurno();
+    new bootstrap.Modal(document.getElementById('modalTurno')).show();
+  }
+
+  function editarTurno(id) {
+    const t = _turnosCache.find(x => x.id === id);
+    if (!t) return;
+    document.getElementById('t_id').value = t.id;
+    document.getElementById('t_nombre').value = t.nombre;
+    document.getElementById('t_dia').value = String(t.dia_semana);
+    document.getElementById('t_ancla').value = t.fecha_ancla;
+    document.getElementById('t_inicio').value = t.hora_inicio;
+    document.getElementById('t_fin').value = t.hora_fin;
+    document.getElementById('turnoMsg').textContent = '';
+    document.getElementById('turnoTitulo').textContent = 'Editar turno';
+    document.getElementById('t_activo').checked = t.activo;
+    _turnoMiembros = t.miembros.map(m => ({ dentista_id: m.dentista_id, dentista: m.dentista }));
+    _renderMiembrosTurno();
+    new bootstrap.Modal(document.getElementById('modalTurno')).show();
+  }
+
+  async function guardarTurno() {
+    const id = document.getElementById('t_id').value;
+    const body = {
+      nombre: document.getElementById('t_nombre').value,
+      dia_semana: parseInt(document.getElementById('t_dia').value),
+      hora_inicio: document.getElementById('t_inicio').value,
+      hora_fin: document.getElementById('t_fin').value,
+      fecha_ancla: document.getElementById('t_ancla').value,
+      miembros: _turnoMiembros.map(m => m.dentista_id),
+      activo: document.getElementById('t_activo').checked,
+    };
+    const url = id ? `/api/turnos/${id}` : '/api/turnos';
+    const method = id ? 'PUT' : 'POST';
+    const resp = await apiFetch(url, { method, body: JSON.stringify(body) });
+    const msg = document.getElementById('turnoMsg');
+    if (resp.ok) {
+      bootstrap.Modal.getInstance(document.getElementById('modalTurno'))?.hide();
+      cargarTurnos();
+    } else {
+      const d = await resp.json();
+      msg.className = 'mt-2 text-danger small';
+      msg.textContent = d.error || 'Error al guardar';
+    }
+  }
+
+  async function eliminarTurno(id) {
+    if (!confirm('¿Eliminar este turno rotativo?')) return;
+    const resp = await apiFetch(`/api/turnos/${id}`, { method: 'DELETE' });
+    if (resp.ok) cargarTurnos();
+  }
+
+  // Cargar turnos al activar la pestaña
+  document.querySelector('a[href="#tabTurnos"]')?.addEventListener('shown.bs.tab', cargarTurnos);
 </script>
 {% endblock %}

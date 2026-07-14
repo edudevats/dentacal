@@ -194,16 +194,46 @@ def _get_doctor_schedule_summary():
     dentistas = Dentista.query.filter_by(activo=True).order_by(Dentista.nombre).all()
     lineas = []
 
+    from models import TurnoRotativoMiembro, TurnoRotativo
+    from services.scheduler_service import resolver_turno
+    from datetime import date as _date, timedelta as _td
+
     for d in dentistas:
         horarios_activos = {h.dia_semana: h for h in d.horarios if h.activo}
-        if not horarios_activos:
+
+        # Turnos rotativos donde participa el doctor
+        turnos = (TurnoRotativo.query
+                  .filter(TurnoRotativo.activo.is_(True))
+                  .join(TurnoRotativoMiembro)
+                  .filter(TurnoRotativoMiembro.dentista_id == d.id)
+                  .all())
+
+        if not horarios_activos and not turnos:
             lineas.append(f"- {d.nombre} (ID:{d.id}): Sin horario configurado")
             continue
 
-        dias_str = ', '.join(
+        partes = [
             f"{dias_nombres[dia]} {h.hora_inicio.strftime('%H:%M')}-{h.hora_fin.strftime('%H:%M')}"
             for dia, h in sorted(horarios_activos.items())
-        )
+        ]
+        for t in turnos:
+            # proximas 2 fechas que le tocan a este doctor
+            hoy = _date.today()
+            dias_hasta = (t.dia_semana - hoy.weekday()) % 7
+            primera = hoy + _td(days=dias_hasta)
+            proximas = []
+            for i in range(8):
+                f = primera + _td(weeks=i)
+                m = resolver_turno(f, t)
+                if m and m.dentista_id == d.id:
+                    proximas.append(f.strftime('%d/%m'))
+                if len(proximas) >= 2:
+                    break
+            fechas_txt = f" (le toca: {', '.join(proximas)})" if proximas else ""
+            partes.append(f"{dias_nombres[t.dia_semana]} {t.hora_inicio.strftime('%H:%M')}-"
+                          f"{t.hora_fin.strftime('%H:%M')} rotativo{fechas_txt}")
+
+        dias_str = ', '.join(partes)
 
         ahora = datetime.utcnow()
         limite = ahora + timedelta(days=30)
@@ -893,24 +923,42 @@ def _tool_buscar_disponibilidad(args):
                 result['doctor_asignado'] = doctor_asignado_info
             return result
 
-        # Verificar si el doctor trabaja ese dia
-        horario_dia = HorarioDentista.query.filter_by(
-            dentista_id=dentista_id, dia_semana=fecha.weekday(), activo=True
-        ).first()
-        if not horario_dia:
+        # Verificar si el doctor trabaja ese dia (considera turnos rotativos)
+        from services.scheduler_service import (horario_efectivo, _turno_de_dentista,
+                                                 resolver_turno, proxima_fecha_dentista)
+        if horario_efectivo(dentista_id, fecha) is None:
             d = Dentista.query.get(dentista_id)
             nombre = d.nombre if d else 'El doctor'
-            # Obtener dias que si trabaja
             dias_nombres = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo']
-            dias_activos = HorarioDentista.query.filter_by(
-                dentista_id=dentista_id, activo=True
-            ).all()
-            dias_str = ', '.join(dias_nombres[h.dia_semana] for h in sorted(dias_activos, key=lambda x: x.dia_semana))
-            result = {
-                'disponible': False,
-                'mensaje': f'{nombre} no atiende los {dias_nombres[fecha.weekday()]}. Sus dias de consulta son: {dias_str}.',
-                'dias_laborales': dias_str,
-            }
+            dia_txt = dias_nombres[fecha.weekday()]
+
+            turno = _turno_de_dentista(dentista_id, fecha.weekday())
+            if turno:
+                # El doctor rota ese dia pero no le toca esta fecha
+                miembro = resolver_turno(fecha, turno)
+                quien = miembro.dentista.nombre if (miembro and miembro.dentista) else 'otro doctor'
+                prox = proxima_fecha_dentista(turno, dentista_id, fecha)
+                mensaje = (f'{nombre} atiende los {dia_txt} en semanas alternas. '
+                           f'Este {dia_txt} {fecha.strftime("%d/%m")} le toca a {quien}.')
+                if prox:
+                    mensaje += f' El proximo {dia_txt} de {nombre} es el {prox.strftime("%d/%m")}.'
+                result = {
+                    'disponible': False,
+                    'rota': True,
+                    'doctor_del_dia': quien,
+                    'mensaje': mensaje,
+                }
+            else:
+                dias_activos = HorarioDentista.query.filter_by(
+                    dentista_id=dentista_id, activo=True
+                ).all()
+                dias_str = ', '.join(dias_nombres[h.dia_semana]
+                                     for h in sorted(dias_activos, key=lambda x: x.dia_semana))
+                result = {
+                    'disponible': False,
+                    'mensaje': f'{nombre} no atiende los {dia_txt}. Sus dias de consulta son: {dias_str}.',
+                    'dias_laborales': dias_str,
+                }
             if doctor_asignado_info:
                 result['doctor_asignado'] = doctor_asignado_info
             return result

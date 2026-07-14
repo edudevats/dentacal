@@ -3,7 +3,8 @@ Logica de disponibilidad del consultorio.
 Verifica colisiones y genera slots disponibles.
 """
 from datetime import datetime, timedelta, date
-from models import Cita, HorarioDentista, BloqueoDentista, Consultorio, EstatusCita
+from models import (Cita, HorarioDentista, BloqueoDentista, Consultorio,
+                    EstatusCita, TurnoRotativo, TurnoRotativoMiembro)
 from extensions import db
 from sqlalchemy import and_, or_
 
@@ -41,21 +42,16 @@ def obtener_slots_disponibles(fecha, dentista_id, consultorio_id=None,
     Genera lista de slots disponibles para un dentista en una fecha.
     Si consultorio_id se omite, busca en todos los consultorios activos.
     """
-    # Verificar que el dentista trabaja ese dia
-    dia_semana = fecha.weekday()  # 0=Lun, 6=Dom
-    horario = HorarioDentista.query.filter_by(
-        dentista_id=dentista_id,
-        dia_semana=dia_semana,
-        activo=True,
-    ).first()
-
-    if not horario:
+    # Horario efectivo del dia (considera turnos rotativos)
+    horas = horario_efectivo(dentista_id, fecha)
+    if not horas:
         return []
+    hora_inicio, hora_fin = horas
 
     inicio_dia = datetime(fecha.year, fecha.month, fecha.day,
-                          horario.hora_inicio.hour, horario.hora_inicio.minute)
+                          hora_inicio.hour, hora_inicio.minute)
     fin_dia = datetime(fecha.year, fecha.month, fecha.day,
-                       horario.hora_fin.hour, horario.hora_fin.minute)
+                       hora_fin.hour, hora_fin.minute)
 
     # Cargar bloqueos del dentista para ese dia (puede haber varios parciales)
     bloqueos = BloqueoDentista.query.filter(
@@ -134,3 +130,62 @@ def hay_citas_ese_dia(dentista_id, fecha):
         Cita.fecha_inicio <= fin,
         Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
     ).first() is not None
+
+
+def resolver_turno(fecha, turno):
+    """Devuelve el TurnoRotativoMiembro que atiende esa fecha, o None.
+    None si la fecha no cae en el dia_semana del turno o no hay miembros."""
+    f = fecha.date() if isinstance(fecha, datetime) else fecha
+    if f.weekday() != turno.dia_semana:
+        return None
+    miembros = sorted(turno.miembros, key=lambda m: m.orden)
+    n = len(miembros)
+    if n == 0:
+        return None
+    sem = (f - turno.fecha_ancla).days // 7   # multiplo de 7: ambos son el mismo weekday
+    idx = sem % n                              # el % de Python devuelve 0..n-1 incluso con sem negativo
+    return miembros[idx]
+
+
+def _turno_de_dentista(dentista_id, dia_semana):
+    """El TurnoRotativo activo que incluye al dentista para ese dia_semana, o None."""
+    return (TurnoRotativo.query
+            .filter(TurnoRotativo.dia_semana == dia_semana,
+                    TurnoRotativo.activo.is_(True))
+            .join(TurnoRotativoMiembro)
+            .filter(TurnoRotativoMiembro.dentista_id == dentista_id)
+            .first())
+
+
+def horario_efectivo(dentista_id, fecha):
+    """(hora_inicio, hora_fin) que el dentista atiende ese dia, o None.
+    Precedencia: si el dentista pertenece a un turno rotativo de ese dia,
+    el turno manda (atiende solo si le toca esa fecha). Si no, HorarioDentista normal."""
+    f = fecha.date() if isinstance(fecha, datetime) else fecha
+    turno = _turno_de_dentista(dentista_id, f.weekday())
+    if turno:
+        miembro = resolver_turno(f, turno)
+        if miembro and miembro.dentista_id == dentista_id:
+            return (turno.hora_inicio, turno.hora_fin)
+        return None
+    horario = HorarioDentista.query.filter_by(
+        dentista_id=dentista_id, dia_semana=f.weekday(), activo=True
+    ).first()
+    if horario:
+        return (horario.hora_inicio, horario.hora_fin)
+    return None
+
+
+def proxima_fecha_dentista(turno, dentista_id, desde_fecha, limite_semanas=12):
+    """Proxima fecha ESTRICTAMENTE posterior a desde_fecha en que al dentista le toca el turno."""
+    base = desde_fecha.date() if isinstance(desde_fecha, datetime) else desde_fecha
+    dias_hasta = (turno.dia_semana - base.weekday()) % 7
+    primera = base + timedelta(days=dias_hasta)
+    for i in range(limite_semanas + 1):
+        cand = primera + timedelta(weeks=i)
+        if cand <= base:
+            continue
+        m = resolver_turno(cand, turno)
+        if m and m.dentista_id == dentista_id:
+            return cand
+    return None
