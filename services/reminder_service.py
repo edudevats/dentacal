@@ -19,6 +19,19 @@ def _ahora_local():
     return datetime.now(TIMEZONE).replace(tzinfo=None)
 
 
+def _hora_resumen_doctores(app):
+    """Lee la hora configurada del resumen a doctores. Fallback 21:00 (9pm)."""
+    try:
+        with app.app_context():
+            from models import ConfiguracionConsultorio
+            config = ConfiguracionConsultorio.query.first()
+            if config and config.hora_resumen_doctores:
+                return config.hora_resumen_doctores.hour, config.hora_resumen_doctores.minute
+    except Exception as e:
+        logger.warning(f'No se pudo leer hora_resumen_doctores, usando 21:00: {e}')
+    return 21, 0
+
+
 def setup_scheduler_jobs(scheduler, app):
     """Registra todos los jobs del scheduler."""
 
@@ -43,12 +56,13 @@ def setup_scheduler_jobs(scheduler, app):
         kwargs={'app': app},
     )
 
-    # Resumen diario a doctores - cada dia a las 8pm
+    # Resumen diario a doctores - hora configurable (default 21:00 / 9pm)
+    _resumen_hora, _resumen_min = _hora_resumen_doctores(app)
     scheduler.add_job(
         func=_job_resumen_doctores,
         trigger='cron',
-        hour=20,
-        minute=0,
+        hour=_resumen_hora,
+        minute=_resumen_min,
         id='resumen_doctores',
         replace_existing=True,
         kwargs={'app': app},

@@ -47,6 +47,11 @@
                 <input type="time" id="cfg_cierre" class="form-control"
                   value="{{ config.horario_cierre.strftime('%H:%M') if config and config.horario_cierre else '18:00' }}">
               </div>
+              <div class="col-md-3">
+                <label class="form-label">Hora resumen a doctores</label>
+                <input type="time" id="cfg_hora_resumen" class="form-control"
+                  value="{{ config.hora_resumen_doctores.strftime('%H:%M') if config and config.hora_resumen_doctores else '21:00' }}">
+              </div>
               <div class="col-md-4">
                 <label class="form-label">Precio primera consulta</label>
                 <div class="input-group">
@@ -363,9 +368,22 @@
             <label class="form-label">Especialidad</label>
             <input type="text" id="d_especialidad" class="form-control">
           </div>
-          <div class="col-md-6">
+          <div class="col-md-4">
             <label class="form-label">Telefono</label>
             <input type="tel" id="d_telefono" class="form-control">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Pais</label>
+            <select id="d_pais" class="form-select">
+              <option value="MX" selected>México (+52)</option>
+              <option value="US">Estados Unidos (+1)</option>
+              <option value="ES">España (+34)</option>
+              <option value="CO">Colombia (+57)</option>
+              <option value="AR">Argentina (+54)</option>
+              <option value="GT">Guatemala (+502)</option>
+              <option value="PE">Perú (+51)</option>
+              <option value="CL">Chile (+56)</option>
+            </select>
           </div>
           <div class="col-md-6">
             <label class="form-label">Email</label>
@@ -623,6 +641,7 @@
       clabe: document.getElementById('cfg_clabe').value,
       tarjeta: document.getElementById('cfg_tarjeta').value,
       google_reviews_link: document.getElementById('cfg_reviews').value,
+      hora_resumen_doctores: document.getElementById('cfg_hora_resumen').value,
     };
     const resp = await apiFetch('/api/configuracion', { method: 'PUT', body: JSON.stringify(body) });
     const msg = document.getElementById('cfgMsg');
@@ -637,6 +656,7 @@
     document.getElementById('d_especialidad').value = '';
     document.getElementById('d_color').value = '#3788d8';
     document.getElementById('d_telefono').value = '';
+    document.getElementById('d_pais').value = 'MX';
     document.getElementById('d_email').value = '';
     document.getElementById('d_atiende_ninos').checked = true;
     document.getElementById('d_atiende_adultos').checked = true;
@@ -665,6 +685,7 @@
     document.getElementById('d_especialidad').value = d.especialidad || '';
     document.getElementById('d_color').value = d.color;
     document.getElementById('d_telefono').value = d.telefono || '';
+    document.getElementById('d_pais').value = d.pais || 'MX';
     document.getElementById('d_email').value = d.email || '';
     document.getElementById('d_atiende_ninos').checked = d.atiende_ninos !== false;
     document.getElementById('d_atiende_adultos').checked = d.atiende_adultos !== false;
@@ -709,6 +730,7 @@
       especialidad: document.getElementById('d_especialidad').value,
       color: document.getElementById('d_color').value,
       telefono: document.getElementById('d_telefono').value,
+      pais: document.getElementById('d_pais').value,
       email: document.getElementById('d_email').value,
       atiende_ninos: document.getElementById('d_atiende_ninos').checked,
       atiende_adultos: document.getElementById('d_atiende_adultos').checked,

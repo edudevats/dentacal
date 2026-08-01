@@ -57,6 +57,7 @@ def crear():
         color=data.get('color', '#3788d8'),
         telefono=data.get('telefono', ''),
         email=data.get('email', ''),
+        pais=data.get('pais', 'MX'),
     )
     db.session.add(d)
     db.session.flush()
@@ -92,6 +93,8 @@ def actualizar(dentista_id):
         d.telefono = data['telefono']
     if 'email' in data:
         d.email = data['email']
+    if 'pais' in data:
+        d.pais = data['pais']
     if 'atiende_ninos' in data:
         d.atiende_ninos = bool(data['atiende_ninos'])
     if 'atiende_adultos' in data:

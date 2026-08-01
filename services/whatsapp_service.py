@@ -251,7 +251,10 @@ def enviar_resumen_diario_doctor(dentista, citas, fecha_str):
     """
     Envia resumen diario al doctor con pacientes confirmados.
     """
-    if not dentista.telefono:
+    from services.paises import formatear_numero_e164
+
+    numero = formatear_numero_e164(dentista.telefono, getattr(dentista, 'pais', 'MX'))
+    if not numero:
         return False
 
     if not citas:
@@ -267,7 +270,7 @@ def enviar_resumen_diario_doctor(dentista, citas, fecha_str):
     mensaje = '\n'.join(lineas)
 
     try:
-        enviar_mensaje(dentista.telefono, mensaje)
+        enviar_mensaje(numero, mensaje)
         return True
     except Exception as e:
         logger.error(f'Error enviando resumen a Dr. {dentista.nombre}: {e}')

@@ -2,8 +2,32 @@ from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from extensions import db
 from models import TipoCita, PlantillaMensaje, ConfiguracionConsultorio, OrigenPaciente
+import logging
+
+logger = logging.getLogger(__name__)
 
 configuracion_bp = Blueprint('configuracion', __name__, url_prefix='/api/configuracion')
+
+
+def _parse_hora(valor):
+    """Convierte 'HH:MM' a datetime.time; ValueError si es invalido."""
+    from datetime import time
+    partes = str(valor).split(':')
+    if len(partes) != 2:
+        raise ValueError('formato de hora invalido')
+    h, m = int(partes[0]), int(partes[1])
+    return time(h, m)  # time() ya valida rangos (0-23 / 0-59)
+
+
+def _reprogramar_resumen_doctores(hora, minuto):
+    """Reprograma el job del resumen en caliente. No-op si el scheduler no corre."""
+    try:
+        from extensions import scheduler
+        if scheduler.running and scheduler.get_job('resumen_doctores'):
+            scheduler.reschedule_job('resumen_doctores', trigger='cron', hour=hora, minute=minuto)
+            logger.info(f'Job resumen_doctores reprogramado a {hora:02d}:{minuto:02d}')
+    except Exception as e:
+        logger.warning(f'No se pudo reprogramar resumen_doctores: {e}')
 
 
 @configuracion_bp.route('', methods=['GET'])
@@ -25,6 +49,7 @@ def obtener():
         'tarjeta': config.tarjeta,
         'titular_cuenta': config.titular_cuenta,
         'google_reviews_link': config.google_reviews_link,
+        'hora_resumen_doctores': config.hora_resumen_doctores.strftime('%H:%M') if config.hora_resumen_doctores else '21:00',
     })
 
 
@@ -48,15 +73,18 @@ def actualizar():
         if f in data:
             setattr(config, f, data[f])
 
-    from datetime import time
-    if 'horario_apertura' in data:
-        h, m = data['horario_apertura'].split(':')
-        config.horario_apertura = time(int(h), int(m))
-    if 'horario_cierre' in data:
-        h, m = data['horario_cierre'].split(':')
-        config.horario_cierre = time(int(h), int(m))
-    if 'precio_primera_consulta' in data:
-        config.precio_primera_consulta = float(data['precio_primera_consulta'])
+    try:
+        if 'horario_apertura' in data:
+            config.horario_apertura = _parse_hora(data['horario_apertura'])
+        if 'horario_cierre' in data:
+            config.horario_cierre = _parse_hora(data['horario_cierre'])
+        if 'precio_primera_consulta' in data:
+            config.precio_primera_consulta = float(data['precio_primera_consulta'])
+        if 'hora_resumen_doctores' in data:
+            config.hora_resumen_doctores = _parse_hora(data['hora_resumen_doctores'])
+            _reprogramar_resumen_doctores(config.hora_resumen_doctores.hour, config.hora_resumen_doctores.minute)
+    except (ValueError, TypeError):
+        return jsonify(error='Hora invalida'), 400
 
     db.session.commit()
     return jsonify(ok=True)
