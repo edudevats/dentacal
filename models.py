@@ -139,6 +139,7 @@ class Dentista(db.Model):
     color = db.Column(db.String(7), default='#3788d8')  # Hex
     telefono = db.Column(db.String(20))
     email = db.Column(db.String(120))
+    pais = db.Column(db.String(2), default='MX')  # ISO 3166-1 alpha-2, para formatear WhatsApp
     atiende_ninos = db.Column(db.Boolean, default=True)
     atiende_adultos = db.Column(db.Boolean, default=True)
     activo = db.Column(db.Boolean, default=True)
@@ -158,6 +159,7 @@ class Dentista(db.Model):
             'color': self.color,
             'telefono': self.telefono,
             'email': self.email,
+            'pais': self.pais or 'MX',
             'atiende_ninos': self.atiende_ninos,
             'atiende_adultos': self.atiende_adultos,
             'activo': self.activo,
@@ -586,6 +588,7 @@ class ConfiguracionConsultorio(db.Model):
     tarjeta = db.Column(db.String(20), default='4152314207155287')
     titular_cuenta = db.Column(db.String(200), default='Paulina Mendoza Ordoñez')
     google_reviews_link = db.Column(db.String(500), default='https://n9.cl/ufkug')
+    hora_resumen_doctores = db.Column(db.Time, default=time(21, 0))  # 9pm: resumen diario a doctores
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 

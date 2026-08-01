@@ -14,7 +14,13 @@ class Config:
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
         ('sqlite:///' + os.path.join(BASE_DIR, 'app.db'))
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ENGINE_OPTIONS = {'pool_pre_ping': True}
+    # pool_pre_ping: valida la conexion (SELECT 1) antes de cada query y descarta
+    #   las muertas. pool_recycle: renueva conexiones inactivas cada 280s, antes de
+    #   que MySQL las mate (wait_timeout suele ser 300s en hostings como PythonAnywhere).
+    #   Se ponen en la config BASE para que apliquen tambien en DevelopmentConfig
+    #   cuando corre contra MySQL (antes solo ProductionConfig las tenia, y el
+    #   "Lost connection to MySQL server" salia en dev/checks del bot).
+    SQLALCHEMY_ENGINE_OPTIONS = {'pool_pre_ping': True, 'pool_recycle': 280}
 
     WTF_CSRF_ENABLED = True
     # None = el token CSRF dura lo mismo que la sesion (12h). Antes eran 3600s (1h),
