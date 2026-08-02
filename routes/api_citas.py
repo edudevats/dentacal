@@ -313,9 +313,30 @@ def _notificar_anticipo_recibido(cita):
         f'\U0001f552 Horario: {hora_str} a {hora_fin_str}\n'
         f'\U0001f9b7 Doctor(a): {dentista}\n\n'
         f'Le esperamos en La Casa del Sr. Perez. '
-        f'Si necesita reagendar, por favor hagalo con al menos 24hrs de anticipacion.\n'
+        f'Si necesita reagendar, por favor hagalo con al menos 24hrs de anticipacion.\n\n'
+        f'Ademas, nos gustaria coordinar una breve llamada con usted para brindarle '
+        f'la mejor atencion. \U0001f4de Podria indicarnos su disponibilidad de dia y horario?\n\n'
         f'\U00002728 Gracias por su confianza!'
     )
+
+    # Crear de inmediato la solicitud de llamada post-anticipo, en su propio
+    # try/except: aunque el envio de WhatsApp falle, la llamada queda agendada
+    # para la recepcionista. Se enriquece con la hora cuando el paciente responda.
+    try:
+        from models import SolicitudRegistro
+        ya_existe = SolicitudRegistro.query.filter_by(
+            paciente_id=paciente.id, tipo='post_anticipo', atendida=False,
+        ).first()
+        if not ya_existe:
+            db.session.add(SolicitudRegistro(
+                nombre=nombre,
+                numero_whatsapp=numero,
+                tipo='post_anticipo',
+                paciente_id=paciente.id,
+                notas=f'Anticipo confirmado — cita #{cita.id} el {fecha_str} {hora_str}. Coordinar llamada.',
+            ))
+    except Exception as e:
+        log.error(f'Error creando solicitud post-anticipo cita #{cita.id}: {e}')
 
     try:
         from services.whatsapp_service import enviar_mensaje

@@ -183,6 +183,22 @@ BOT_FUNCTION_DECLARATIONS = [
             "required": ["nombre"]
         }
     },
+    {
+        "name": "agendar_llamada",
+        "description": "Registra la solicitud de una llamada de la recepcionista al paciente. Usar cuando: (a) el paciente tiene muchas dudas o dudas especificas que no puedes resolver bien por chat y acepta que le llamen (motivo='dudas'); o (b) el paciente responde su disponibilidad tras recibir la notificacion de anticipo confirmado que pedia coordinar una llamada (motivo='post_anticipo'). El numero de WhatsApp se toma automaticamente del contexto — NO lo incluyas en los argumentos.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "motivo": {"type": "string", "description": "'dudas' o 'post_anticipo'"},
+                "nombre": {"type": "string", "description": "Nombre del paciente (opcional; si no se da se usa el del contacto)"},
+                "paciente_id": {"type": "integer", "description": "ID del paciente si esta registrado (opcional)"},
+                "fecha_preferida": {"type": "string", "description": "Dia/fecha preferida en texto libre (ej: 'manana', 'jueves 10')"},
+                "hora_preferida": {"type": "string", "description": "Hora preferida HH:MM (opcional)"},
+                "notas": {"type": "string", "description": "Resumen de las dudas o notas para la recepcionista"}
+            },
+            "required": ["motivo"]
+        }
+    },
 ]
 
 
@@ -369,7 +385,9 @@ Tu objetivo es:
 4. Usar registrar_solicitud_contacto para guardar la solicitud con nombre, numero, fecha preferida y hora.
 5. Confirmar que un miembro del equipo les contactara en ese horario.
 
-NO uses registrar_paciente, buscar_disponibilidad, crear_solicitud_cita ni ninguna otra tool de citas con pacientes no registrados."""
+NO uses registrar_paciente, buscar_disponibilidad, crear_solicitud_cita ni ninguna otra tool de citas con pacientes no registrados.
+
+Si el paciente nuevo tiene dudas especificas que no puedes resolver, tambien puedes ofrecer agendar una llamada con agendar_llamada (motivo='dudas')."""
 
     flujo_registrado = """
 ════════════════════════════════
@@ -417,7 +435,11 @@ ANTICIPOS Y PRE-CITAS (REGLA CRITICA — revisar el historial del paciente antes
 
 CONFIRMACION 24h:
 - Si el paciente responde "si"/"confirmo"/"ahi estaremos", usar confirmar_asistencia_cita.
-- Si quiere cancelar o reagendar, usar cancelar_cita o reagendar_cita.""".format(
+- Si quiere cancelar o reagendar, usar cancelar_cita o reagendar_cita.
+
+DUDAS DEL PACIENTE:
+- Si el paciente tiene muchas dudas o dudas muy especificas que no puedes resolver bien por chat, ofrecele agendar una llamada con la recepcionista.
+- Si acepta, pregunta su disponibilidad (dia y hora) y usa agendar_llamada con motivo='dudas', incluyendo un resumen de sus dudas en notas y su paciente_id si lo conoces.""".format(
         porcentaje_anticipo=config['porcentaje_anticipo'],
         titular_cuenta=config['titular_cuenta'],
         tarjeta=config['tarjeta'],
@@ -459,12 +481,13 @@ REGLAS IMPORTANTES:
 - NUNCA inventar disponibilidad; siempre usar buscar_disponibilidad.
 - NUNCA crear cita sin confirmar horario (y anticipo en primera vez).
 - Manejar cancelaciones con empatia, recordar politica de 24h.
-- Si hay dudas tecnicas: "Permita que transfiera su consulta a nuestra recepcionista."
+- ESPECIALISTAS: Si preguntan si hay especialistas o quien atiende, menciona SOLO las especialidades y los servicios disponibles. NUNCA enumeres los nombres de los doctores. Puedes referirte por su nombre unicamente al doctor asignado de un paciente concreto.
 
 NOTIFICACIONES DEL SISTEMA EN EL HISTORIAL:
 - Mensajes que empiecen con "[NOTIFICACION AUTOMATICA DEL SISTEMA]" fueron enviados por el sistema (no por ti).
 - Si ves una notificacion de "anticipo confirmado por recepcionista", significa que la recepcionista YA confirmo el pago desde el sistema.
 - En ese caso, si el paciente te escribe, simplemente confirma alegremente que su cita esta asegurada. NO busques disponibilidad de nuevo ni intentes crear otra cita.
+- Si la notificacion de anticipo confirmado pedia coordinar una llamada y el paciente responde con un dia/hora, usa agendar_llamada con motivo='post_anticipo' y esa disponibilidad (incluye su paciente_id si lo conoces).
 
 FORMATO DE RESPUESTA: Mensajes cortos y naturales para WhatsApp, usa emojis con moderacion."""
 
@@ -665,6 +688,16 @@ def _ejecutar_tool(nombre, args, numero_telefono=None):
                 return {'error': 'Falta numero del remitente'}
             args['numero_whatsapp'] = numero_telefono
             return _tool_registrar_solicitud_contacto(args)
+        elif nombre == 'agendar_llamada':
+            if not numero_telefono:
+                _guardar_log_bot(
+                    'error',
+                    'agendar_llamada invocada sin numero_telefono del remitente',
+                    detalle=json.dumps(args), tool_name=nombre,
+                )
+                return {'error': 'Falta numero del remitente'}
+            args['numero_whatsapp'] = numero_telefono
+            return _tool_agendar_llamada(args)
         else:
             _guardar_log_bot('warning', f'Tool desconocida: {nombre}', detalle=json.dumps(args), tool_name=nombre, numero_telefono=numero_telefono)
             return {'error': f'Tool desconocida: {nombre}'}
@@ -845,10 +878,15 @@ def _tool_info_consultorio():
     tipos = TipoCita.query.filter_by(activo=True).all()
     servicios = [{'nombre': t.nombre, 'precio': float(t.precio), 'duracion': t.duracion_minutos} for t in tipos]
 
-    # Doctores agrupados por tipo de paciente
-    dentistas_activos = Dentista.query.filter_by(activo=True).order_by(Dentista.nombre).all()
-    doctores_ninos = [d.nombre for d in dentistas_activos if d.atiende_ninos]
-    doctores_adultos = [d.nombre for d in dentistas_activos if d.atiende_adultos]
+    # Especialidades ofrecidas (NUNCA nombres de doctores — politica del consultorio).
+    dentistas_activos = Dentista.query.filter_by(activo=True).all()
+    especialidades = sorted({
+        (d.especialidad or '').strip()
+        for d in dentistas_activos
+        if d.especialidad and d.especialidad.strip()
+    })
+    atiende_ninos = any(d.atiende_ninos for d in dentistas_activos)
+    atiende_adultos = any(d.atiende_adultos for d in dentistas_activos)
 
     return {
         'nombre': config['nombre_consultorio'],
@@ -864,8 +902,9 @@ def _tool_info_consultorio():
         },
         'politica_cancelacion': 'Reagendar con 24hrs de anticipacion. Sin reembolso en no asistencia.',
         'servicios': servicios,
-        'doctores_que_atienden_ninos': doctores_ninos,
-        'doctores_que_atienden_adultos': doctores_adultos,
+        'especialidades': especialidades,
+        'atiende_ninos': atiende_ninos,
+        'atiende_adultos': atiende_adultos,
     }
 
 
@@ -1460,4 +1499,76 @@ def _tool_registrar_solicitud_contacto(args):
             f'Solicitud registrada para {nombre}. '
             'Un miembro de nuestro equipo se pondra en contacto contigo para completar tu registro.'
         ),
+    }
+
+
+def _tool_agendar_llamada(args):
+    """Crea (o actualiza, para post_anticipo) una solicitud de llamada de la recepcionista."""
+    import re
+    from sqlalchemy import or_
+    from models import SolicitudRegistro, Paciente
+    from extensions import db
+
+    numero = (args.get('numero_whatsapp') or '').strip()
+    motivo = (args.get('motivo') or 'dudas').strip()
+    if motivo not in ('dudas', 'post_anticipo'):
+        motivo = 'dudas'
+
+    digitos = re.sub(r'\D', '', numero)
+    if len(digitos) < 10 or re.search(r'[A-Za-z]', numero):
+        logger.warning(f'Rechazando numero invalido en agendar_llamada: {numero}')
+        return {'error': 'numero_invalido',
+                'mensaje': 'Numero de WhatsApp invalido.'}
+
+    variantes = _variantes_numero_mx(numero)
+
+    # Resolver SIEMPRE el paciente registrado por su numero (tolerante a formato),
+    # para tener paciente_id disponible en el dedup aunque Gemini haya pasado nombre.
+    paciente_id = args.get('paciente_id')
+    nombre = (args.get('nombre') or '').strip()
+    p = Paciente.query.filter(
+        Paciente.whatsapp.in_(variantes),
+        Paciente.eliminado == False
+    ).first()
+    if p:
+        if not paciente_id:
+            paciente_id = p.id
+        if not nombre:
+            nombre = p.nombre_completo
+    if not nombre:
+        nombre = 'Paciente'
+
+    solicitud = None
+    if motivo == 'post_anticipo':
+        # Dedup tolerante a formato de numero: por paciente_id si se conoce, o por
+        # cualquier variante del numero. Evita duplicar la solicitud que crea el
+        # trigger (que guarda el numero en formato de BD, sin el '1' movil).
+        cond = SolicitudRegistro.numero_whatsapp.in_(variantes)
+        if paciente_id:
+            cond = or_(SolicitudRegistro.paciente_id == paciente_id, cond)
+        solicitud = (SolicitudRegistro.query
+            .filter(SolicitudRegistro.tipo == 'post_anticipo',
+                    SolicitudRegistro.atendida == False,
+                    cond)
+            .order_by(SolicitudRegistro.created_at.desc()).first())
+
+    if solicitud is None:
+        solicitud = SolicitudRegistro(nombre=nombre, numero_whatsapp=numero, tipo=motivo)
+        db.session.add(solicitud)
+
+    if paciente_id:
+        solicitud.paciente_id = paciente_id
+    if args.get('fecha_preferida'):
+        solicitud.fecha_preferida = args['fecha_preferida']
+    if args.get('hora_preferida'):
+        solicitud.hora_preferida = args['hora_preferida']
+    if args.get('notas'):
+        solicitud.notas = args['notas']
+
+    db.session.commit()
+
+    return {
+        'ok': True,
+        'solicitud_id': solicitud.id,
+        'mensaje': 'Perfecto, agendamos la llamada. Nuestra recepcionista te contactara en el horario indicado.',
     }

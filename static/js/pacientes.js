@@ -796,6 +796,18 @@ function _buildSolicitudRow(s) {
   tdNombre.className = 'fw-semibold';
   tdNombre.textContent = s.nombre;
 
+  const TIPO_BADGE = {
+    registro:      { txt: 'Registro nuevo', cls: 'bg-primary' },
+    dudas:         { txt: 'Dudas',          cls: 'bg-warning text-dark' },
+    post_anticipo: { txt: 'Post-anticipo',  cls: 'bg-success' },
+  };
+  const tipoInfo = TIPO_BADGE[s.tipo] || TIPO_BADGE.registro;
+  const tdTipo = document.createElement('td');
+  const badge = document.createElement('span');
+  badge.className = 'badge ' + tipoInfo.cls;
+  badge.textContent = tipoInfo.txt;
+  tdTipo.appendChild(badge);
+
   const tdWa = document.createElement('td');
   // Link de telefono para llamar
   const telLink = document.createElement('a');
@@ -859,7 +871,7 @@ function _buildSolicitudRow(s) {
   btnDel.addEventListener('click', () => eliminarSolicitud(s.id));
   tdAcciones.appendChild(btnDel);
 
-  tr.append(tdNombre, tdWa, tdFechaPref, tdHora, tdNotas, tdRecibido, tdAcciones);
+  tr.append(tdNombre, tdTipo, tdWa, tdFechaPref, tdHora, tdNotas, tdRecibido, tdAcciones);
   return tr;
 }
 
@@ -873,7 +885,7 @@ async function cargarSolicitudes() {
 
   tbody.replaceChildren();
   const loadingTr = document.createElement('tr');
-  loadingTr.innerHTML = '<td colspan="7" class="text-center text-muted py-4">Cargando...</td>';
+  loadingTr.innerHTML = '<td colspan="8" class="text-center text-muted py-4">Cargando...</td>';
   tbody.appendChild(loadingTr);
 
   try {
@@ -894,7 +906,7 @@ async function cargarSolicitudes() {
     tbody.replaceChildren();
     if (!solicitudes.length) {
       const emptyTr = document.createElement('tr');
-      emptyTr.innerHTML = '<td colspan="7" class="text-center text-muted py-4">Sin solicitudes pendientes \u2705</td>';
+      emptyTr.innerHTML = '<td colspan="8" class="text-center text-muted py-4">Sin solicitudes pendientes \u2705</td>';
       tbody.appendChild(emptyTr);
       return;
     }
@@ -902,7 +914,7 @@ async function cargarSolicitudes() {
   } catch (_e) {
     tbody.replaceChildren();
     const errTr = document.createElement('tr');
-    errTr.innerHTML = '<td colspan="7" class="text-center text-danger py-3">Error al cargar solicitudes</td>';
+    errTr.innerHTML = '<td colspan="8" class="text-center text-danger py-3">Error al cargar solicitudes</td>';
     tbody.appendChild(errTr);
   }
 }

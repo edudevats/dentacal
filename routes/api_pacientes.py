@@ -413,6 +413,9 @@ def _audit_paciente(accion, registro_id, datos_anteriores=None, datos_nuevos=Non
 def listar_solicitudes():
     solo_pendientes = request.args.get('pendientes', 'true').lower() == 'true'
     q = SolicitudRegistro.query
+    tipo = request.args.get('tipo', '').strip()
+    if tipo:
+        q = q.filter_by(tipo=tipo)
     if solo_pendientes:
         q = q.filter_by(atendida=False)
     solicitudes = q.order_by(SolicitudRegistro.created_at.desc()).all()

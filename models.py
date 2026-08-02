@@ -658,12 +658,19 @@ class CampanaDestinatario(db.Model):
 
 
 class SolicitudRegistro(db.Model):
-    """Paciente nuevo no registrado que pidio al bot que la recepcionista le llame para darlo de alta."""
+    """Solicitud para que la recepcionista contacte/llame a una persona.
+
+    tipo='registro'      → paciente nuevo no registrado (alta).
+    tipo='dudas'         → paciente con dudas que pidio una llamada.
+    tipo='post_anticipo' → llamada de coordinacion tras confirmar anticipo.
+    """
     __tablename__ = 'solicitudes_registro'
 
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(120), nullable=False)
     numero_whatsapp = db.Column(db.String(20), nullable=False)
+    tipo = db.Column(db.String(20), default='registro', nullable=False)
+    paciente_id = db.Column(db.Integer, db.ForeignKey('pacientes.id'), nullable=True)
     fecha_preferida = db.Column(db.String(100))   # texto libre, ej: "lunes 14 de abril"
     hora_preferida = db.Column(db.String(20))      # ej: "10:00"
     notas = db.Column(db.Text)
@@ -675,6 +682,8 @@ class SolicitudRegistro(db.Model):
             'id': self.id,
             'nombre': self.nombre,
             'numero_whatsapp': self.numero_whatsapp,
+            'tipo': self.tipo or 'registro',
+            'paciente_id': self.paciente_id,
             'fecha_preferida': self.fecha_preferida or '',
             'hora_preferida': self.hora_preferida or '',
             'notas': self.notas or '',
