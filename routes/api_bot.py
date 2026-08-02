@@ -326,3 +326,85 @@ def limpiar_logs():
     LogBot.query.delete()
     db.session.commit()
     return jsonify(ok=True)
+
+
+@bot_bp.route('/mensajes', methods=['GET'])
+@login_required
+def mensajes_enviados():
+    """Bitácora de mensajes salientes, paginada y filtrable."""
+    from datetime import date, datetime, timedelta
+
+    from models import MensajeEnviado, EstatusRecordatorio, TipoRecordatorio
+    from services.tiempo import ahora_local
+
+    page = max(request.args.get('page', 1, type=int) or 1, 1)
+    per_page = request.args.get('per_page', 50, type=int)
+    if per_page is None:
+        per_page = 50
+    per_page = min(max(per_page, 1), 100)
+    tipo = request.args.get('tipo')
+    estatus = request.args.get('estatus')
+    fecha_desde = request.args.get('fecha_desde')
+    fecha_hasta = request.args.get('fecha_hasta')
+
+    q = MensajeEnviado.query
+    if tipo:
+        try:
+            q = q.filter(MensajeEnviado.tipo == TipoRecordatorio[tipo])
+        except KeyError:
+            pass
+    if estatus:
+        try:
+            q = q.filter(MensajeEnviado.estatus == EstatusRecordatorio[estatus])
+        except KeyError:
+            pass
+
+    try:
+        desde = datetime.combine(date.fromisoformat(fecha_desde), datetime.min.time())
+    except (TypeError, ValueError):
+        desde = None
+    if desde is not None:
+        q = q.filter(MensajeEnviado.fecha_creacion >= desde)
+
+    try:
+        hasta = datetime.combine(date.fromisoformat(fecha_hasta), datetime.min.time())
+    except (TypeError, ValueError):
+        hasta = None
+    if hasta is not None:
+        q = q.filter(MensajeEnviado.fecha_creacion < hasta + timedelta(days=1))
+
+    q = q.order_by(
+        MensajeEnviado.fecha_creacion.desc(),
+        MensajeEnviado.id.desc(),
+    )
+    total = q.count()
+    pages = (total + per_page - 1) // per_page
+    page = min(page, pages) if pages else 1
+    mensajes = q.offset((page - 1) * per_page).limit(per_page).all()
+
+    hoy = ahora_local().replace(hour=0, minute=0, second=0, microsecond=0)
+    manana = hoy + timedelta(days=1)
+    del_dia = MensajeEnviado.query.filter(
+        MensajeEnviado.fecha_creacion >= hoy,
+        MensajeEnviado.fecha_creacion < manana,
+    )
+    enviados = del_dia.filter(
+        MensajeEnviado.estatus == EstatusRecordatorio.enviado).count()
+    fallidos = del_dia.filter(MensajeEnviado.estatus.in_([
+        EstatusRecordatorio.fallido,
+        EstatusRecordatorio.fallido_definitivo,
+    ])).count()
+    reintentando = del_dia.filter(
+        MensajeEnviado.estatus == EstatusRecordatorio.fallido).count()
+
+    return jsonify({
+        'mensajes': [mensaje.to_dict() for mensaje in mensajes],
+        'total': total,
+        'page': page,
+        'pages': pages,
+        'resumen': {
+            'enviados': enviados,
+            'fallidos': fallidos,
+            'reintentando': reintentando,
+        },
+    })

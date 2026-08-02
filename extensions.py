@@ -13,6 +13,25 @@ from flask_limiter.util import get_remote_address
 from flask_caching import Cache
 from flask_mail import Mail
 from apscheduler.schedulers.background import BackgroundScheduler
+from sqlalchemy import event
+from sqlalchemy.orm import Session as OrmSession
+
+
+# Una sesion secundaria no es una frontera durable si la scoped session ya
+# escribio dentro de su transaccion outer. Los listeners se registran al
+# importar las extensiones, antes de que create_app() pueda provocar un flush.
+LEDGER_FLUSHED_UNCOMMITTED = 'ledger_flushed_uncommitted'
+
+
+@event.listens_for(OrmSession, 'after_flush_postexec')
+def _marcar_flush_pendiente(session, _flush_context):
+    session.info[LEDGER_FLUSHED_UNCOMMITTED] = True
+
+
+@event.listens_for(OrmSession, 'after_transaction_end')
+def _limpiar_flush_al_terminar_outer(session, transaction):
+    if transaction.parent is None:
+        session.info.pop(LEDGER_FLUSHED_UNCOMMITTED, None)
 
 
 def permiso_requerido(permiso):

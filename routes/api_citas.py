@@ -132,6 +132,9 @@ def actualizar(cita_id):
     if not data:
         return jsonify(error='JSON inválido'), 400
 
+    notificar_no_asistencia = False
+    notificar_anticipo = False
+
     if 'fecha_inicio' in data and 'fecha_fin' in data:
         try:
             nueva_inicio = datetime.fromisoformat(data['fecha_inicio'])
@@ -179,12 +182,7 @@ def actualizar(cita_id):
 
             # Al marcar no asistencia: enviar WA ofreciendo reagendar
             if new_status == EstatusCita.no_asistencia and old_status != EstatusCita.no_asistencia:
-                try:
-                    from services.whatsapp_service import enviar_reagendar_no_asistencia
-                    enviar_reagendar_no_asistencia(cita)
-                except Exception as e:
-                    import logging
-                    logging.getLogger(__name__).error(f'Error enviando msg no-asistencia: {e}')
+                notificar_no_asistencia = True
         except KeyError:
             return jsonify(error='Status invalido'), 400
 
@@ -207,13 +205,24 @@ def actualizar(cita_id):
                 cita.status = EstatusCita.pendiente
                 cita.pre_cita_expira = None
 
-            # Notificar al paciente por WhatsApp
-            _notificar_anticipo_recibido(cita)
+            notificar_anticipo = True
 
     if 'anticipo_monto' in data:
         cita.anticipo_monto = data['anticipo_monto']
 
     db.session.commit()
+
+    if notificar_no_asistencia:
+        try:
+            from services.whatsapp_service import enviar_reagendar_no_asistencia
+            enviar_reagendar_no_asistencia(cita)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f'Error enviando msg no-asistencia: {e}')
+
+    if notificar_anticipo:
+        _notificar_anticipo_recibido(cita)
+
     return jsonify(cita.to_dict())
 
 
@@ -295,6 +304,9 @@ def _notificar_anticipo_recibido(cita):
     if not paciente:
         return
 
+    paciente_id = paciente.id
+    cita_id = cita.id
+
     numero = getattr(paciente, 'numero_contacto_wa', None) or paciente.whatsapp
     if not numero:
         return
@@ -322,35 +334,47 @@ def _notificar_anticipo_recibido(cita):
     # Crear de inmediato la solicitud de llamada post-anticipo, en su propio
     # try/except: aunque el envio de WhatsApp falle, la llamada queda agendada
     # para la recepcionista. Se enriquece con la hora cuando el paciente responda.
+    from models import SolicitudRegistro, TipoRecordatorio
     try:
-        from models import SolicitudRegistro
         ya_existe = SolicitudRegistro.query.filter_by(
-            paciente_id=paciente.id, tipo='post_anticipo', atendida=False,
+            paciente_id=paciente_id, tipo='post_anticipo', atendida=False,
         ).first()
         if not ya_existe:
             db.session.add(SolicitudRegistro(
                 nombre=nombre,
                 numero_whatsapp=numero,
                 tipo='post_anticipo',
-                paciente_id=paciente.id,
-                notas=f'Anticipo confirmado — cita #{cita.id} el {fecha_str} {hora_str}. Coordinar llamada.',
+                paciente_id=paciente_id,
+                notas=f'Anticipo confirmado — cita #{cita_id} el {fecha_str} {hora_str}. Coordinar llamada.',
             ))
+        db.session.commit()
     except Exception as e:
-        log.error(f'Error creando solicitud post-anticipo cita #{cita.id}: {e}')
+        db.session.rollback()
+        log.error(f'Error creando solicitud post-anticipo cita #{cita_id}: {e}')
+        return
 
     try:
         from services.whatsapp_service import enviar_mensaje
-        enviar_mensaje(numero, mensaje)
-        log.info(f'Notificacion anticipo enviada a {numero} (cita #{cita.id})')
+        enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.confirmacion_anticipo,
+                       paciente_id=paciente_id, cita_id=cita_id)
+        log.info(f'Notificacion anticipo enviada a {numero} (cita #{cita_id})')
+    except Exception as e:
+        log.error(f'Error enviando notificacion anticipo cita #{cita_id}: {e}')
+        return
 
+    try:
         # Guardar en historial de conversacion (marcado como notificacion del sistema)
         from models import ConversacionWhatsapp
         conv = ConversacionWhatsapp(
             numero_telefono=numero,
-            paciente_id=paciente.id,
+            paciente_id=paciente_id,
             mensaje=f'[NOTIFICACION AUTOMATICA DEL SISTEMA — anticipo confirmado por recepcionista]\n{mensaje}',
             es_bot=True,
         )
         db.session.add(conv)
+        db.session.commit()
     except Exception as e:
-        log.error(f'Error enviando notificacion anticipo cita #{cita.id}: {e}')
+        db.session.rollback()
+        log.error(
+            f'Anticipo notificado para cita #{cita_id}, pero no se pudo '
+            f'guardar la conversacion: {e}')

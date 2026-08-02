@@ -2,6 +2,7 @@ from datetime import datetime, date, time
 from enum import Enum as PyEnum
 from extensions import db
 from flask_login import UserMixin
+from services.tiempo import ahora_local
 from werkzeug.security import generate_password_hash, check_password_hash
 
 
@@ -52,12 +53,24 @@ class TipoRecordatorio(PyEnum):
     cumpleanos = 'cumpleanos'
     postconsulta = 'postconsulta'
     sonrisas_magicas = 'sonrisas_magicas'
+    # Agregados para el log unificado de mensajes
+    confirmacion_mismo_dia = 'confirmacion_mismo_dia'
+    proxima_visita = 'proxima_visita'
+    no_asistencia = 'no_asistencia'
+    resumen_doctor = 'resumen_doctor'
+    campana = 'campana'
+    manual = 'manual'
+    confirmacion_anticipo = 'confirmacion_anticipo'
+    otro = 'otro'
 
 
 class EstatusRecordatorio(PyEnum):
     pendiente = 'pendiente'
     enviado = 'enviado'
     fallido = 'fallido'
+    # Agregados para el reenvio automatico
+    fallido_definitivo = 'fallido_definitivo'
+    caducado = 'caducado'
 
 
 class EstatusCampana(PyEnum):
@@ -393,8 +406,6 @@ class Cita(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    recordatorios = db.relationship('Recordatorio', backref='cita',
-                                    lazy=True, cascade='all, delete-orphan')
     justificantes = db.relationship('Justificante', backref='cita', lazy=True)
 
     @property
@@ -482,16 +493,71 @@ class Cita(db.Model):
         return event
 
 
-class Recordatorio(db.Model):
-    __tablename__ = 'recordatorios'
+class MensajeEnviado(db.Model):
+    """
+    Bitacora unificada de todo mensaje de WhatsApp saliente.
+
+    Guarda numero y texto porque son lo unico que permite reintentar un envio
+    fallido. Una fila por mensaje, escrita desde whatsapp_service.enviar_mensaje().
+    """
+    __tablename__ = 'mensajes_enviados'
 
     id = db.Column(db.Integer, primary_key=True)
-    cita_id = db.Column(db.Integer, db.ForeignKey('citas.id'), nullable=False)
-    tipo = db.Column(db.Enum(TipoRecordatorio), nullable=False)
-    mensaje_enviado = db.Column(db.Text)
-    fecha_envio = db.Column(db.DateTime)
-    status = db.Column(db.Enum(EstatusRecordatorio), default=EstatusRecordatorio.pendiente)
-    error = db.Column(db.Text)
+    tipo = db.Column(db.Enum(TipoRecordatorio), nullable=False,
+                     default=TipoRecordatorio.otro, index=True)
+    numero_destino = db.Column(db.String(20), nullable=False, index=True)
+    mensaje = db.Column(db.Text, nullable=False)
+
+    paciente_id = db.Column(db.Integer, db.ForeignKey('pacientes.id'), nullable=True)
+    cita_id = db.Column(db.Integer, db.ForeignKey('citas.id'), nullable=True)
+    dentista_id = db.Column(db.Integer, db.ForeignKey('dentistas.id'), nullable=True)
+    campana_destinatario_id = db.Column(
+        db.Integer, db.ForeignKey('campana_destinatarios.id'), nullable=True)
+
+    estatus = db.Column(db.Enum(EstatusRecordatorio),
+                        default=EstatusRecordatorio.pendiente, index=True)
+    message_sid = db.Column(db.String(64), nullable=True, index=True)
+    error = db.Column(db.Text, nullable=True)
+    intentos = db.Column(db.Integer, default=0, nullable=False)
+    proximo_intento = db.Column(db.DateTime, nullable=True, index=True)
+
+    fecha_creacion = db.Column(db.DateTime, default=ahora_local, index=True)
+    fecha_envio = db.Column(db.DateTime, nullable=True)
+
+    paciente = db.relationship('Paciente', foreign_keys=[paciente_id])
+    cita = db.relationship('Cita', foreign_keys=[cita_id])
+    dentista = db.relationship('Dentista', foreign_keys=[dentista_id])
+
+    @property
+    def va_a_reintentarse(self):
+        """
+        Estado derivado para la UI. No necesita saber cuantos reintentos quedan:
+        'fallido' ya significa que quedan, porque al agotarse el job la mueve a
+        fallido_definitivo. Un solo lugar decide, no dos.
+        """
+        return self.estatus == EstatusRecordatorio.fallido
+
+    def to_dict(self):
+        cita_confirmada = None
+        if self.cita is not None:
+            cita_confirmada = (self.cita.status == EstatusCita.confirmada)
+        return {
+            'id': self.id,
+            'tipo': self.tipo.value if self.tipo else None,
+            'numero_destino': self.numero_destino,
+            'mensaje': self.mensaje,
+            'paciente_id': self.paciente_id,
+            'paciente_nombre': self.paciente.nombre_completo if self.paciente else None,
+            'cita_id': self.cita_id,
+            'cita_confirmada': cita_confirmada,
+            'estatus': self.estatus.value if self.estatus else None,
+            'reintentando': self.va_a_reintentarse,
+            'message_sid': self.message_sid,
+            'error': self.error,
+            'intentos': self.intentos or 0,
+            'fecha_creacion': self.fecha_creacion.isoformat() if self.fecha_creacion else None,
+            'fecha_envio': self.fecha_envio.isoformat() if self.fecha_envio else None,
+        }
 
 
 class SeguimientoCRM(db.Model):

@@ -7,16 +7,13 @@ Tareas programadas con APScheduler.
 """
 import logging
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+from services.tiempo import TIMEZONE, ahora_local
 
 logger = logging.getLogger(__name__)
 
-TIMEZONE = ZoneInfo('America/Mexico_City')
-
-
 def _ahora_local():
     """Retorna datetime actual en la timezone del consultorio."""
-    return datetime.now(TIMEZONE).replace(tzinfo=None)
+    return ahora_local()
 
 
 def _hora_resumen_doctores(app):
@@ -35,11 +32,12 @@ def _hora_resumen_doctores(app):
 def setup_scheduler_jobs(scheduler, app):
     """Registra todos los jobs del scheduler."""
 
-    # Recordatorios 24h - cada hora
+    # Recordatorio de confirmacion - diario a las 9am, para las citas de manana
     scheduler.add_job(
         func=_job_recordatorios_24h,
-        trigger='interval',
-        hours=1,
+        trigger='cron',
+        hour=9,
+        minute=0,
         id='recordatorios_24h',
         replace_existing=True,
         kwargs={'app': app},
@@ -144,6 +142,16 @@ def setup_scheduler_jobs(scheduler, app):
         kwargs={'app': app},
     )
 
+    # Reenvio de mensajes fallidos - cada 15 min
+    scheduler.add_job(
+        func=_job_reenviar_fallidos,
+        trigger='interval',
+        minutes=15,
+        id='reenviar_fallidos',
+        replace_existing=True,
+        kwargs={'app': app},
+    )
+
     logger.info('Jobs del scheduler registrados.')
 
 
@@ -154,7 +162,7 @@ def _job_confirmacion_mismo_dia(app):
     Se ejecuta a las 7am.
     """
     with app.app_context():
-        from models import Cita, EstatusCita, Recordatorio, TipoRecordatorio, EstatusRecordatorio
+        from models import Cita, EstatusCita
         from extensions import db
 
         ahora = _ahora_local()
@@ -174,16 +182,7 @@ def _job_confirmacion_mismo_dia(app):
                 continue
             try:
                 from services.whatsapp_service import enviar_confirmacion_mismo_dia
-                enviado = enviar_confirmacion_mismo_dia(cita)
-                status = EstatusRecordatorio.enviado if enviado else EstatusRecordatorio.fallido
-
-                recordatorio = Recordatorio(
-                    cita_id=cita.id,
-                    tipo=TipoRecordatorio.confirmacion_24h,
-                    fecha_envio=ahora,
-                    status=status,
-                )
-                db.session.add(recordatorio)
+                enviar_confirmacion_mismo_dia(cita)
                 cita.reminder_24h_sent = True
                 db.session.commit()
                 logger.info(f'Confirmacion mismo dia enviada para cita {cita.id}')
@@ -219,18 +218,19 @@ def _job_cancelar_pre_citas_expiradas(app):
 
 
 def _job_recordatorios_24h(app):
-    """Envia recordatorios 24h antes de las citas."""
+    """Envia el recordatorio de confirmacion a las 9am, para las citas de manana."""
     with app.app_context():
-        from models import Cita, EstatusCita, Recordatorio, TipoRecordatorio, EstatusRecordatorio
+        from models import Cita, EstatusCita
         from extensions import db
 
         ahora = _ahora_local()
-        ventana_inicio = ahora + timedelta(hours=23)
-        ventana_fin = ahora + timedelta(hours=25)
+        manana = (ahora + timedelta(days=1)).date()
+        inicio = datetime(manana.year, manana.month, manana.day, 0, 0, 0)
+        fin = datetime(manana.year, manana.month, manana.day, 23, 59, 59)
 
         citas = Cita.query.filter(
-            Cita.fecha_inicio >= ventana_inicio,
-            Cita.fecha_inicio <= ventana_fin,
+            Cita.fecha_inicio >= inicio,
+            Cita.fecha_inicio <= fin,
             Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
             Cita.reminder_24h_sent == False,
         ).all()
@@ -241,16 +241,7 @@ def _job_recordatorios_24h(app):
                 continue
             try:
                 from services.whatsapp_service import enviar_recordatorio_cita
-                enviado = enviar_recordatorio_cita(cita)
-                status = EstatusRecordatorio.enviado if enviado else EstatusRecordatorio.fallido
-
-                recordatorio = Recordatorio(
-                    cita_id=cita.id,
-                    tipo=TipoRecordatorio.confirmacion_24h,
-                    fecha_envio=_ahora_local(),
-                    status=status,
-                )
-                db.session.add(recordatorio)
+                enviar_recordatorio_cita(cita)
                 cita.reminder_24h_sent = True
                 db.session.commit()
                 logger.info(f'Recordatorio enviado para cita {cita.id}')
@@ -363,7 +354,7 @@ def _job_seguimientos_crm(app):
 def _job_cumpleanos(app):
     """Envia mensajes de cumpleanos a pacientes que cumplen este mes."""
     with app.app_context():
-        from models import Paciente, PlantillaMensaje
+        from models import Paciente, PlantillaMensaje, TipoRecordatorio
         from services.whatsapp_service import enviar_mensaje
         from extensions import db
 
@@ -401,7 +392,8 @@ def _job_cumpleanos(app):
                            f'tiene un regalo especial. Solo tiene que venir a su cita este mes. '
                            f'Le esperamos con gusto!')
             try:
-                enviar_mensaje(numero, mensaje)
+                enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.cumpleanos,
+                               paciente_id=paciente.id)
                 logger.info(f'Mensaje cumpleanos enviado a {paciente.nombre_completo}')
             except Exception as e:
                 logger.error(f'Error cumpleanos {paciente.nombre_completo}: {e}')
@@ -465,7 +457,7 @@ def _job_campanas_programadas(app):
 def _job_recordatorios_manuales(app):
     """Envia recordatorios manuales de seguimiento programados para hoy o dias anteriores."""
     with app.app_context():
-        from models import RecordatorioManual, ConversacionWhatsapp
+        from models import RecordatorioManual, ConversacionWhatsapp, TipoRecordatorio
         from extensions import db
 
         hoy = _ahora_local().date()
@@ -487,7 +479,8 @@ def _job_recordatorios_manuales(app):
                     db.session.commit()
                     continue
 
-                enviar_mensaje(numero, rec.mensaje)
+                enviar_mensaje(numero, rec.mensaje, tipo=TipoRecordatorio.manual,
+                               paciente_id=rec.paciente_id)
                 rec.status = 'enviado'
                 rec.fecha_envio = _ahora_local()
 
@@ -504,3 +497,140 @@ def _job_recordatorios_manuales(app):
                 rec.status = 'fallido'
                 rec.error = str(e)
             db.session.commit()
+
+
+def _sincronizar_campana(registro, sid=None, fecha_envio=None):
+    """
+    Si el mensaje reenviado pertenecia a una campana, corrige el estatus del
+    destinatario y los contadores, para que la campana no quede marcando un
+    fallo que ya se resolvio.
+    """
+    if not registro.campana_destinatario_id:
+        return
+
+    from extensions import db
+    from models import CampanaDestinatario, EstatusDestinatario
+
+    dest = db.session.get(CampanaDestinatario, registro.campana_destinatario_id)
+    if not dest or dest.estatus == EstatusDestinatario.enviado:
+        return
+
+    dest.estatus = EstatusDestinatario.enviado
+    dest.fecha_envio = fecha_envio or registro.fecha_envio
+    dest.message_sid = sid or registro.message_sid
+    dest.error_mensaje = None
+
+    campana = dest.campana
+    if campana:
+        campana.enviados = (campana.enviados or 0) + 1
+        campana.fallidos = max((campana.fallidos or 0) - 1, 0)
+
+
+def _reclamar_fila_reenvio(registro_id, ahora):
+    """Reclama atomícamente una fila por un lapso acotado para evitar duplicados."""
+    from extensions import db
+    from models import MensajeEnviado, EstatusRecordatorio
+    from services.whatsapp_service import BACKOFF_MINUTOS
+
+    reconciliar_despues = ahora + timedelta(minutes=BACKOFF_MINUTOS[0])
+    try:
+        reclamadas = MensajeEnviado.query.filter(
+            MensajeEnviado.id == registro_id,
+            MensajeEnviado.estatus == EstatusRecordatorio.fallido,
+            MensajeEnviado.message_sid.is_(None),
+            MensajeEnviado.proximo_intento.isnot(None),
+            MensajeEnviado.proximo_intento <= ahora,
+        ).update(
+            {
+                MensajeEnviado.estatus: EstatusRecordatorio.pendiente,
+                # Marca operativa: pendiente no vuelve a seleccionarse sola.
+                MensajeEnviado.proximo_intento: reconciliar_despues,
+            },
+            synchronize_session=False,
+        )
+        db.session.commit()
+        return reclamadas == 1
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f'No se pudo reclamar mensaje {registro_id}: {e}')
+        return False
+
+
+def _job_reenviar_fallidos(app):
+    """
+    Reintenta los mensajes fallidos cuyo proximo_intento ya vencio.
+
+    Salvaguardas: no reintenta mensajes de citas que ya pasaron, ni a pacientes
+    problematicos, ni filas que ya tienen SID (Twilio ya las acepto).
+    """
+    with app.app_context():
+        from extensions import db
+        from models import (Cita, MensajeEnviado, EstatusRecordatorio,
+                            TipoRecordatorio)
+        from services.whatsapp_service import (
+            enviar_mensaje, _persistir_sid_aceptado, _programar_reintento)
+        from services.tiempo import ahora_local
+
+        ahora = ahora_local()
+        pendientes = MensajeEnviado.query.filter(
+            MensajeEnviado.estatus == EstatusRecordatorio.fallido,
+            MensajeEnviado.message_sid.is_(None),
+            MensajeEnviado.proximo_intento.isnot(None),
+            MensajeEnviado.proximo_intento <= ahora,
+        ).all()
+
+        for candidato in pendientes:
+            if not _reclamar_fila_reenvio(candidato.id, ahora):
+                continue
+
+            registro = db.session.get(MensajeEnviado, candidato.id)
+            if registro is None:
+                continue
+
+            tipos_previos_a_cita = {
+                TipoRecordatorio.confirmacion_24h,
+                TipoRecordatorio.confirmacion_mismo_dia,
+                TipoRecordatorio.confirmacion_anticipo,
+            }
+            if registro.cita_id and registro.tipo in tipos_previos_a_cita:
+                cita = db.session.get(Cita, registro.cita_id)
+                if cita and cita.fecha_inicio and cita.fecha_inicio < ahora:
+                    registro.estatus = EstatusRecordatorio.caducado
+                    registro.proximo_intento = None
+                    db.session.commit()
+                    logger.info(f'Mensaje {registro.id} caducado: la cita ya paso.')
+                    continue
+
+            if registro.paciente and registro.paciente.es_problematico:
+                registro.estatus = EstatusRecordatorio.fallido_definitivo
+                registro.error = 'No reintentado: paciente marcado como problematico'
+                registro.proximo_intento = None
+                db.session.commit()
+                continue
+
+            try:
+                sid = enviar_mensaje(
+                    registro.numero_destino, registro.mensaje, registrar=False)
+            except Exception as e:
+                logger.error(f'Reintento fallido del mensaje {registro.id}: {e}')
+                _programar_reintento(registro, e)
+                continue
+
+            # Una vez que Twilio entrega un SID, persistir esa aceptación antes
+            # de cualquier trabajo local que pueda fallar.
+            fecha_envio = _persistir_sid_aceptado(registro, sid)
+            if fecha_envio is None:
+                continue
+
+            try:
+                _sincronizar_campana(
+                    registro, sid=sid, fecha_envio=fecha_envio)
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logger.error(
+                    f'Entrega aceptada para mensaje {registro.id}, pero fallo '
+                    f'la sincronizacion local: {e}')
+                continue
+
+            logger.info(f'Mensaje {registro.id} reenviado con exito (SID={sid}).')

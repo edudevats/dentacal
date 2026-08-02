@@ -119,6 +119,11 @@
       <span class="badge bg-danger ms-1 d-none" id="logsCountBadge">0</span>
     </button>
   </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-mensajes" type="button" onclick="cargarMensajesTab()">
+      <i class="bi bi-send-check me-1"></i>Mensajes enviados
+    </button>
+  </li>
 </ul>
 
 <div class="tab-content">
@@ -231,10 +236,68 @@
   </div>
   <div id="logsPaginacion" class="d-flex justify-content-center mt-2"></div>
 </div>
+
+<!-- Tab Mensajes enviados -->
+<div class="tab-pane fade" id="tab-mensajes">
+  <div class="d-flex align-items-center gap-3 my-3 flex-wrap">
+    <div class="d-flex gap-2">
+      <span class="badge bg-success">Enviados hoy: <span id="resumenEnviados">0</span></span>
+      <span class="badge bg-danger">Fallidos hoy: <span id="resumenFallidos">0</span></span>
+      <span class="badge bg-warning text-dark">Reintentando: <span id="resumenReintentando">0</span></span>
+    </div>
+    <select id="msgEstatusFiltro" class="form-select form-select-sm" style="width:auto" onchange="cargarMensajesTab(1)">
+      <option value="">Todos los estatus</option>
+      <option value="enviado">Enviado</option>
+      <option value="fallido">Fallido</option>
+      <option value="fallido_definitivo">Fallido definitivo</option>
+      <option value="caducado">Caducado</option>
+      <option value="pendiente">Pendiente</option>
+    </select>
+    <select id="msgTipoFiltro" class="form-select form-select-sm" style="width:auto" onchange="cargarMensajesTab(1)">
+      <option value="">Todos los tipos</option>
+      <option value="confirmacion_24h">Confirmación 24h</option>
+      <option value="confirmacion_mismo_dia">Confirmación mismo día</option>
+      <option value="postconsulta">Postconsulta</option>
+      <option value="cumpleanos">Cumpleaños</option>
+      <option value="proxima_visita">Próxima visita</option>
+      <option value="no_asistencia">No asistencia</option>
+      <option value="confirmacion_anticipo">Confirmación anticipo</option>
+      <option value="resumen_doctor">Resumen doctor</option>
+      <option value="campana">Campaña</option>
+      <option value="manual">Manual</option>
+      <option value="otro">Otro</option>
+    </select>
+    <label class="d-flex align-items-center gap-1 small text-muted">
+      Desde <input type="date" id="msgFechaDesde" class="form-control form-control-sm" onchange="cargarMensajesTab(1)">
+    </label>
+    <label class="d-flex align-items-center gap-1 small text-muted">
+      Hasta <input type="date" id="msgFechaHasta" class="form-control form-control-sm" onchange="cargarMensajesTab(1)">
+    </label>
+    <span id="msgTotalText" class="text-muted small"></span>
+    <button class="btn btn-sm btn-outline-secondary" onclick="cargarMensajesTab()" title="Refrescar">
+      <i class="bi bi-arrow-clockwise"></i>
+    </button>
+  </div>
+  <div id="mensajesError" class="alert alert-danger d-none" role="alert" aria-live="assertive"></div>
+
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead>
+        <tr>
+          <th>Fecha</th><th>Tipo</th><th>Paciente</th><th>Número</th>
+          <th>Mensaje</th><th>Estatus</th><th>Intentos</th><th>¿Confirmó?</th>
+        </tr>
+      </thead>
+      <tbody id="mensajesBody"></tbody>
+    </table>
+  </div>
+  <nav aria-label="Paginación de mensajes enviados"><ul class="pagination pagination-sm" id="mensajesPaginacion"></ul></nav>
+</div>
 </div><!-- /tab-content -->
 {% endblock %}
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/bot_conversaciones.js') }}"></script>
 <script src="{{ url_for('static', filename='js/bot_logs.js') }}"></script>
+<script src="{{ url_for('static', filename='js/bot_mensajes.js') }}"></script>
 {% endblock %}

@@ -1,9 +1,33 @@
 import os
+import sys
 import logging
 from flask import Flask, jsonify, render_template
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Subcomandos de Flask-Migrate/Alembic (`flask db <x>`).
+_COMANDOS_ALEMBIC = {
+    'upgrade', 'downgrade', 'migrate', 'revision', 'stamp', 'history',
+    'current', 'heads', 'branches', 'show', 'merge', 'init', 'edit', 'check',
+}
+
+
+def _corriendo_comando_migracion():
+    """True si el proceso actual es un `flask db <subcomando>`.
+
+    Flask-Migrate importa la app para correr Alembic, asi que el create_all() de
+    _init_extensions() se ejecuta ANTES que las migraciones. Sobre una BD vacia
+    eso crea todas las tablas desde los modelos sin registrar nada en
+    alembic_version, y el upgrade siguiente muere con "Duplicate column name"
+    al intentar aplicar la migracion 1 sobre un esquema que ya esta en head.
+    En SQLite nunca se noto porque app.db ya existia creado.
+    """
+    try:
+        i = sys.argv.index('db')
+    except ValueError:
+        return False
+    return i + 1 < len(sys.argv) and sys.argv[i + 1] in _COMANDOS_ALEMBIC
 
 
 def create_app(config_name=None):
@@ -100,8 +124,13 @@ def _init_extensions(app):
                 app.logger.info('BD encontrada: %s (%d bytes)', db_path, os.path.getsize(db_path))
             else:
                 app.logger.warning('BD NO encontrada en %s — se crearan tablas vacias.', db_path)
-        # Crear tablas que falten (no borra ni modifica tablas existentes)
-        db.create_all()
+        # Crear tablas que falten (no borra ni modifica tablas existentes).
+        # Durante `flask db upgrade` se omite: ahi el dueño del esquema es
+        # Alembic, y adelantarse con create_all() rompe las migraciones.
+        if _corriendo_comando_migracion():
+            app.logger.info('Comando de migracion detectado: se omite create_all().')
+        else:
+            db.create_all()
 
 
 def _register_blueprints(app):

@@ -10,7 +10,8 @@ from dateutil.relativedelta import relativedelta
 
 from extensions import db
 from models import (Paciente, EstatusCRM, Campana, CampanaDestinatario,
-                    EstatusCampana, EstatusDestinatario, ConversacionWhatsapp)
+                    EstatusCampana, EstatusDestinatario, ConversacionWhatsapp,
+                    TipoRecordatorio)
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,12 @@ def enviar_campana(campana_id, app):
             )
 
             try:
-                sid = enviar_mensaje(dest.numero_destino, mensaje)
+                sid = enviar_mensaje(
+                    dest.numero_destino, mensaje,
+                    tipo=TipoRecordatorio.campana,
+                    paciente_id=dest.paciente_id,
+                    campana_destinatario_id=dest.id,
+                )
                 dest.estatus = EstatusDestinatario.enviado
                 dest.fecha_envio = datetime.utcnow()
                 dest.message_sid = sid

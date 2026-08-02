@@ -6,18 +6,16 @@ from flask_login import login_required, current_user
 from sqlalchemy import func
 from extensions import db, scheduler, permiso_requerido
 from models import (Paciente, EstatusCRM, EstatusCita, SeguimientoCRM, TipoSeguimiento,
-                    ConversacionWhatsapp, Cita, Campana, CampanaDestinatario, EstatusCampana)
+                    ConversacionWhatsapp, Cita, Campana, CampanaDestinatario, EstatusCampana,
+                    TipoRecordatorio)
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 crm_bp = Blueprint('crm', __name__, url_prefix='/api/crm')
 
-TIMEZONE = ZoneInfo('America/Mexico_City')
-
-
 def _ahora_local():
-    """Hora actual en la timezone del consultorio, naive (para comparar con la BD)."""
-    return datetime.now(TIMEZONE).replace(tzinfo=None)
+    """Retorna datetime actual en la timezone del consultorio."""
+    from services.tiempo import ahora_local
+    return ahora_local()
 
 
 @crm_bp.before_request
@@ -226,7 +224,8 @@ def enviar_whatsapp(paciente_id):
 
     try:
         from services.whatsapp_service import enviar_mensaje
-        sid = enviar_mensaje(numero, mensaje)
+        sid = enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.manual,
+                             paciente_id=p.id)
         # Guardar en historial
         _guardar_conversacion(numero, p.id, mensaje, es_bot=True)
         return jsonify(ok=True, sid=sid)
