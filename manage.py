@@ -11,7 +11,8 @@ Uso:
 import os
 import click
 from dotenv import load_dotenv
-load_dotenv()
+# Ruta explicita para no depender del directorio de trabajo (ver nota en app.py).
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 from app import create_app
 from extensions import db

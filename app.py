@@ -4,7 +4,11 @@ import logging
 from flask import Flask, jsonify, render_template
 from dotenv import load_dotenv
 
-load_dotenv()
+# Ruta explicita: load_dotenv() sin argumento busca el .env desde el CWD hacia
+# arriba, asi que arrancar desde otra carpeta (config del IDE, tarea, flask run
+# desde un subdir) no lo encontraba, DATABASE_URL quedaba vacio y la app caia a
+# SQLite (app.db) en silencio. Anclarlo al directorio de este archivo lo evita.
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 # Subcomandos de Flask-Migrate/Alembic (`flask db <x>`).
 _COMANDOS_ALEMBIC = {
@@ -49,6 +53,17 @@ def create_app(config_name=None):
             'Producción está apuntando a SQLite. Configura DATABASE_URL con la '
             'cadena mysql+pymysql://... en el .env '
             '(guía: scripts/migrate_sqlite_to_mysql.py).'
+        )
+
+    # En dev no fallamos (SQLite es válido para pruebas rápidas), pero avisamos
+    # fuerte: si esto aparece cuando esperabas MySQL, es que no se encontró el
+    # .env o le falta DATABASE_URL, y se va a (re)crear app.db en silencio.
+    if config_name != 'production' and config_name != 'testing' and \
+            str(app.config.get('SQLALCHEMY_DATABASE_URI', '')).startswith('sqlite'):
+        logging.getLogger(__name__).warning(
+            'La app está usando SQLite (app.db), no MySQL. Si esperabas MySQL, '
+            'revisa que DATABASE_URL esté en el .env de %s.',
+            os.path.dirname(__file__)
         )
 
     # Logging
