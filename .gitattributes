@@ -1,2 +1,23 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Base de datos local SQLite (dev usa MySQL via DATABASE_URL; app.db es fallback)
+app.db
+*.db-journal
+
+# Entorno
+.env
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
