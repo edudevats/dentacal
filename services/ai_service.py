@@ -828,8 +828,18 @@ def _tool_buscar_paciente(args):
 def _tool_registrar_paciente(args):
     from models import Paciente, GrupoFamiliar, EstatusCRM
     from extensions import db
+    from sqlalchemy.exc import SQLAlchemyError
 
-    numero = args.get('numero_whatsapp', '')
+    numero = (args.get('numero_whatsapp') or '').strip()
+    nombre = (args.get('nombre') or '').strip()
+
+    # Sin nombre o sin numero el registro es inservible para recepcion (no lo
+    # pueden encontrar ni contactar). Mejor no crearlo y pedir el dato.
+    if not nombre:
+        return {'ok': False, 'error': 'Falta el nombre del paciente. Preguntaselo antes de registrarlo.'}
+    if not numero:
+        return {'ok': False, 'error': 'Falta el numero de WhatsApp del paciente.'}
+
     variantes = _variantes_numero_mx(numero)
 
     # Buscar pacientes existentes con mismo numero
@@ -852,8 +862,10 @@ def _tool_registrar_paciente(args):
         grupo_familiar_id = grupo.id
 
     p = Paciente(
-        nombre=args.get('nombre', ''),
-        whatsapp=args.get('numero_whatsapp', ''),
+        nombre=nombre,
+        whatsapp=numero,
+        # La ficha exige telefono; el WhatsApp del paciente ES su telefono.
+        telefono=numero,
         nombre_tutor=args.get('nombre_tutor', ''),
         estatus_crm=EstatusCRM.prospecto,
         grupo_familiar_id=grupo_familiar_id,
@@ -864,8 +876,32 @@ def _tool_registrar_paciente(args):
             p.fecha_nacimiento = dt.strptime(args['fecha_nacimiento'], '%Y-%m-%d').date()
         except ValueError:
             pass
-    db.session.add(p)
-    db.session.commit()
+
+    try:
+        db.session.add(p)
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        logger.exception('Fallo al registrar paciente desde el bot (nombre=%r)', nombre)
+        return {'ok': False,
+                'error': 'No se pudo guardar el registro por un problema tecnico. '
+                         'Pide al paciente que lo intente mas tarde o que llame al consultorio.'}
+
+    nuevo_id = p.id
+
+    # Releer antes de confirmar: si no esta en la BD, no decir que se registro.
+    try:
+        db.session.expire_all()
+        confirmado = Paciente.query.filter_by(id=nuevo_id, eliminado=False).first()
+    except SQLAlchemyError:
+        db.session.rollback()
+        confirmado = None
+    if confirmado is None:
+        logger.error('Paciente id=%s del bot no aparece tras el commit', nuevo_id)
+        return {'ok': False,
+                'error': 'No se pudo confirmar el registro. Pide al paciente que llame al consultorio.'}
+
+    p = confirmado
     result = {'ok': True, 'paciente_id': p.id, 'nombre': p.nombre_completo}
     if grupo_familiar_id:
         result['grupo_familiar'] = f'Agregado al grupo familiar (comparte numero con {len(existentes)} paciente(s))'

@@ -2,8 +2,18 @@ from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from extensions import db, permiso_requerido
 from models import Paciente, GrupoFamiliar, EstatusCRM, SolicitudRegistro, AuditLog
+from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, date
 import json
+import logging
+
+log = logging.getLogger(__name__)
+
+# Mensaje unico para cuando la BD no responde: la recepcionista tiene que saber
+# que lo que acaba de capturar NO quedo guardado y que debe refrescar.
+MSG_BD_CAIDA = ('No se pudo conectar con la base de datos. El paciente NO se guardó. '
+                'Refresca la página (F5) y vuelve a intentarlo. '
+                'No cierres esta ventana hasta confirmar que se guardó.')
 
 pacientes_bp = Blueprint('pacientes', __name__, url_prefix='/api/pacientes')
 
@@ -52,6 +62,46 @@ def listar():
         'page': page,
         'pages': pagination.pages,
     })
+
+
+@pacientes_bp.route('/recientes', methods=['GET'])
+@login_required
+def recientes():
+    """Ultimos pacientes dados de alta, mas reciente primero.
+
+    Sirve para que recepcion confirme de un vistazo que la captura si quedo
+    registrada, en vez de tener que buscarla por nombre.
+    """
+    limit = request.args.get('limit', 10, type=int)
+    limit = max(1, min(limit, 50))
+    try:
+        pacientes = (Paciente.query
+                     .filter_by(eliminado=False)
+                     .order_by(Paciente.created_at.desc(), Paciente.id.desc())
+                     .limit(limit).all())
+    except SQLAlchemyError:
+        db.session.rollback()
+        log.exception('Fallo al listar pacientes recientes')
+        return jsonify(error='db_unavailable', mensaje=MSG_BD_CAIDA), 503
+
+    return jsonify({
+        'pacientes': [{**p.to_dict(), 'created_at': p.created_at.isoformat() if p.created_at else None}
+                      for p in pacientes],
+        'total': len(pacientes),
+    })
+
+
+@pacientes_bp.route('/health-db', methods=['GET'])
+@login_required
+def health_db():
+    """Ping barato a la BD para que el front avise si se cayo la conexion."""
+    try:
+        db.session.execute(db.text('SELECT 1'))
+        return jsonify(ok=True)
+    except SQLAlchemyError:
+        db.session.rollback()
+        log.exception('Healthcheck de BD fallido')
+        return jsonify(ok=False, error='db_unavailable', mensaje=MSG_BD_CAIDA), 503
 
 
 @pacientes_bp.route('/buscar-whatsapp', methods=['GET'])
@@ -105,14 +155,27 @@ def crear():
     data = request.get_json(silent=True)
     if not data:
         return jsonify(error='JSON inválido'), 400
-    if not data.get('nombre'):
-        return jsonify(error='El nombre es requerido'), 400
 
-    # Verificar duplicado por whatsapp — ofrecer grupo familiar
+    # Solo nombre y telefono son obligatorios. Todo lo demas (doctor de cabecera,
+    # fecha de nacimiento, whatsapp, origen...) es opcional para no frenar la
+    # captura en recepcion.
+    nombre = (data.get('nombre') or '').strip()
+    telefono = (data.get('telefono') or '').strip()
+    if not nombre:
+        return jsonify(error='El nombre es requerido'), 400
+    if not telefono:
+        return jsonify(error='El teléfono es requerido'), 400
+
+    # Verificar duplicado por whatsapp — ofrecer grupo familiar.
+    # `permitir_duplicado` es la salida explicita: numeros compartidos son
+    # normales (una mama con varios hijos) y antes no habia forma de guardar sin
+    # forzar un grupo familiar, asi que el alta se perdia.
     whatsapp = _normalizar_numero(data.get('whatsapp', ''))
     grupo_familiar_id = data.get('grupo_familiar_id')
 
-    if whatsapp and not grupo_familiar_id and not data.get('crear_grupo_familiar'):
+    if (whatsapp and not grupo_familiar_id
+            and not data.get('crear_grupo_familiar')
+            and not data.get('permitir_duplicado')):
         existentes = Paciente.query.filter_by(whatsapp=whatsapp, eliminado=False).all()
         if existentes:
             grupo = existentes[0].grupo_familiar
@@ -143,9 +206,9 @@ def crear():
                 existente.grupo_familiar_id = grupo.id
 
     p = Paciente(
-        nombre=data['nombre'],
+        nombre=nombre,
         fecha_nacimiento=fecha_nac,
-        telefono=data.get('telefono', ''),
+        telefono=telefono,
         whatsapp=whatsapp or data.get('whatsapp', ''),
         email=data.get('email', ''),
         nombre_tutor=data.get('nombre_tutor', ''),
@@ -164,10 +227,41 @@ def crear():
             ).date()
         except ValueError:
             pass
-    db.session.add(p)
-    db.session.commit()
-    _audit_paciente('crear_paciente', p.id, datos_nuevos=_snapshot_paciente(p))
-    return jsonify(p.to_dict()), 201
+    try:
+        db.session.add(p)
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        log.exception('Fallo al guardar paciente nuevo (nombre=%r)', nombre)
+        return jsonify(error='db_unavailable', mensaje=MSG_BD_CAIDA), 503
+
+    nuevo_id = p.id
+
+    # Doble verificacion: releer de la BD en una consulta nueva antes de decirle
+    # a la recepcionista que quedo guardado. Si esto falla, el alta no existe y
+    # no debemos reportar exito.
+    try:
+        db.session.expire_all()
+        confirmado = Paciente.query.filter_by(id=nuevo_id, eliminado=False).first()
+    except SQLAlchemyError:
+        db.session.rollback()
+        log.exception('Fallo al verificar paciente recien creado id=%s', nuevo_id)
+        return jsonify(error='db_unavailable', mensaje=MSG_BD_CAIDA), 503
+
+    if confirmado is None:
+        log.error('Paciente id=%s no aparece tras el commit', nuevo_id)
+        return jsonify(
+            error='save_unverified',
+            mensaje=('El paciente no pudo confirmarse en la base de datos. '
+                     'Refresca la página (F5) y verifica antes de volver a capturarlo.'),
+        ), 500
+
+    _audit_paciente('crear_paciente', confirmado.id,
+                    datos_nuevos=_snapshot_paciente(confirmado))
+
+    payload = confirmado.to_dict()
+    payload['verificado_en_bd'] = True
+    return jsonify(payload), 201
 
 
 @pacientes_bp.route('/<int:paciente_id>', methods=['PUT'])
@@ -215,7 +309,10 @@ def actualizar(paciente_id):
         if nuevo_whatsapp and nuevo_whatsapp != p.whatsapp:
             existentes = Paciente.query.filter_by(whatsapp=nuevo_whatsapp, eliminado=False).all()
             existentes = [e for e in existentes if e.id != p.id]
-            if existentes and not data.get('grupo_familiar_id') and not p.grupo_familiar_id and not data.get('crear_grupo_familiar'):
+            if (existentes and not data.get('grupo_familiar_id')
+                    and not p.grupo_familiar_id
+                    and not data.get('crear_grupo_familiar')
+                    and not data.get('permitir_duplicado')):
                 grupo = existentes[0].grupo_familiar
                 return jsonify(
                     error='duplicate_whatsapp',
@@ -272,10 +369,20 @@ def actualizar(paciente_id):
         else:
             p.proximo_recordatorio_fecha = None
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        log.exception('Fallo al actualizar paciente id=%s', paciente_id)
+        return jsonify(error='db_unavailable',
+                       mensaje=MSG_BD_CAIDA.replace('El paciente NO se guardó',
+                                                    'Los cambios NO se guardaron')), 503
+
     _audit_paciente('editar_paciente', p.id,
                     datos_anteriores=datos_antes, datos_nuevos=_snapshot_paciente(p))
-    return jsonify(p.to_dict())
+    payload = p.to_dict()
+    payload['verificado_en_bd'] = True
+    return jsonify(payload)
 
 
 @pacientes_bp.route('/adultos', methods=['GET'])

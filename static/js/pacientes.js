@@ -9,6 +9,9 @@ window._waModifiedByUser = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   cargarPacientes();
+  cargarRecientes();
+  revisarConexionBd();
+  setInterval(revisarConexionBd, 60000);
   document.getElementById('searchInput')?.addEventListener('input', () => {
     clearTimeout(window._searchTimer);
     window._searchTimer = setTimeout(() => { paginaActual = 1; cargarPacientes(); }, 350);
@@ -411,6 +414,192 @@ function _leerNumeroSeguro(iti, inputId) {
   return formatted || raw;
 }
 
+// ─── Aviso de BD caida ────────────────────────────────────────────────────
+
+function marcarBdCaida(caida) {
+  const banner = document.getElementById('bannerBdCaida');
+  if (!banner) return;
+  banner.classList.toggle('d-none', !caida);
+  banner.classList.toggle('d-flex', caida);
+}
+
+// Comprueba la conexion con la BD. Se llama al cargar y cada 60s, para que la
+// recepcionista no capture durante minutos contra una BD caida.
+async function revisarConexionBd() {
+  try {
+    const resp = await apiFetch('/api/pacientes/health-db');
+    marcarBdCaida(!resp.ok);
+  } catch (_) {
+    marcarBdCaida(true);
+  }
+}
+
+// ─── Ultimos pacientes guardados ──────────────────────────────────────────
+
+async function cargarRecientes(resaltarId) {
+  const cont = document.getElementById('recientesList');
+  if (!cont) return;
+  try {
+    const resp = await apiFetch('/api/pacientes/recientes?limit=10');
+    if (!resp.ok) throw new Error('http ' + resp.status);
+    const data = await resp.json();
+    const pacs = data.pacientes || [];
+
+    cont.replaceChildren();
+    if (!pacs.length) {
+      cont.appendChild(mkEl('span', { text: 'Aun no hay altas registradas.', cls: 'text-muted small' }));
+      return;
+    }
+
+    pacs.forEach(p => {
+      const esNuevo = resaltarId && p.id === resaltarId;
+      const chip = mkEl('button', {
+        cls: 'btn btn-sm text-start ' + (esNuevo ? 'btn-success' : 'btn-outline-secondary'),
+        type: 'button',
+        title: 'Abrir ficha de ' + (p.nombre_completo || p.nombre),
+        onclick: () => abrirModalEditarPaciente(p),
+      });
+      chip.appendChild(mkEl('i', { cls: 'bi bi-person-check me-1' }));
+      chip.appendChild(document.createTextNode(p.nombre_completo || p.nombre));
+      const meta = mkEl('small', {
+        text: ' #' + p.id + (p.created_at ? ' · ' + _fechaCorta(p.created_at) : ''),
+        cls: esNuevo ? '' : 'text-muted',
+      });
+      chip.appendChild(meta);
+      cont.appendChild(chip);
+    });
+  } catch (_) {
+    cont.replaceChildren();
+    cont.appendChild(mkEl('span', {
+      text: 'No se pudo cargar la lista (sin conexion con la BD).',
+      cls: 'text-danger small',
+    }));
+  }
+}
+
+function _fechaCorta(iso) {
+  try {
+    return new Date(iso).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+  } catch (_) { return ''; }
+}
+
+// ─── Guardado con verificacion ────────────────────────────────────────────
+
+function _mostrarFalloGuardado(mensaje) {
+  const el = document.getElementById('falloMensaje');
+  if (el) el.textContent = mensaje;
+  const modal = document.getElementById('modalGuardadoFallo');
+  if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
+}
+
+/**
+ * Pregunta que hacer cuando el WhatsApp ya existe.
+ * Resuelve 'familia' | 'independiente' | null (cancelar).
+ * A diferencia del confirm() anterior, cancelar avisa explicitamente que NO se guardo.
+ */
+function _preguntarDuplicado(data, nombreNuevo) {
+  return new Promise(resolve => {
+    const modalEl = document.getElementById('modalDuplicado');
+    if (!modalEl) { resolve(null); return; }
+
+    const lista = document.getElementById('dupExistentes');
+    lista.replaceChildren();
+    (data.pacientes_existentes || []).forEach(p => {
+      const item = mkEl('div', { cls: 'border rounded px-2 py-1 mb-1' });
+      item.appendChild(mkEl('strong', { text: p.nombre_completo || p.nombre }));
+      item.appendChild(mkEl('span', { text: ' · ' + (p.whatsapp || ''), cls: 'text-muted' }));
+      lista.appendChild(item);
+    });
+    document.getElementById('dupNombreNuevo').textContent = nombreNuevo;
+
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    let decision = null;
+
+    const btnFam = document.getElementById('btnDupFamilia');
+    const btnInd = document.getElementById('btnDupIndependiente');
+
+    const cerrar = (valor) => { decision = valor; modal.hide(); };
+    const onFam = () => cerrar('familia');
+    const onInd = () => cerrar('independiente');
+    const onHidden = () => {
+      btnFam.removeEventListener('click', onFam);
+      btnInd.removeEventListener('click', onInd);
+      modalEl.removeEventListener('hidden.bs.modal', onHidden);
+      resolve(decision);
+    };
+
+    btnFam.addEventListener('click', onFam);
+    btnInd.addEventListener('click', onInd);
+    modalEl.addEventListener('hidden.bs.modal', onHidden);
+    modal.show();
+  });
+}
+
+/**
+ * Cierra el formulario y espera a que Bootstrap termine la animacion.
+ * Abrir el modal de confirmacion antes de que termine deja el formulario
+ * "medio abierto" con los datos del paciente anterior — y volver a dar Guardar
+ * ahi crearia un duplicado.
+ */
+function _cerrarModalPaciente() {
+  return new Promise(resolve => {
+    const el = document.getElementById('modalPaciente');
+    const inst = el ? bootstrap.Modal.getInstance(el) : null;
+    if (!el || !inst || !el.classList.contains('show')) { resolve(); return; }
+    const onHidden = () => {
+      el.removeEventListener('hidden.bs.modal', onHidden);
+      resolve();
+    };
+    el.addEventListener('hidden.bs.modal', onHidden);
+    inst.hide();
+    // Red de seguridad por si el evento no llega (modal ya oculto, etc.)
+    setTimeout(resolve, 600);
+  });
+}
+
+/**
+ * Segunda verificacion: el backend ya releyo el registro, pero volvemos a
+ * pedirlo en una peticion independiente antes de decirle a la recepcionista
+ * que quedo guardado. Solo entonces se cierra el formulario.
+ */
+async function _confirmarGuardado(data, esAlta) {
+  const pid = data.id;
+  let verificado = false;
+  try {
+    const resp = await apiFetch(`/api/pacientes/${pid}`);
+    verificado = resp.ok && !!(await resp.json()).id;
+  } catch (_) {
+    verificado = false;
+  }
+
+  if (!verificado) {
+    _mostrarFalloGuardado(
+      'El servidor respondió que guardó, pero no pudimos confirmarlo leyendo la ' +
+      'base de datos. Verifica en la lista antes de volver a capturarlo.'
+    );
+    return;
+  }
+
+  document.getElementById('btnGuardarPaciente').blur();
+  await _cerrarModalPaciente();
+  // Dejar el formulario limpio: si queda con los datos del anterior, un segundo
+  // clic en Guardar duplicaria al paciente.
+  limpiarFormPaciente();
+  pacienteEditandoId = null;
+  cargarPacientes();
+  cargarRecientes(pid);
+
+  // 1a alerta: toast inmediato.
+  showToast(esAlta ? 'Paciente guardado correctamente' : 'Cambios guardados correctamente', 'success');
+
+  // 2a alerta: confirmacion verificada contra la BD.
+  document.getElementById('okNombre').textContent = data.nombre_completo || data.nombre || '';
+  document.getElementById('okDatos').textContent =
+    `Ficha #${pid}` + (data.whatsapp ? ` · ${data.whatsapp}` : '') +
+    (data.telefono ? ` · Tel ${data.telefono}` : '');
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('modalGuardadoOk')).show();
+}
+
 async function guardarPaciente() {
   const body = {
     nombre: document.getElementById('p_nombre').value.trim(),
@@ -431,9 +620,17 @@ async function guardarPaciente() {
   const msg = document.getElementById('pacienteMsg');
   msg.textContent = '';
 
+  // Solo nombre y telefono son obligatorios.
   if (!body.nombre) {
     msg.className = 'mt-2 text-danger small';
     msg.textContent = 'El nombre es requerido.';
+    document.getElementById('p_nombre').focus();
+    return;
+  }
+  if (!body.telefono) {
+    msg.className = 'mt-2 text-danger small';
+    msg.textContent = 'El telefono es requerido.';
+    document.getElementById('p_telefono').focus();
     return;
   }
 
@@ -463,63 +660,84 @@ async function guardarPaciente() {
       if (confirmar) {
         body.confirmar_sobrescritura = true;
         const resp2 = await apiFetch(url, { method, body: JSON.stringify(body) });
+        const data2 = await _parseJson(resp2);
         if (resp2.ok) {
-          btnGuardar.blur();
-          bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPaciente')).hide();
-          cargarPacientes();
-          showToast('Cambios guardados correctamente', 'success');
+          await _confirmarGuardado(data2, !pacienteEditandoId);
         } else {
-          const data2 = await _parseJson(resp2);
-          msg.className = 'mt-2 text-danger small';
-          msg.textContent = data2.error || data2.mensaje || ('Error HTTP ' + resp2.status);
+          msg.className = 'mt-2 text-danger small fw-semibold';
+          msg.textContent = (data2.mensaje || data2.error || ('Error HTTP ' + resp2.status)) +
+            ' — los cambios NO se guardaron.';
         }
+      } else {
+        msg.className = 'mt-2 text-danger small fw-semibold';
+        msg.textContent = 'Los cambios NO se guardaron.';
       }
       return;
     }
 
+    // BD caida o guardado no confirmado: avisar fuerte y conservar los datos.
+    if (resp.status === 503 && data.error === 'db_unavailable') {
+      marcarBdCaida(true);
+      _mostrarFalloGuardado(data.mensaje || 'No hay conexion con la base de datos.');
+      return;
+    }
+    if (data.error === 'save_unverified') {
+      _mostrarFalloGuardado(data.mensaje || 'No se pudo confirmar el guardado.');
+      return;
+    }
+
     if (resp.status === 409 && data.error === 'duplicate_whatsapp') {
-      const nombres = (data.pacientes_existentes || []).map(p => p.nombre).join(', ');
-      const confirmar = confirm(
-        `Ya existe(n) paciente(s) con ese WhatsApp: ${nombres}.\n\n` +
-        `Desea agregar a "${body.nombre}" como miembro del grupo familiar?`
-      );
-      if (confirmar) {
+      const decision = await _preguntarDuplicado(data, body.nombre);
+
+      if (!decision) {
+        // Antes esto descartaba el alta en silencio y la recepcionista creia
+        // haberla capturado. Ahora queda a la vista que NO se guardo.
+        msg.className = 'mt-2 text-danger small fw-semibold';
+        msg.textContent = 'El paciente NO se guardó. Elige una opción para guardarlo.';
+        showToast('El paciente NO se guardó', 'danger');
+        return;
+      }
+
+      if (decision === 'familia') {
         if (data.grupo_familiar) {
           body.grupo_familiar_id = data.grupo_familiar.id;
         } else {
           body.crear_grupo_familiar = true;
         }
-        const resp2 = await apiFetch(url, { method, body: JSON.stringify(body) });
-        if (resp2.ok) {
-          btnGuardar.blur();
-          bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPaciente')).hide();
-          cargarPacientes();
-          showToast('Paciente guardado correctamente', 'success');
-        } else {
-          const data2 = await _parseJson(resp2);
-          msg.className = 'mt-2 text-danger small';
-          msg.textContent = data2.error || data2.mensaje || ('Error HTTP ' + resp2.status);
-        }
+      } else {
+        body.permitir_duplicado = true;
+      }
+
+      const resp2 = await apiFetch(url, { method, body: JSON.stringify(body) });
+      const data2 = await _parseJson(resp2);
+      if (resp2.ok) {
+        await _confirmarGuardado(data2, !pacienteEditandoId);
+      } else if (resp2.status === 503 && data2.error === 'db_unavailable') {
+        marcarBdCaida(true);
+        _mostrarFalloGuardado(data2.mensaje || 'No hay conexion con la base de datos.');
+      } else {
+        msg.className = 'mt-2 text-danger small fw-semibold';
+        msg.textContent = (data2.mensaje || data2.error || ('Error HTTP ' + resp2.status)) +
+          ' — el paciente NO se guardó.';
       }
       return;
     }
 
     if (resp.ok) {
-      btnGuardar.blur();
-      bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPaciente')).hide();
-      cargarPacientes();
-      showToast(
-        pacienteEditandoId ? 'Cambios guardados correctamente' : 'Paciente creado correctamente',
-        'success'
-      );
+      marcarBdCaida(false);
+      await _confirmarGuardado(data, !pacienteEditandoId);
     } else {
-      msg.className = 'mt-2 text-danger small';
-      msg.textContent = data.mensaje || data.error || 'Error al guardar';
+      msg.className = 'mt-2 text-danger small fw-semibold';
+      msg.textContent = (data.mensaje || data.error || 'Error al guardar') +
+        ' — el paciente NO se guardó.';
+      showToast('El paciente NO se guardó', 'danger');
     }
   } catch (err) {
-    msg.className = 'mt-2 text-danger small';
-    msg.textContent = 'Error de conexion. Verifique la red e intente de nuevo.';
     console.error('guardarPaciente error:', err);
+    marcarBdCaida(true);
+    _mostrarFalloGuardado(
+      'Error de conexión: no se pudo contactar al servidor. El paciente NO se guardó.'
+    );
   } finally {
     btnGuardar.disabled = false;
   }
@@ -531,6 +749,7 @@ async function eliminarPaciente() {
   if (resp.ok) {
     bootstrap.Modal.getOrCreateInstance(document.getElementById('modalPaciente')).hide();
     cargarPacientes();
+    cargarRecientes();
   }
 }
 
