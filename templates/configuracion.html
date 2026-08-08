@@ -38,16 +38,6 @@
                   value="{{ config.telefono if config else '' }}">
               </div>
               <div class="col-md-3">
-                <label class="form-label">Apertura</label>
-                <input type="time" id="cfg_apertura" class="form-control"
-                  value="{{ config.horario_apertura.strftime('%H:%M') if config and config.horario_apertura else '09:00' }}">
-              </div>
-              <div class="col-md-3">
-                <label class="form-label">Cierre</label>
-                <input type="time" id="cfg_cierre" class="form-control"
-                  value="{{ config.horario_cierre.strftime('%H:%M') if config and config.horario_cierre else '18:00' }}">
-              </div>
-              <div class="col-md-3">
                 <label class="form-label">Hora resumen a doctores</label>
                 <input type="time" id="cfg_hora_resumen" class="form-control"
                   value="{{ config.hora_resumen_doctores.strftime('%H:%M') if config and config.hora_resumen_doctores else '21:00' }}">
@@ -67,6 +57,16 @@
                     value="{{ config.porcentaje_anticipo if config else '50' }}">
                   <span class="input-group-text">%</span>
                 </div>
+              </div>
+              <div class="col-12">
+                <label class="form-label fw-semibold">Horario de atencion</label>
+                <table class="table table-sm align-middle">
+                  <thead><tr><th>Dia</th><th>Apertura</th><th>Cierre</th><th>Cerrado</th></tr></thead>
+                  <tbody id="tablaHorarios"></tbody>
+                </table>
+                <small class="text-muted">
+                  Los dias marcados como cerrados no aparecen en la agenda y el bot no ofrece citas en ellos.
+                </small>
               </div>
             </div>
             <hr>
@@ -628,13 +628,68 @@
   })();
 
   // Configuracion
+  const DIAS = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo'];
+
+  function pintarHorarios(horarios) {
+    const tbody = document.getElementById('tablaHorarios');
+    if (!tbody) return;
+    tbody.replaceChildren();
+    DIAS.forEach((nombre, d) => {
+      const h = (horarios || []).find(x => x.dia_semana === d)
+        || { hora_apertura: '09:00', hora_cierre: '18:00', cerrado: d === 6 };
+      const tr = document.createElement('tr');
+
+      const tdDia = document.createElement('td');
+      tdDia.textContent = nombre;
+
+      const mkInput = (tipo, id, valor) => {
+        const td = document.createElement('td');
+        const inp = document.createElement('input');
+        inp.type = tipo;
+        inp.id = id;
+        if (tipo === 'checkbox') {
+          inp.className = 'form-check-input';
+          inp.checked = !!valor;
+        } else {
+          inp.className = 'form-control form-control-sm';
+          inp.value = valor;
+        }
+        td.appendChild(inp);
+        return td;
+      };
+
+      tr.append(
+        tdDia,
+        mkInput('time', `hor_ap_${d}`, h.hora_apertura),
+        mkInput('time', `hor_ci_${d}`, h.hora_cierre),
+        mkInput('checkbox', `hor_ce_${d}`, h.cerrado),
+      );
+      tbody.appendChild(tr);
+    });
+  }
+
+  function recogerHorarios() {
+    return DIAS.map((_, d) => ({
+      dia_semana: d,
+      hora_apertura: document.getElementById(`hor_ap_${d}`).value,
+      hora_cierre: document.getElementById(`hor_ci_${d}`).value,
+      cerrado: document.getElementById(`hor_ce_${d}`).checked,
+    }));
+  }
+
+  async function cargarConfiguracion() {
+    const resp = await apiFetch('/api/configuracion');
+    if (!resp.ok) { pintarHorarios([]); return; }
+    const data = await resp.json();
+    pintarHorarios(data.horarios);
+  }
+  cargarConfiguracion();
+
   document.getElementById('btnGuardarConfig')?.addEventListener('click', async () => {
     const body = {
       nombre_consultorio: document.getElementById('cfg_nombre').value,
       direccion: document.getElementById('cfg_direccion').value,
       telefono: document.getElementById('cfg_telefono').value,
-      horario_apertura: document.getElementById('cfg_apertura').value,
-      horario_cierre: document.getElementById('cfg_cierre').value,
       precio_primera_consulta: parseFloat(document.getElementById('cfg_precio').value),
       porcentaje_anticipo: parseInt(document.getElementById('cfg_anticipo').value),
       titular_cuenta: document.getElementById('cfg_titular').value,
@@ -642,6 +697,7 @@
       tarjeta: document.getElementById('cfg_tarjeta').value,
       google_reviews_link: document.getElementById('cfg_reviews').value,
       hora_resumen_doctores: document.getElementById('cfg_hora_resumen').value,
+      horarios: recogerHorarios(),
     };
     const resp = await apiFetch('/api/configuracion', { method: 'PUT', body: JSON.stringify(body) });
     const msg = document.getElementById('cfgMsg');

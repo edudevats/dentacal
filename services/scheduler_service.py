@@ -2,7 +2,7 @@
 Logica de disponibilidad del consultorio.
 Verifica colisiones y genera slots disponibles.
 """
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time
 from models import (Cita, HorarioDentista, BloqueoDentista, Consultorio,
                     EstatusCita, TurnoRotativo, TurnoRotativoMiembro)
 from extensions import db
@@ -47,6 +47,19 @@ def obtener_slots_disponibles(fecha, dentista_id, consultorio_id=None,
     if not horas:
         return []
     hora_inicio, hora_fin = horas
+
+    # El horario del consultorio de ESE dia es la envoltura
+    from models import HorarioConsultorio
+    horario_dia = HorarioConsultorio.del_dia(fecha.weekday())
+    if horario_dia and horario_dia.cerrado:
+        return []
+    apertura = horario_dia.hora_apertura if horario_dia and horario_dia.hora_apertura else time(9, 0)
+    cierre = horario_dia.hora_cierre if horario_dia and horario_dia.hora_cierre else time(18, 0)
+
+    hora_inicio = max(hora_inicio, apertura)
+    hora_fin = min(hora_fin, cierre)
+    if hora_inicio >= hora_fin:
+        return []
 
     inicio_dia = datetime(fecha.year, fecha.month, fecha.day,
                           hora_inicio.hour, hora_inicio.minute)
@@ -188,4 +201,49 @@ def proxima_fecha_dentista(turno, dentista_id, desde_fecha, limite_semanas=12):
         m = resolver_turno(cand, turno)
         if m and m.dentista_id == dentista_id:
             return cand
+    return None
+
+
+def validar_horario_consultorio(fecha_inicio, fecha_fin):
+    """None si la cita cabe en el horario del consultorio; si no, el motivo.
+
+    Lee el horario del dia de la semana correspondiente. Si ese dia no esta
+    configurado, cae a 09:00-18:00 abierto.
+
+    Reglas, en orden:
+      1. Dia marcado como cerrado.
+      2. No puede empezar antes de la apertura de ese dia.
+      3. No puede terminar despues del cierre de ese dia (incluye cruzar medianoche).
+    """
+    from models import HorarioConsultorio
+
+    dia = fecha_inicio.weekday()
+    horario = HorarioConsultorio.del_dia(dia)
+
+    if horario and horario.cerrado:
+        # En plural: el mensaje lo lee el paciente por WhatsApp
+        nombres = ['lunes', 'martes', 'miercoles', 'jueves',
+                   'viernes', 'sabados', 'domingos']
+        return {'codigo': 'dia_cerrado',
+                'mensaje': f'El consultorio no atiende los {nombres[dia]}.',
+                'apertura': '', 'cierre': ''}
+
+    apertura = horario.hora_apertura if horario and horario.hora_apertura else time(9, 0)
+    cierre = horario.hora_cierre if horario and horario.hora_cierre else time(18, 0)
+
+    apertura_str = apertura.strftime('%H:%M')
+    cierre_str = cierre.strftime('%H:%M')
+
+    def _rechazo(codigo, mensaje):
+        return {'codigo': codigo, 'mensaje': mensaje,
+                'apertura': apertura_str, 'cierre': cierre_str}
+
+    if fecha_inicio.time() < apertura:
+        return _rechazo('fuera_de_horario',
+                        f'El consultorio abre a las {apertura_str}.')
+
+    if fecha_fin.date() != fecha_inicio.date() or fecha_fin.time() > cierre:
+        return _rechazo('fuera_de_horario',
+                        f'El consultorio cierra a las {cierre_str} y la cita terminaria despues.')
+
     return None

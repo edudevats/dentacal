@@ -38,7 +38,46 @@ def dashboard():
                            consultorios=consultorios,
                            tipos_cita=tipos_cita,
                            consultorios_json=[c.to_dict() for c in consultorios],
-                           dentistas_json=[d.to_dict() for d in dentistas])
+                           dentistas_json=[d.to_dict() for d in dentistas],
+                           horario_json=_horario_consultorio())
+
+
+def _horario_consultorio():
+    """Horario por dia para el calendario.
+
+    `dias` alimenta businessHours (una franja por dia). slot_min/slot_max son
+    globales en FullCalendar, asi que se toman los extremos de los dias abiertos,
+    con una hora de holgura de cada lado para poder ver y agendar citas pegadas
+    a la apertura o al cierre.
+    """
+    from models import HorarioConsultorio
+
+    filas = HorarioConsultorio.query.order_by(HorarioConsultorio.dia_semana).all()
+    if not filas:
+        dias = [{'dia_semana': d, 'apertura': '09:00', 'cierre': '18:00',
+                 'cerrado': d == 6} for d in range(7)]
+    else:
+        dias = [f.to_dict() for f in filas]
+        for d in dias:
+            d['apertura'] = d.pop('hora_apertura')
+            d['cierre'] = d.pop('hora_cierre')
+
+    abiertos = [d for d in dias if not d['cerrado']]
+    if not abiertos:
+        abiertos = [{'apertura': '09:00', 'cierre': '18:00'}]
+
+    min_ap = min(d['apertura'] for d in abiertos)
+    max_ci = max(d['cierre'] for d in abiertos)
+
+    hora_min = max(0, int(min_ap[:2]) - 1)
+    hora_max = int(max_ci[:2]) + 1
+    slot_max = '23:59:00' if hora_max > 23 else f'{hora_max:02d}:00:00'
+
+    return {
+        'dias': dias,
+        'slot_min': f'{hora_min:02d}:00:00',
+        'slot_max': slot_max,
+    }
 
 
 @main_bp.route('/pacientes')

@@ -395,6 +395,9 @@ class Cita(db.Model):
     anticipo_pagado = db.Column(db.Boolean, default=False)
     anticipo_monto = db.Column(db.Numeric(10, 2), default=0)
 
+    # True si se agendo fuera del horario del consultorio con override explicito
+    fuera_de_horario = db.Column(db.Boolean, default=False)
+
     # Pre-cita: reserva temporal de 12h para pacientes de primera vez
     pre_cita_expira = db.Column(db.DateTime, nullable=True)
 
@@ -439,6 +442,7 @@ class Cita(db.Model):
             'notas': self.notas or '',
             'anticipo_pagado': self.anticipo_pagado,
             'anticipo_monto': float(self.anticipo_monto) if self.anticipo_monto else 0,
+            'fuera_de_horario': bool(self.fuera_de_horario),
             'confirmacion_fecha': self.confirmacion_fecha.isoformat() if self.confirmacion_fecha else None,
             'pre_cita_expira': self.pre_cita_expira.isoformat() if self.pre_cita_expira else None,
             'requiere_anticipo': self.paciente_requiere_anticipo,
@@ -637,6 +641,35 @@ class OrigenPaciente(db.Model):
         }
 
 
+class HorarioConsultorio(db.Model):
+    """Horario de atencion del consultorio, una fila por dia de la semana.
+
+    dia_semana: 0=lunes ... 6=domingo (mismo criterio que HorarioDentista
+    y que datetime.weekday()).
+    Sustituye al par global ConfiguracionConsultorio.horario_apertura/cierre.
+    """
+    __tablename__ = 'horarios_consultorio'
+
+    id = db.Column(db.Integer, primary_key=True)
+    dia_semana = db.Column(db.Integer, nullable=False, unique=True)
+    hora_apertura = db.Column(db.Time, default=time(9, 0))
+    hora_cierre = db.Column(db.Time, default=time(18, 0))
+    cerrado = db.Column(db.Boolean, default=False)
+
+    @staticmethod
+    def del_dia(dia_semana):
+        """La fila de ese dia, o None si no esta configurado."""
+        return HorarioConsultorio.query.filter_by(dia_semana=dia_semana).first()
+
+    def to_dict(self):
+        return {
+            'dia_semana': self.dia_semana,
+            'hora_apertura': self.hora_apertura.strftime('%H:%M') if self.hora_apertura else '09:00',
+            'hora_cierre': self.hora_cierre.strftime('%H:%M') if self.hora_cierre else '18:00',
+            'cerrado': bool(self.cerrado),
+        }
+
+
 class ConfiguracionConsultorio(db.Model):
     """Configuracion global del consultorio (singleton)."""
     __tablename__ = 'configuracion_consultorio'
@@ -729,6 +762,7 @@ class SolicitudRegistro(db.Model):
     tipo='registro'      → paciente nuevo no registrado (alta).
     tipo='dudas'         → paciente con dudas que pidio una llamada.
     tipo='post_anticipo' → llamada de coordinacion tras confirmar anticipo.
+    tipo='urgencia'      → paciente que necesita atencion fuera de horario.
     """
     __tablename__ = 'solicitudes_registro'
 

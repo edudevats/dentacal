@@ -185,11 +185,11 @@ BOT_FUNCTION_DECLARATIONS = [
     },
     {
         "name": "agendar_llamada",
-        "description": "Registra la solicitud de una llamada de la recepcionista al paciente. Usar cuando: (a) el paciente tiene muchas dudas o dudas especificas que no puedes resolver bien por chat y acepta que le llamen (motivo='dudas'); o (b) el paciente responde su disponibilidad tras recibir la notificacion de anticipo confirmado que pedia coordinar una llamada (motivo='post_anticipo'). El numero de WhatsApp se toma automaticamente del contexto — NO lo incluyas en los argumentos.",
+        "description": "Registra la solicitud de una llamada de la recepcionista al paciente. Usar cuando: (a) el paciente tiene dudas que no puedes resolver por chat y acepta que le llamen (motivo='dudas'); (b) el paciente responde su disponibilidad tras la notificacion de anticipo confirmado (motivo='post_anticipo'); o (c) el paciente necesita atencion fuera del horario del consultorio y ya le ofreciste huecos dentro del horario pero insiste, o describe una urgencia (motivo='urgencia'). El numero de WhatsApp se toma automaticamente del contexto — NO lo incluyas en los argumentos.",
         "parameters": {
             "type": "object",
             "properties": {
-                "motivo": {"type": "string", "description": "'dudas' o 'post_anticipo'"},
+                "motivo": {"type": "string", "description": "'dudas', 'post_anticipo' o 'urgencia'"},
                 "nombre": {"type": "string", "description": "Nombre del paciente (opcional; si no se da se usa el del contacto)"},
                 "paciente_id": {"type": "integer", "description": "ID del paciente si esta registrado (opcional)"},
                 "fecha_preferida": {"type": "string", "description": "Dia/fecha preferida en texto libre (ej: 'manana', 'jueves 10')"},
@@ -278,6 +278,24 @@ def _get_doctor_schedule_summary():
         lineas.append(f"- {d.nombre} (ID:{d.id}): {dias_str}{atiende_str}{bloqueo_str}")
 
     return '\n'.join(lineas)
+
+
+def _resumen_horario_consultorio():
+    """Texto legible del horario por dia, para el bot."""
+    from models import HorarioConsultorio
+    nombres = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
+    filas = HorarioConsultorio.query.order_by(HorarioConsultorio.dia_semana).all()
+    if not filas:
+        return '09:00 - 18:00 (Lunes a Sabado)'
+    partes = []
+    for f in filas:
+        if f.cerrado:
+            partes.append(f'{nombres[f.dia_semana]}: cerrado')
+        else:
+            partes.append(f'{nombres[f.dia_semana]}: '
+                          f'{f.hora_apertura.strftime("%H:%M")} a '
+                          f'{f.hora_cierre.strftime("%H:%M")}')
+    return '; '.join(partes)
 
 
 def _get_system_prompt(numero_whatsapp=None):
@@ -371,6 +389,7 @@ def _get_system_prompt(numero_whatsapp=None):
             contexto_familia = "\n\nINFORMACION DEL CONTACTO: NUMERO NUEVO — no hay pacientes registrados con este numero."
 
     doctor_schedule = _get_doctor_schedule_summary()
+    horario_resumen = _resumen_horario_consultorio()
 
     flujo_nuevo = """
 ════════════════════════════════
@@ -387,7 +406,12 @@ Tu objetivo es:
 
 NO uses registrar_paciente, buscar_disponibilidad, crear_solicitud_cita ni ninguna otra tool de citas con pacientes no registrados.
 
-Si el paciente nuevo tiene dudas especificas que no puedes resolver, tambien puedes ofrecer agendar una llamada con agendar_llamada (motivo='dudas')."""
+Si el paciente nuevo tiene dudas especificas que no puedes resolver, tambien puedes ofrecer agendar una llamada con agendar_llamada (motivo='dudas').
+
+URGENCIAS Y HORARIOS:
+- Si el paciente describe dolor fuerte, un golpe, sangrado o hinchazon (o insiste en que necesita atencion urgente), NO sigas el proceso de registro normal ni le ofrezcas huecos de agenda: como es un contacto nuevo, no puede agendar por este medio.
+- Usa de inmediato agendar_llamada con motivo='urgencia', pidiendole el horario en el que le puedan llamar lo antes posible.
+- En notas incluye lo que describio."""
 
     flujo_registrado = """
 ════════════════════════════════
@@ -439,7 +463,13 @@ CONFIRMACION 24h:
 
 DUDAS DEL PACIENTE:
 - Si el paciente tiene muchas dudas o dudas muy especificas que no puedes resolver bien por chat, ofrecele agendar una llamada con la recepcionista.
-- Si acepta, pregunta su disponibilidad (dia y hora) y usa agendar_llamada con motivo='dudas', incluyendo un resumen de sus dudas en notas y su paciente_id si lo conoces.""".format(
+- Si acepta, pregunta su disponibilidad (dia y hora) y usa agendar_llamada con motivo='dudas', incluyendo un resumen de sus dudas en notas y su paciente_id si lo conoces.
+
+URGENCIAS Y HORARIOS:
+- Si el paciente pide una hora fuera del horario del consultorio, ofrecele PRIMERO los huecos disponibles dentro del horario.
+- Solo si insiste en que necesita atencion fuera de ese horario, o si menciona dolor fuerte, un golpe, sangrado o hinchazon, usa agendar_llamada con motivo='urgencia'.
+- En notas incluye lo que describio y a que hora pidio que le llamen.
+- NUNCA agendes una cita fuera del horario del consultorio.""".format(
         porcentaje_anticipo=config['porcentaje_anticipo'],
         titular_cuenta=config['titular_cuenta'],
         tarjeta=config['tarjeta'],
@@ -474,7 +504,7 @@ Si eres paciente nuevo, con gusto coordinamos una llamada para registrarte y dar
 SERVICIOS Y PRECIOS:
 - Primera Consulta: ${config['precio_primera_consulta']} (incluye diagnostico, plan de tratamiento, presupuesto y radiografias intraorales)
 - Limpieza y Fluor, Ortodoncia, Operatoria, Revision, Extraccion, Endodoncia, Sonrisas Magicas
-- Horario: {config['horario_apertura']} - {config['horario_cierre']} (Lunes a Sabado)
+- Horario: {horario_resumen}
 
 REGLAS IMPORTANTES:
 - Si el paciente esta marcado como PROBLEMATICO, NO agendar citas; pedir que llame directamente al consultorio.
@@ -927,7 +957,7 @@ def _tool_info_consultorio():
     return {
         'nombre': config['nombre_consultorio'],
         'direccion': config['direccion'],
-        'horario': f"{config['horario_apertura']} - {config['horario_cierre']} (Lunes a Sabado)",
+        'horario': _resumen_horario_consultorio(),
         'precio_primera_consulta': config['precio_primera_consulta'],
         'anticipo_requerido': f"{config['porcentaje_anticipo']}% para primera cita",
         'datos_bancarios': {
@@ -954,8 +984,14 @@ def _tool_buscar_disponibilidad(args):
     if fecha < date_type.today():
         return {'error': 'No se pueden buscar fechas pasadas'}
 
-    if fecha.weekday() == 6:  # Domingo
-        return {'disponible': False, 'mensaje': 'El consultorio no atiende domingos. Prueba con otro dia.'}
+    from services.scheduler_service import validar_horario_consultorio
+    from datetime import datetime as _dt
+    _sonda_ini = _dt(fecha.year, fecha.month, fecha.day, 12, 0)
+    _sonda_fin = _dt(fecha.year, fecha.month, fecha.day, 13, 0)
+    _chk = validar_horario_consultorio(_sonda_ini, _sonda_fin)
+    if _chk and _chk['codigo'] == 'dia_cerrado':
+        return {'disponible': False,
+                'mensaje': _chk['mensaje'] + ' Prueba con otro dia.'}
 
     from services.scheduler_service import obtener_slots_disponibles
     from models import Dentista, Paciente, BloqueoDentista, HorarioDentista
@@ -1252,6 +1288,12 @@ def _tool_crear_cita(args):
     if conflicto:
         return {'error': 'El horario ya no esta disponible. Por favor elige otro.'}
 
+    from services.scheduler_service import validar_horario_consultorio
+    fuera = validar_horario_consultorio(inicio, fin)
+    if fuera:
+        return {'error': fuera['mensaje'],
+                'horario': f"{fuera['apertura']} a {fuera['cierre']}"}
+
     # Determinar si el paciente es de primera vez (sin citas previas concretadas)
     paciente = Paciente.query.get(args['paciente_id'])
     citas_previas = Cita.query.filter(
@@ -1423,6 +1465,12 @@ def _tool_reagendar_cita(args):
     except (ValueError, KeyError):
         return {'error': 'Fechas invalidas'}
 
+    from services.scheduler_service import validar_horario_consultorio
+    fuera = validar_horario_consultorio(nueva_inicio, nueva_fin)
+    if fuera:
+        return {'error': fuera['mensaje'],
+                'horario': f"{fuera['apertura']} a {fuera['cierre']}"}
+
     consultorio_id = args.get('nuevo_consultorio_id', cita.consultorio_id)
     conflicto = verificar_disponibilidad(
         dentista_id=cita.dentista_id,
@@ -1547,7 +1595,7 @@ def _tool_agendar_llamada(args):
 
     numero = (args.get('numero_whatsapp') or '').strip()
     motivo = (args.get('motivo') or 'dudas').strip()
-    if motivo not in ('dudas', 'post_anticipo'):
+    if motivo not in ('dudas', 'post_anticipo', 'urgencia'):
         motivo = 'dudas'
 
     digitos = re.sub(r'\D', '', numero)

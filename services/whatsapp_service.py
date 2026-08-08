@@ -373,6 +373,40 @@ def enviar_reagendar_no_asistencia(cita):
         return False
 
 
+def enviar_cita_reagendada(cita):
+    """Avisa al paciente que su cita cambio de fecha/hora. True si se envio."""
+    from models import PlantillaMensaje, TipoRecordatorio
+
+    paciente = cita.paciente
+    numero = paciente.numero_contacto_wa if paciente else None
+    if not numero:
+        logger.warning(f'Cita {cita.id}: paciente sin numero para aviso de reagendado')
+        return False
+
+    plantilla = PlantillaMensaje.query.filter_by(
+        tipo='cita_reagendada', activo=True).first()
+
+    fecha = cita.fecha_inicio.strftime('%d/%m/%Y')
+    hora = cita.fecha_inicio.strftime('%H:%M')
+    doctor = cita.dentista.nombre if cita.dentista else ''
+
+    if plantilla:
+        mensaje = plantilla.contenido.format(
+            nombre_paciente=paciente.nombre_completo,
+            fecha=fecha, hora=hora, doctor=doctor,
+        )
+    else:
+        mensaje = (
+            f'Hola {paciente.nombre_completo}, le escribimos de La Casa del Sr. Perez.\n\n'
+            f'Su cita fue reagendada para el {fecha} a las {hora} con {doctor}.\n\n'
+            f'Si la nueva fecha no le funciona, responda a este mensaje y la ajustamos.'
+        )
+
+    enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.otro,
+                   paciente_id=paciente.id, cita_id=cita.id)
+    return True
+
+
 def enviar_recordatorio_proxima_visita(paciente):
     """Envia recordatorio mensual para agendar proxima visita."""
     from models import TipoRecordatorio

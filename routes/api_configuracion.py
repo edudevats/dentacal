@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from extensions import db
-from models import TipoCita, PlantillaMensaje, ConfiguracionConsultorio, OrigenPaciente
+from models import TipoCita, PlantillaMensaje, ConfiguracionConsultorio, OrigenPaciente, HorarioConsultorio
 import logging
 
 logger = logging.getLogger(__name__)
@@ -50,6 +50,8 @@ def obtener():
         'titular_cuenta': config.titular_cuenta,
         'google_reviews_link': config.google_reviews_link,
         'hora_resumen_doctores': config.hora_resumen_doctores.strftime('%H:%M') if config.hora_resumen_doctores else '21:00',
+        'horarios': [h.to_dict() for h in HorarioConsultorio.query
+                     .order_by(HorarioConsultorio.dia_semana).all()],
     })
 
 
@@ -83,6 +85,20 @@ def actualizar():
         if 'hora_resumen_doctores' in data:
             config.hora_resumen_doctores = _parse_hora(data['hora_resumen_doctores'])
             _reprogramar_resumen_doctores(config.hora_resumen_doctores.hour, config.hora_resumen_doctores.minute)
+        if 'horarios' in data:
+            for item in data['horarios']:
+                dia = item.get('dia_semana')
+                if dia is None or not (0 <= int(dia) <= 6):
+                    continue
+                h = HorarioConsultorio.del_dia(int(dia))
+                if not h:
+                    h = HorarioConsultorio(dia_semana=int(dia))
+                    db.session.add(h)
+                if item.get('hora_apertura'):
+                    h.hora_apertura = _parse_hora(item['hora_apertura'])
+                if item.get('hora_cierre'):
+                    h.hora_cierre = _parse_hora(item['hora_cierre'])
+                h.cerrado = bool(item.get('cerrado'))
     except (ValueError, TypeError):
         return jsonify(error='Hora invalida'), 400
 

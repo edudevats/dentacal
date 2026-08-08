@@ -3,9 +3,12 @@ from flask_login import login_required, current_user
 from extensions import db, permiso_requerido
 from models import (Cita, Paciente, Dentista, Consultorio, TipoCita,
                     EstatusCita, EstatusCRM)
-from services.scheduler_service import verificar_disponibilidad, obtener_slots_disponibles
+from services.scheduler_service import verificar_disponibilidad, obtener_slots_disponibles, validar_horario_consultorio
 from datetime import datetime
 import pytz
+import logging
+
+logger = logging.getLogger(__name__)
 
 citas_bp = Blueprint('citas', __name__, url_prefix='/api/citas')
 
@@ -101,6 +104,17 @@ def crear():
             }
         ), 409
 
+    # Horario del consultorio: se advierte, no se bloquea.
+    # Recepcion tiene la ultima palabra (urgencias, doctores que se quedan tarde).
+    fuera_horario = validar_horario_consultorio(fecha_inicio, fecha_fin)
+    if fuera_horario and not data.get('permitir_fuera_horario'):
+        return jsonify(
+            error=fuera_horario['mensaje'],
+            codigo=fuera_horario['codigo'],
+            apertura=fuera_horario['apertura'],
+            cierre=fuera_horario['cierre'],
+        ), 409
+
     cita = Cita(
         paciente_id=data['paciente_id'],
         dentista_id=data['dentista_id'],
@@ -112,6 +126,7 @@ def crear():
         anticipo_pagado=bool(data.get('anticipo_pagado', False)),
         anticipo_monto=data.get('anticipo_monto', 0),
         created_by=current_user.id,
+        fuera_de_horario=bool(fuera_horario),
     )
     db.session.add(cita)
 
@@ -151,6 +166,16 @@ def actualizar(cita_id):
         )
         if conflicto:
             return jsonify(error='Conflicto de horario', conflicto_id=conflicto.id), 409
+
+        fuera_horario = validar_horario_consultorio(nueva_inicio, nueva_fin)
+        if fuera_horario and not data.get('permitir_fuera_horario'):
+            return jsonify(
+                error=fuera_horario['mensaje'],
+                codigo=fuera_horario['codigo'],
+                apertura=fuera_horario['apertura'],
+                cierre=fuera_horario['cierre'],
+            ), 409
+        cita.fuera_de_horario = bool(fuera_horario)
 
         cita.fecha_inicio = nueva_inicio
         cita.fecha_fin = nueva_fin
@@ -378,3 +403,70 @@ def _notificar_anticipo_recibido(cita):
         log.error(
             f'Anticipo notificado para cita #{cita_id}, pero no se pudo '
             f'guardar la conversacion: {e}')
+
+
+@citas_bp.route('/<int:cita_id>/reagendar', methods=['POST'])
+@login_required
+def reagendar(cita_id):
+    """Mueve una cita y opcionalmente avisa al paciente.
+
+    Distinto del PUT: regresa el status a pendiente, porque una cita
+    confirmada que cambia de hora ya no esta confirmada por el paciente.
+    """
+    cita = Cita.query.get_or_404(cita_id)
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify(error='JSON inválido'), 400
+
+    try:
+        nueva_inicio = datetime.fromisoformat(data['fecha_inicio'])
+        nueva_fin = datetime.fromisoformat(data['fecha_fin'])
+    except (ValueError, KeyError):
+        return jsonify(error='Formato de fecha invalido (ISO 8601)'), 400
+
+    if nueva_fin <= nueva_inicio:
+        return jsonify(error='La fecha de fin debe ser posterior al inicio'), 400
+
+    consultorio_id = data.get('consultorio_id', cita.consultorio_id)
+
+    conflicto = verificar_disponibilidad(
+        dentista_id=cita.dentista_id,
+        consultorio_id=consultorio_id,
+        fecha_inicio=nueva_inicio,
+        fecha_fin=nueva_fin,
+        ignorar_cita_id=cita.id,
+    )
+    if conflicto:
+        return jsonify(error='Conflicto de horario', conflicto_id=conflicto.id), 409
+
+    fuera_horario = validar_horario_consultorio(nueva_inicio, nueva_fin)
+    if fuera_horario and not data.get('permitir_fuera_horario'):
+        return jsonify(
+            error=fuera_horario['mensaje'],
+            codigo=fuera_horario['codigo'],
+            apertura=fuera_horario['apertura'],
+            cierre=fuera_horario['cierre'],
+        ), 409
+
+    cita.fecha_inicio = nueva_inicio
+    cita.fecha_fin = nueva_fin
+    cita.consultorio_id = consultorio_id
+    cita.status = EstatusCita.pendiente
+    cita.reminder_24h_sent = False
+    cita.fuera_de_horario = bool(fuera_horario)
+    db.session.commit()
+
+    aviso_enviado = False
+    aviso_error = None
+    if data.get('avisar_paciente'):
+        # Twilio caido no deshace el reagendado: la cita ya se movio.
+        try:
+            from services import whatsapp_service
+            aviso_enviado = whatsapp_service.enviar_cita_reagendada(cita)
+        except Exception as exc:
+            logger.warning(f'Cita {cita.id}: fallo el aviso de reagendado: {exc}')
+            aviso_error = str(exc)
+
+    return jsonify(ok=True, id=cita.id,
+                   aviso_enviado=aviso_enviado,
+                   aviso_error=aviso_error), 200

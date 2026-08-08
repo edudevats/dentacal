@@ -26,6 +26,23 @@ function initCalendario() {
 
   const isMobileView = window.innerWidth <= 768;
 
+  // Horario del consultorio por dia, configurado en Ajustes
+  const horario = window.HORARIO_CONSULTORIO || {
+    slot_min: '08:00:00', slot_max: '20:00:00',
+    dias: [0, 1, 2, 3, 4, 5, 6].map(d => ({
+      dia_semana: d, apertura: '09:00', cierre: '18:00', cerrado: d === 6,
+    })),
+  };
+
+  // FullCalendar usa 0=domingo; nuestro dia_semana usa 0=lunes
+  const businessHours = (horario.dias || [])
+    .filter(d => !d.cerrado)
+    .map(d => ({
+      daysOfWeek: [(d.dia_semana + 1) % 7],
+      startTime: d.apertura,
+      endTime: d.cierre,
+    }));
+
   calendar = new FullCalendar.Calendar(el, {
     schedulerLicenseKey: 'CC-Attribution-NonCommercial-NoDerivatives',
     initialView: isMobileView ? 'timeGridDay' : 'resourceTimeGridDay',
@@ -36,8 +53,8 @@ function initCalendario() {
     resources: window.CONSULTORIOS || [],
     events: cargarEventos,
 
-    slotMinTime: '08:00:00',
-    slotMaxTime: '20:00:00',
+    slotMinTime: horario.slot_min,
+    slotMaxTime: horario.slot_max,
     slotDuration: '00:30:00',
     slotLabelInterval: '01:00:00',
     allDaySlot: false,
@@ -52,11 +69,7 @@ function initCalendario() {
     eventDrop: onEventDrop,
     eventResize: onEventResize,
 
-    businessHours: {
-      daysOfWeek: [1, 2, 3, 4, 5, 6],
-      startTime: '09:00',
-      endTime: '18:00',
-    },
+    businessHours: businessHours,
 
     eventDidMount(info) {
       const status = info.event.extendedProps.status;
@@ -258,6 +271,8 @@ function initModal() {
       document.getElementById('paciente_results')?.classList.add('d-none');
     }
   });
+
+  initReagendar();
 }
 
 function abrirModalNuevo(start = null, end = null, resourceId = null) {
@@ -266,18 +281,17 @@ function abrirModalNuevo(start = null, end = null, resourceId = null) {
   document.getElementById('modalCitaTitulo').textContent = 'Nueva Cita';
   document.getElementById('statusWrapper').style.display = 'none';
   document.getElementById('btnCancelarCita').classList.add('d-none');
+  document.getElementById('btnReagendar')?.classList.add('d-none');
   document.getElementById('formMsg').textContent = '';
 
   if (start) {
     const d = new Date(start);
-    document.getElementById('fecha_cita').value = d.toISOString().slice(0, 10);
-    document.getElementById('hora_inicio').value =
-      `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    document.getElementById('fecha_cita').value = fechaLocalISO(d);
+    document.getElementById('hora_inicio').value = horaLocalHM(d);
   }
   if (end) {
     const d = new Date(end);
-    document.getElementById('hora_fin').value =
-      `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    document.getElementById('hora_fin').value = horaLocalHM(d);
   }
   if (resourceId) {
     document.getElementById('consultorio_id').value = resourceId;
@@ -294,6 +308,7 @@ function abrirModalEditar(evento) {
   document.getElementById('modalCitaTitulo').textContent = 'Editar Cita';
   document.getElementById('statusWrapper').style.display = 'block';
   document.getElementById('btnCancelarCita').classList.remove('d-none');
+  document.getElementById('btnReagendar')?.classList.remove('d-none');
   document.getElementById('formMsg').textContent = '';
 
   document.getElementById('paciente_id').value = ext.paciente_id || '';
@@ -321,11 +336,9 @@ function abrirModalEditar(evento) {
 
   const start = new Date(evento.start);
   const end = new Date(evento.end);
-  document.getElementById('fecha_cita').value = start.toISOString().slice(0, 10);
-  document.getElementById('hora_inicio').value =
-    `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`;
-  document.getElementById('hora_fin').value =
-    `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
+  document.getElementById('fecha_cita').value = fechaLocalISO(start);
+  document.getElementById('hora_inicio').value = horaLocalHM(start);
+  document.getElementById('hora_fin').value = horaLocalHM(end);
 
   new bootstrap.Modal(document.getElementById('modalCita')).show();
 }
@@ -399,7 +412,31 @@ async function guardarCita() {
   try {
     const url = citaEditandoId ? `/api/citas/${citaEditandoId}` : '/api/citas';
     const method = citaEditandoId ? 'PUT' : 'POST';
-    const resp = await apiFetch(url, { method, body: JSON.stringify(body) });
+    let resp = await apiFetch(url, { method, body: JSON.stringify(body) });
+
+    // Fuera del horario del consultorio: advertir y dejar que recepcion decida
+    if (resp.status === 409) {
+      const err = await resp.clone().json().catch(() => ({}));
+      // El backend manda `codigo` en los dos casos de horario (fuera_de_horario
+      // y dia_cerrado) y acepta el override en ambos. El 409 por colision
+      // de citas no trae `codigo` y debe seguir cayendo al manejo generico.
+      if (err.codigo === 'fuera_de_horario' || err.codigo === 'dia_cerrado') {
+        const ok = confirm(
+          `${err.error}\n\nHorario del consultorio: ${err.apertura} a ${err.cierre}.\n\n` +
+          `¿Agendar de todos modos?`
+        );
+        if (!ok) {
+          msgEl.textContent = 'No se guardó: la cita queda fuera del horario del consultorio.';
+          msgEl.className = 'mt-2 text-warning small';
+          btnGuardar.disabled = false;
+          btnGuardar.textContent = 'Guardar';
+          return;
+        }
+        body.permitir_fuera_horario = true;
+        resp = await apiFetch(url, { method, body: JSON.stringify(body) });
+      }
+    }
+
     const data = await resp.json();
 
     if (!resp.ok) {
@@ -441,6 +478,145 @@ async function cancelarCitaActual() {
     bootstrap.Modal.getInstance(document.getElementById('modalCita'))?.hide();
     calendar.refetchEvents();
   }
+}
+
+// ==================== REAGENDAR CITA ====================
+
+function initReagendar() {
+  document.getElementById('btnReagendar')?.addEventListener('click', abrirModalReagendar);
+  document.getElementById('btnConfirmarReagendar')?.addEventListener('click', confirmarReagendar);
+  document.getElementById('rea_fecha')?.addEventListener('change', () => {
+    cargarSlotsReagendar();
+    actualizarPreviewReagendar();
+  });
+  document.getElementById('rea_hora_inicio')?.addEventListener('change', actualizarPreviewReagendar);
+  document.getElementById('rea_avisar')?.addEventListener('change', actualizarPreviewReagendar);
+}
+
+function abrirModalReagendar() {
+  if (!citaEditandoId) return;
+  document.getElementById('rea_fecha').value = document.getElementById('fecha_cita').value;
+  document.getElementById('rea_hora_inicio').value = document.getElementById('hora_inicio').value;
+  document.getElementById('rea_hora_fin').value = document.getElementById('hora_fin').value;
+  document.getElementById('rea_avisar').checked = true;
+  document.getElementById('reaMsg').textContent = '';
+  cargarSlotsReagendar();
+  actualizarPreviewReagendar();
+  bootstrap.Modal.getInstance(document.getElementById('modalCita'))?.hide();
+  new bootstrap.Modal(document.getElementById('modalReagendar')).show();
+}
+
+async function cargarSlotsReagendar() {
+  const cont = document.getElementById('rea_slots');
+  if (!cont) return;
+  cont.replaceChildren();
+
+  const fecha = document.getElementById('rea_fecha').value;
+  const dentistaId = document.getElementById('dentista_id').value;
+  if (!fecha || !dentistaId) return;
+
+  try {
+    const resp = await apiFetch(
+      `/api/citas/disponibilidad?fecha=${fecha}&dentista_id=${dentistaId}&duracion=60`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const libres = (data.slots || []).filter(s => s.disponible);
+
+    if (!libres.length) {
+      const span = document.createElement('span');
+      span.className = 'text-muted small';
+      span.textContent = 'Sin huecos libres ese día.';
+      cont.appendChild(span);
+      return;
+    }
+
+    libres.forEach(s => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-outline-secondary btn-sm';
+      btn.textContent = s.inicio;
+      btn.addEventListener('click', () => {
+        document.getElementById('rea_hora_inicio').value = s.inicio;
+        document.getElementById('rea_hora_fin').value = s.fin;
+        actualizarPreviewReagendar();
+      });
+      cont.appendChild(btn);
+    });
+  } catch (_e) {
+    // Sin huecos que mostrar: la recepcionista igual puede teclear la hora
+  }
+}
+
+function actualizarPreviewReagendar() {
+  const el = document.getElementById('rea_preview');
+  if (!el) return;
+  if (!document.getElementById('rea_avisar').checked) {
+    el.textContent = 'No se enviará ningún mensaje al paciente.';
+    return;
+  }
+  const f = document.getElementById('rea_fecha').value;
+  const h = document.getElementById('rea_hora_inicio').value;
+  el.textContent = `Se enviará: "Su cita fue reagendada para el ${f} a las ${h}."`;
+}
+
+async function confirmarReagendar() {
+  const msgEl = document.getElementById('reaMsg');
+  const fecha = document.getElementById('rea_fecha').value;
+  const hIni = document.getElementById('rea_hora_inicio').value;
+  const hFin = document.getElementById('rea_hora_fin').value;
+
+  if (!fecha || !hIni || !hFin) {
+    msgEl.textContent = 'Completa fecha y horas.';
+    msgEl.className = 'mt-2 text-danger small';
+    return;
+  }
+
+  const body = {
+    fecha_inicio: `${fecha}T${hIni}:00`,
+    fecha_fin: `${fecha}T${hFin}:00`,
+    avisar_paciente: document.getElementById('rea_avisar').checked,
+  };
+  const url = `/api/citas/${citaEditandoId}/reagendar`;
+
+  let resp = await apiFetch(url, { method: 'POST', body: JSON.stringify(body) });
+
+  if (resp.status === 409) {
+    const err = await resp.json().catch(() => ({}));
+    // El backend manda `codigo` en los dos casos de horario (fuera_de_horario
+    // y dia_cerrado) y acepta el override en ambos, igual que en guardarCita().
+    // El 409 por colision de citas no trae `codigo` y cae al else generico.
+    if (err.codigo === 'fuera_de_horario' || err.codigo === 'dia_cerrado') {
+      const ok = confirm(
+        `${err.error}\n\nHorario del consultorio: ${err.apertura} a ${err.cierre}.\n\n` +
+        `¿Reagendar de todos modos?`
+      );
+      if (!ok) {
+        msgEl.textContent = 'No se reagendó: queda fuera del horario del consultorio.';
+        msgEl.className = 'mt-2 text-warning small';
+        return;
+      }
+      body.permitir_fuera_horario = true;
+      resp = await apiFetch(url, { method: 'POST', body: JSON.stringify(body) });
+    } else {
+      msgEl.textContent = err.error || 'Ese horario ya está ocupado.';
+      msgEl.className = 'mt-2 text-danger small';
+      return;
+    }
+  }
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    msgEl.textContent = err.error || 'No se pudo reagendar.';
+    msgEl.className = 'mt-2 text-danger small';
+    return;
+  }
+
+  const data = await resp.json();
+  if (body.avisar_paciente && !data.aviso_enviado) {
+    alert('La cita se reagendó, pero no se pudo enviar el aviso por WhatsApp. Avisa al paciente por otro medio.');
+  }
+  bootstrap.Modal.getInstance(document.getElementById('modalReagendar')).hide();
+  calendar.refetchEvents();
 }
 
 // ==================== BUSQUEDA PACIENTES (DOM seguro) ====================
@@ -547,8 +723,8 @@ function onEventClick(info) {
 async function onEventDrop(info) {
   if (!confirm('Confirmar cambio de horario?')) { info.revert(); return; }
   const body = {
-    fecha_inicio: info.event.start.toISOString().slice(0, 19),
-    fecha_fin: info.event.end.toISOString().slice(0, 19),
+    fecha_inicio: fechaHoraLocalISO(info.event.start),
+    fecha_fin: fechaHoraLocalISO(info.event.end),
   };
   if (info.newResource?.id) body.consultorio_id = parseInt(info.newResource.id);
   const resp = await apiFetch(`/api/citas/${info.event.id}`, { method: 'PUT', body: JSON.stringify(body) });
@@ -557,8 +733,8 @@ async function onEventDrop(info) {
 
 async function onEventResize(info) {
   const body = {
-    fecha_inicio: info.event.start.toISOString().slice(0, 19),
-    fecha_fin: info.event.end.toISOString().slice(0, 19),
+    fecha_inicio: fechaHoraLocalISO(info.event.start),
+    fecha_fin: fechaHoraLocalISO(info.event.end),
   };
   const resp = await apiFetch(`/api/citas/${info.event.id}`, { method: 'PUT', body: JSON.stringify(body) });
   if (!resp.ok) info.revert();

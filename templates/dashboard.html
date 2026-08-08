@@ -211,10 +211,56 @@
         <button type="button" class="btn btn-outline-danger d-none" id="btnCancelarCita">
           <i class="bi bi-x-circle me-1"></i>Cancelar Cita
         </button>
+        <button type="button" class="btn btn-outline-primary d-none" id="btnReagendar">
+          <i class="bi bi-calendar-event me-1"></i>Reagendar
+        </button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
         <button type="button" class="btn btn-primary" id="btnGuardarCita">
           <i class="bi bi-check-lg me-1"></i>Guardar
         </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalReagendar" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Reagendar cita</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label">Nueva fecha</label>
+          <input type="date" class="form-control" id="rea_fecha">
+        </div>
+        <div class="mb-2">
+          <label class="form-label small text-muted">Huecos libres de ese día</label>
+          <div id="rea_slots" class="d-flex flex-wrap gap-1"></div>
+        </div>
+        <div class="row">
+          <div class="col-6 mb-2">
+            <label class="form-label">Hora inicio</label>
+            <input type="time" class="form-control" id="rea_hora_inicio">
+          </div>
+          <div class="col-6 mb-2">
+            <label class="form-label">Hora fin</label>
+            <input type="time" class="form-control" id="rea_hora_fin">
+          </div>
+        </div>
+        <div class="form-check mt-2">
+          <input class="form-check-input" type="checkbox" id="rea_avisar" checked>
+          <label class="form-check-label" for="rea_avisar">
+            Avisar al paciente por WhatsApp
+          </label>
+        </div>
+        <div class="alert alert-light border small mt-2" id="rea_preview"></div>
+        <div id="reaMsg" class="mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button type="button" class="btn btn-primary" id="btnConfirmarReagendar">Confirmar</button>
       </div>
     </div>
   </div>
@@ -247,5 +293,6 @@
   document.head.appendChild(styleEl);
   window.CONSULTORIOS = baseConsultorios;
   window.DENTISTAS = {{ dentistas_json | tojson }};
+  window.HORARIO_CONSULTORIO = {{ horario_json | tojson }};
 </script>
 {% endblock %}

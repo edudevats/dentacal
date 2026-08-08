@@ -132,6 +132,7 @@
 {% endif %}
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/fecha_utils.js') }}"></script>
 <script>
   const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
   let _redirigiendoLogin = false;
@@ -329,7 +330,7 @@
     // Fecha default: 7 dias a partir de hoy
     const d = new Date();
     d.setDate(d.getDate() + 7);
-    document.getElementById('recFecha').value = d.toISOString().slice(0, 10);
+    document.getElementById('recFecha').value = fechaLocalISO(d);
 
     // Actualizar titulo de forma segura
     const titleEl = document.getElementById('modalRecordatorioTitulo');

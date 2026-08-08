@@ -70,7 +70,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
             navLinkDayClick: function (date, jsEvent) {
                 jsEvent.preventDefault();
-                const fechaStr = date.toISOString().split('T')[0];
+                const fechaStr = fechaLocalISO(date);
                 const fechaInput = document.getElementById('slots-fecha');
                 if (fechaInput) {
                     fechaInput.value = fechaStr;
@@ -111,7 +111,7 @@ document.addEventListener('DOMContentLoaded', function () {
         const fechaInput = document.getElementById('slots-fecha');
         if (fechaInput && !fechaInput.value) {
             const hoy = new Date();
-            fechaInput.value = hoy.toISOString().split('T')[0];
+            fechaInput.value = fechaLocalISO(hoy);
         }
 
         cargarSlots(doctorId);

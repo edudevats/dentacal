@@ -433,3 +433,9 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text); backg
   .crm-filter-btn { padding: 5px 8px; font-size: 11px; }
   .legend-item span:not(.legend-dot) { display: none; }
 }
+
+/* --- Solicitudes de llamada: acento visual para urgencias --- */
+.solicitud-urgencia {
+  border-left: 4px solid var(--pink);
+  background-color: rgba(232, 67, 117, 0.06);
+}

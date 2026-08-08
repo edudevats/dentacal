@@ -1005,6 +1005,7 @@ async function generarJustificante() {
 function _buildSolicitudRow(s) {
   const tr = document.createElement('tr');
   if (s.atendida) { tr.classList.add('table-secondary', 'opacity-75'); }
+  if (s.tipo === 'urgencia' && !s.atendida) { tr.classList.add('solicitud-urgencia'); }
 
   const fecha = s.created_at
     ? new Date(s.created_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
@@ -1019,6 +1020,7 @@ function _buildSolicitudRow(s) {
     registro:      { txt: 'Registro nuevo', cls: 'bg-primary' },
     dudas:         { txt: 'Dudas',          cls: 'bg-warning text-dark' },
     post_anticipo: { txt: 'Post-anticipo',  cls: 'bg-success' },
+    urgencia:      { txt: 'URGENCIA',       cls: 'bg-danger' },
   };
   const tipoInfo = TIPO_BADGE[s.tipo] || TIPO_BADGE.registro;
   const tdTipo = document.createElement('td');
@@ -1129,7 +1131,12 @@ async function cargarSolicitudes() {
       tbody.appendChild(emptyTr);
       return;
     }
-    solicitudes.forEach(s => tbody.appendChild(_buildSolicitudRow(s)));
+    const ordenadas = [...solicitudes].sort((a, b) => {
+      const ua = a.tipo === 'urgencia' ? 0 : 1;
+      const ub = b.tipo === 'urgencia' ? 0 : 1;
+      return ua - ub;
+    });
+    ordenadas.forEach(s => tbody.appendChild(_buildSolicitudRow(s)));
   } catch (_e) {
     tbody.replaceChildren();
     const errTr = document.createElement('tr');
