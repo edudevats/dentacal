@@ -36,6 +36,65 @@ def verificar_disponibilidad(dentista_id, consultorio_id, fecha_inicio,
     return q.first()
 
 
+def describir_conflicto(cita, dentista_id, consultorio_id):
+    """Explica en una linea por que la cita nueva choca con `cita`.
+
+    `verificar_disponibilidad` solo dice QUE hubo choque; esto dice POR QUE,
+    que es lo que recepcion necesita para resolverlo: si el consultorio esta
+    ocupado busca otra unidad, si el doctor esta ocupado busca otra hora.
+
+    Devuelve None si `cita` es None. Si no:
+      {'motivo': 'consultorio' | 'dentista' | 'ambos',
+       'mensaje': str, 'cita_id': int, 'paciente': str,
+       'dentista': str, 'consultorio': str, 'hora': 'HH:MM'}
+    """
+    if not cita:
+        return None
+
+    choca_dentista = cita.dentista_id == dentista_id
+    choca_consultorio = cita.consultorio_id == consultorio_id
+
+    if choca_dentista and choca_consultorio:
+        motivo = 'ambos'
+    elif choca_dentista:
+        motivo = 'dentista'
+    else:
+        motivo = 'consultorio'
+
+    # Ojo: los nombres pueden venir vacios, no solo nulos. Hay dentistas sin
+    # nombre en la BD y un mensaje como " ya tiene cita" es peor que inutil.
+    def _o(valor, respaldo):
+        valor = (valor or '').strip()
+        return valor if valor else respaldo
+
+    paciente = _o(cita.paciente.nombre_completo if cita.paciente else '',
+                  'otro paciente')
+    dentista = _o(cita.dentista.nombre if cita.dentista else '',
+                  f'el doctor (id {cita.dentista_id})')
+    unidad = _o(cita.consultorio.nombre_display if cita.consultorio else '',
+                'esa unidad')
+    hora = cita.fecha_inicio.strftime('%H:%M')
+
+    if motivo == 'consultorio':
+        mensaje = (f'La {unidad} ya está ocupada a las {hora} — '
+                   f'cita de {paciente} con {dentista}.')
+    else:
+        # 'dentista' y 'ambos' se leen igual: el problema es que el doctor
+        # no puede estar en dos lugares a la vez.
+        mensaje = (f'{dentista} ya tiene cita a las {hora} en la {unidad}, '
+                   f'con {paciente}.')
+
+    return {
+        'motivo': motivo,
+        'mensaje': mensaje,
+        'cita_id': cita.id,
+        'paciente': paciente,
+        'dentista': dentista,
+        'consultorio': unidad,
+        'hora': hora,
+    }
+
+
 def obtener_slots_disponibles(fecha, dentista_id, consultorio_id=None,
                                duracion_minutos=60):
     """

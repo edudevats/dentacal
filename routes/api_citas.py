@@ -3,7 +3,8 @@ from flask_login import login_required, current_user
 from extensions import db, permiso_requerido
 from models import (Cita, Paciente, Dentista, Consultorio, TipoCita,
                     EstatusCita, EstatusCRM)
-from services.scheduler_service import verificar_disponibilidad, obtener_slots_disponibles, validar_horario_consultorio
+from services.scheduler_service import (verificar_disponibilidad, obtener_slots_disponibles,
+                                        validar_horario_consultorio, describir_conflicto)
 from datetime import datetime
 import pytz
 import logging
@@ -94,14 +95,13 @@ def crear():
         fecha_fin=fecha_fin,
     )
     if conflicto:
+        detalle = describir_conflicto(conflicto, data['dentista_id'],
+                                      data['consultorio_id'])
         return jsonify(
-            error='Conflicto de horario',
-            conflicto={
-                'id': conflicto.id,
-                'dentista': conflicto.dentista.nombre,
-                'consultorio': conflicto.consultorio.nombre,
-                'inicio': conflicto.fecha_inicio.isoformat(),
-            }
+            error=detalle['mensaje'],
+            codigo='conflicto',
+            motivo=detalle['motivo'],
+            conflicto=detalle,
         ), 409
 
     # Horario del consultorio: se advierte, no se bloquea.
@@ -157,15 +157,20 @@ def actualizar(cita_id):
         except ValueError:
             return jsonify(error='Formato de fecha invalido'), 400
 
+        did = data.get('dentista_id', cita.dentista_id)
+        coid = data.get('consultorio_id', cita.consultorio_id)
         conflicto = verificar_disponibilidad(
-            dentista_id=data.get('dentista_id', cita.dentista_id),
-            consultorio_id=data.get('consultorio_id', cita.consultorio_id),
+            dentista_id=did,
+            consultorio_id=coid,
             fecha_inicio=nueva_inicio,
             fecha_fin=nueva_fin,
             ignorar_cita_id=cita_id,
         )
         if conflicto:
-            return jsonify(error='Conflicto de horario', conflicto_id=conflicto.id), 409
+            detalle = describir_conflicto(conflicto, did, coid)
+            return jsonify(error=detalle['mensaje'], codigo='conflicto',
+                           motivo=detalle['motivo'], conflicto=detalle,
+                           conflicto_id=conflicto.id), 409
 
         fuera_horario = validar_horario_consultorio(nueva_inicio, nueva_fin)
         if fuera_horario and not data.get('permitir_fuera_horario'):
@@ -437,7 +442,10 @@ def reagendar(cita_id):
         ignorar_cita_id=cita.id,
     )
     if conflicto:
-        return jsonify(error='Conflicto de horario', conflicto_id=conflicto.id), 409
+        detalle = describir_conflicto(conflicto, cita.dentista_id, consultorio_id)
+        return jsonify(error=detalle['mensaje'], codigo='conflicto',
+                       motivo=detalle['motivo'], conflicto=detalle,
+                       conflicto_id=conflicto.id), 409
 
     fuera_horario = validar_horario_consultorio(nueva_inicio, nueva_fin)
     if fuera_horario and not data.get('permitir_fuera_horario'):

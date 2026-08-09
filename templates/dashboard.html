@@ -43,12 +43,7 @@
     <select id="filtro-consultorio" class="form-select form-select-sm filter-responsive" style="max-width:180px">
       <option value="">Todos los consultorios</option>
       {% for c in consultorios %}
-      {% set c_nombre = c.nombre %}
-      {% if c.nombre == 'Consultorio 1' %}{% set c_nombre = 'unidad verde' %}
-      {% elif c.nombre == 'Consultorio 2' %}{% set c_nombre = 'unidad azul' %}
-      {% elif c.nombre == 'Consultorio 3' %}{% set c_nombre = 'unidad naranja' %}
-      {% endif %}
-      <option value="{{ c.id }}">{{ c_nombre }}</option>
+      <option value="{{ c.id }}">{{ c.nombre_display }}</option>
       {% endfor %}
     </select>
 
@@ -135,12 +130,7 @@
               <select id="consultorio_id" class="form-select">
                 <option value="">-- Seleccionar --</option>
                 {% for c in consultorios %}
-                {% set c_nombre = c.nombre %}
-                {% if c.nombre == 'Consultorio 1' %}{% set c_nombre = 'unidad verde' %}
-                {% elif c.nombre == 'Consultorio 2' %}{% set c_nombre = 'unidad azul' %}
-                {% elif c.nombre == 'Consultorio 3' %}{% set c_nombre = 'unidad naranja' %}
-                {% endif %}
-                <option value="{{ c.id }}">{{ c_nombre }}</option>
+                <option value="{{ c.id }}">{{ c.nombre_display }}</option>
                 {% endfor %}
               </select>
             </div>
@@ -274,16 +264,17 @@
 <script>
   // Datos para el calendario (pasados desde Jinja)
   const baseConsultorios = {{ consultorios_json | tojson }};
+  // El nombre amigable ya viene en `title` desde Consultorio.nombre_display;
+  // aqui solo quedan los colores, indexados por el nombre real (`nombre`).
   const colorMap = {
-    'Consultorio 1': { newName: 'unidad verde', bg: '#d1e7dd', border: '#a3cfbb', text: '#0f5132' },
-    'Consultorio 2': { newName: 'unidad azul', bg: '#cfe2ff', border: '#9ec5fe', text: '#084298' },
-    'Consultorio 3': { newName: 'unidad naranja', bg: '#ffe5d0', border: '#fecba1', text: '#d9480f' },
+    'Consultorio 1': { bg: '#d1e7dd', border: '#a3cfbb', text: '#0f5132' },
+    'Consultorio 2': { bg: '#cfe2ff', border: '#9ec5fe', text: '#084298' },
+    'Consultorio 3': { bg: '#ffe5d0', border: '#fecba1', text: '#d9480f' },
   };
   let cssText = '';
   baseConsultorios.forEach(c => {
-    const m = colorMap[c.title];
+    const m = colorMap[c.nombre];
     if (m) {
-      c.title = m.newName;
       cssText += '.fc-col-header-cell[data-resource-id="' + c.id + '"]{ background-color:' + m.bg + ' !important; border-color:' + m.border + ' !important; }';
       cssText += '.fc-col-header-cell[data-resource-id="' + c.id + '"] .fc-col-header-cell-cushion{ color:' + m.text + ' !important; font-weight:bold; }';
     }

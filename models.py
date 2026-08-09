@@ -216,10 +216,25 @@ class Consultorio(db.Model):
 
     citas = db.relationship('Cita', backref='consultorio', lazy=True)
 
+    # Como los llama el personal. Estaba duplicado en templates/dashboard.html
+    # (dos bloques Jinja mas un mapa en JS); vive aqui para que el backend
+    # pueda nombrarlos igual en los mensajes de conflicto.
+    NOMBRES_AMIGABLES = {
+        'Consultorio 1': 'unidad verde',
+        'Consultorio 2': 'unidad azul',
+        'Consultorio 3': 'unidad naranja',
+    }
+
+    @property
+    def nombre_display(self):
+        """El nombre con el que recepcion se refiere al consultorio."""
+        return self.NOMBRES_AMIGABLES.get(self.nombre, self.nombre)
+
     def to_dict(self):
         return {
             'id': self.id,
-            'title': self.nombre,
+            'title': self.nombre_display,
+            'nombre': self.nombre,
             'descripcion': self.descripcion,
         }
 

@@ -440,10 +440,9 @@ async function guardarCita() {
     const data = await resp.json();
 
     if (!resp.ok) {
-      const err = data.conflicto
-        ? `Conflicto con ${data.conflicto.dentista} - ${data.conflicto.consultorio}`
-        : (data.error || 'Error al guardar');
-      msgEl.textContent = err;
+      // El backend ya arma el mensaje de conflicto explicando si choca el
+      // consultorio o el doctor, con nombre y hora. No lo re-armes aqui.
+      msgEl.textContent = data.error || 'Error al guardar';
       msgEl.className = 'mt-2 text-danger small';
       return;
     }
