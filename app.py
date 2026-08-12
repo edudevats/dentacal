@@ -132,6 +132,7 @@ def _init_extensions(app):
     # Verificar que la BD existe antes de iniciar
     with app.app_context():
         import models  # noqa: F401 — registers all models with SQLAlchemy metadata
+        import edr.models  # noqa: F401 — registers EDR models in shared metadata
         db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
         if db_uri.startswith('sqlite:///'):
             db_path = db_uri.replace('sqlite:///', '')
@@ -146,9 +147,12 @@ def _init_extensions(app):
             app.logger.info('Comando de migracion detectado: se omite create_all().')
         else:
             db.create_all()
+            from edr.seed import seed_edr_catalogos
+            seed_edr_catalogos()
 
 
 def _register_blueprints(app):
+    from edr import edr_api_bp, edr_pages_bp
     from routes.auth import auth_bp
     from routes.main import main_bp
     from routes.api_citas import citas_bp
@@ -165,6 +169,8 @@ def _register_blueprints(app):
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
+    app.register_blueprint(edr_pages_bp)
+    app.register_blueprint(edr_api_bp)
     app.register_blueprint(citas_bp)
     app.register_blueprint(pacientes_bp)
     app.register_blueprint(dentistas_bp)

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}Resumen financiero - La Casa del Sr. Perez{% endblock %}
+{% block page_title %}<i class="bi bi-cash-stack me-2" style="color:var(--primary)"></i>Resumen financiero{% endblock %}
+
+{% block content %}
+<main id="edr-resumen" class="container-fluid py-4">
+  {% include "edr/_nav.html" %}
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h1 class="h3 mb-0">Resumen financiero</h1>
+    <input id="edr-month" class="form-control w-auto" type="month" aria-label="Mes del resumen financiero">
+  </div>
+
+  <div id="edr-empty" class="alert alert-info" hidden>No hay movimientos en este periodo.</div>
+
+  <section class="row g-3" aria-label="Indicadores financieros">
+    <div class="col-md-4"><div class="card h-100"><div class="card-body">Ventas <strong id="edr-ventas"></strong></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body">Utilidad bruta <strong id="edr-utilidad-bruta"></strong></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body">Utilidad neta <strong id="edr-utilidad-neta"></strong></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body">Punto de equilibrio <strong id="edr-punto-equilibrio"></strong></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body">Margen bruto <strong id="edr-margen-bruto"></strong></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body">Margen neto <strong id="edr-margen-neto"></strong></div></div></div>
+  </section>
+
+  <section class="card mt-4">
+    <div class="card-body">
+      <h2 class="h5">Desglose</h2>
+      <div class="table-responsive">
+        <table class="table mb-0"><tbody id="edr-breakdown"></tbody></table>
+      </div>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/edr/common.js') }}"></script>
+<script src="{{ url_for('static', filename='js/edr/resumen.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Ingresos - La Casa del Sr. Perez{% endblock %}
+{% block page_title %}<i class="bi bi-cash-coin me-2" style="color:var(--primary)"></i>Ingresos{% endblock %}
+
+{% block content %}
+<main id="edr-ingresos" class="container-fluid py-4">
+  {% include "edr/_nav.html" %}
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h1 class="h3 mb-0">Ingresos</h1>
+    <div class="d-flex gap-2">
+      <input id="edr-month" type="month" class="form-control w-auto" aria-label="Mes de ingresos">
+      <button id="income-new" type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#income-modal">Nuevo ingreso</button>
+    </div>
+  </div>
+
+  <div id="income-empty" class="alert alert-info" hidden>No hay ingresos en este periodo.</div>
+  <section class="card">
+    <div class="card-body table-responsive">
+      <table class="table align-middle mb-0">
+        <thead><tr><th>Fecha</th><th>Paciente</th><th>Tratamiento</th><th>Monto</th><th>Estado</th></tr></thead>
+        <tbody id="income-rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="income-modal" class="modal fade" tabindex="-1" aria-labelledby="income-modal-title" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <form id="income-form" class="modal-content">
+      <input type="hidden" name="paciente_id">
+      <input type="hidden" name="cita_id">
+      <div class="modal-header">
+        <h2 id="income-modal-title" class="modal-title fs-5">Nuevo ingreso</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-4"><label class="form-label" for="income-date">Fecha</label><input id="income-date" name="fecha" type="date" class="form-control" required></div>
+          <div class="col-md-8"><label class="form-label" for="income-patient-search">Buscar paciente</label><input id="income-patient-search" class="form-control" autocomplete="off" placeholder="Buscar paciente"><div id="income-patient-results" class="list-group mt-1"></div></div>
+          <div class="col-md-6"><label class="form-label" for="income-patient-name">Paciente</label><input id="income-patient-name" name="paciente_nombre" class="form-control" required></div>
+          <div class="col-md-6"><label class="form-label" for="income-appointment-search">Buscar cita</label><input id="income-appointment-search" class="form-control" autocomplete="off" placeholder="Buscar cita"><div id="income-appointment-results" class="list-group mt-1"></div></div>
+          <div class="col-md-6"><label class="form-label" for="income-treatment">Tratamiento</label><input id="income-treatment" name="nombre_tratamiento" class="form-control" required></div>
+          <div class="col-md-6"><label class="form-label" for="income-dentist">Dentista</label><select id="income-dentist" name="dentista_id" class="form-select"></select></div>
+          <div class="col-md-6"><label class="form-label" for="income-appointment-type">Tipo de cita</label><select id="income-appointment-type" name="tipo_cita_id" class="form-select"></select></div>
+          <div class="col-md-6"><label class="form-label" for="income-payment-method">Método de pago</label><select id="income-payment-method" name="metodo_pago_id" class="form-select" required></select></div>
+          <div class="col-md-4"><label class="form-label" for="income-amount">Monto</label><input id="income-amount" name="monto" type="number" step="0.01" min="0.01" class="form-control" required></div>
+          <div class="col-md-4"><label class="form-label" for="income-bank-commission">Comisión bancaria</label><input id="income-bank-commission" name="comision_bancaria" type="number" step="0.01" min="0" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label" for="income-doctor-commission">Comisión doctor</label><input id="income-doctor-commission" name="comision_doctor" type="number" step="0.01" min="0" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label" for="income-discount">Descuento (%)</label><input id="income-discount" name="descuento_pct" type="number" step="0.01" min="0" max="100" class="form-control"></div>
+          <div class="col-12"><label class="form-label" for="income-comments">Comentarios</label><textarea id="income-comments" name="comentarios" class="form-control" rows="2"></textarea></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary">Guardar</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/edr/common.js') }}"></script>
+<script src="{{ url_for('static', filename='js/edr/ingresos.js') }}"></script>
+{% endblock %}

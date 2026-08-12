@@ -182,10 +182,11 @@ def _job_confirmacion_mismo_dia(app):
                 continue
             try:
                 from services.whatsapp_service import enviar_confirmacion_mismo_dia
-                enviar_confirmacion_mismo_dia(cita)
-                cita.reminder_24h_sent = True
-                db.session.commit()
-                logger.info(f'Confirmacion mismo dia enviada para cita {cita.id}')
+                enviado = enviar_confirmacion_mismo_dia(cita)
+                if enviado:
+                    cita.reminder_24h_sent = True
+                    db.session.commit()
+                    logger.info(f'Confirmacion mismo dia enviada para cita {cita.id}')
             except Exception as e:
                 logger.error(f'Error confirmacion mismo dia cita {cita.id}: {e}')
                 db.session.rollback()
@@ -241,10 +242,11 @@ def _job_recordatorios_24h(app):
                 continue
             try:
                 from services.whatsapp_service import enviar_recordatorio_cita
-                enviar_recordatorio_cita(cita)
-                cita.reminder_24h_sent = True
-                db.session.commit()
-                logger.info(f'Recordatorio enviado para cita {cita.id}')
+                enviado = enviar_recordatorio_cita(cita)
+                if enviado:
+                    cita.reminder_24h_sent = True
+                    db.session.commit()
+                    logger.info(f'Recordatorio enviado para cita {cita.id}')
             except Exception as e:
                 logger.error(f'Error en recordatorio cita {cita.id}: {e}')
                 db.session.rollback()

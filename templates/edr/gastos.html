@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Gastos - La Casa del Sr. Perez{% endblock %}
+{% block page_title %}<i class="bi bi-receipt me-2" style="color:var(--primary)"></i>Gastos{% endblock %}
+
+{% block content %}
+<main id="edr-gastos" class="container-fluid py-4">
+  {% include "edr/_nav.html" %}
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <h1 class="h3 mb-0">Gastos</h1>
+    <div class="d-flex gap-2"><input id="edr-month" type="month" class="form-control w-auto" aria-label="Mes de gastos"><button id="expense-new" class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#expense-modal">Nuevo gasto</button></div>
+  </div>
+
+  <section class="row g-3 mb-3" aria-label="Totales de gastos">
+    <div class="col-md-4"><div class="card h-100"><div class="card-body">Fijos <strong id="expense-fixed-total"></strong></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body">Variables <strong id="expense-variable-total"></strong></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body">Total <strong id="expense-total"></strong></div></div></div>
+  </section>
+
+  <div id="expense-empty" class="alert alert-info" hidden>No hay gastos en este periodo.</div>
+  <section class="card"><div class="card-body table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Fecha</th><th>Concepto</th><th>Tipo</th><th>Monto</th><th>Estado</th></tr></thead><tbody id="expense-rows"></tbody></table></div></section>
+</main>
+
+<div id="expense-modal" class="modal fade" tabindex="-1" aria-labelledby="expense-modal-title" aria-hidden="true"><div class="modal-dialog"><form id="expense-form" class="modal-content"><div class="modal-header"><h2 id="expense-modal-title" class="modal-title fs-5">Nuevo gasto</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body"><div class="row g-3"><div class="col-12"><label class="form-label" for="expense-date">Fecha</label><input id="expense-date" name="fecha" type="date" class="form-control" required></div><div class="col-12"><label class="form-label" for="expense-concept-id">Concepto registrado</label><select id="expense-concept-id" name="concepto_id" class="form-select"></select></div><div class="col-12"><label class="form-label" for="expense-concept-name">Concepto</label><input id="expense-concept-name" name="concepto_nombre" class="form-control" required></div><div class="col-md-6"><label class="form-label" for="expense-type">Tipo</label><select id="expense-type" name="tipo" class="form-select" required><option value="fijo">Fijo</option><option value="variable">Variable</option></select></div><div class="col-md-6"><label class="form-label" for="expense-amount">Monto</label><input id="expense-amount" name="monto" type="number" min="0.01" step="0.01" class="form-control" required></div><div class="col-12"><label class="form-label" for="expense-comments">Comentarios</label><textarea id="expense-comments" name="comentarios" class="form-control" rows="2"></textarea></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary" type="submit">Guardar</button></div></form></div></div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/edr/common.js') }}"></script>
+<script src="{{ url_for('static', filename='js/edr/gastos.js') }}"></script>
+{% endblock %}

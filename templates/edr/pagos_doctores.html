@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block title %}Pagos a doctores - La Casa del Sr. Perez{% endblock %}
+{% block page_title %}<i class="bi bi-person-vcard me-2" style="color:var(--primary)"></i>Pagos a doctores{% endblock %}
+
+{% block content %}
+<main id="edr-pagos-doctores" class="container-fluid py-4">
+  {% include "edr/_nav.html" %}
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2"><h1 class="h3 mb-0">Pagos a doctores</h1><input id="edr-month" type="month" class="form-control w-auto" aria-label="Mes de pagos a doctores"></div>
+
+  <section class="card mb-4"><div class="card-body"><h2 class="h5">Comisiones pendientes</h2><div id="pending-commissions"></div></div></section>
+  <section class="card"><div class="card-body"><div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2"><h2 class="h5 mb-0">Historial de pagos</h2><button id="direct-payment-new" class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#direct-payment-modal">Registrar pago</button></div><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Fecha</th><th>Dentista</th><th>Concepto</th><th>Tipo</th><th>Monto</th></tr></thead><tbody id="payment-rows"></tbody></table></div></div></section>
+</main>
+
+<div id="settlement-modal" class="modal fade" tabindex="-1" aria-labelledby="settlement-modal-title" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h2 id="settlement-modal-title" class="modal-title fs-5">Liquidar comisiones</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body"><p>Total a liquidar: <strong id="settlement-total"></strong></p><label class="form-label" for="settlement-date">Fecha de pago</label><input id="settlement-date" type="date" class="form-control"></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button><button id="settlement-confirm" type="button" class="btn btn-primary">Liquidar</button></div></div></div></div>
+
+<div id="direct-payment-modal" class="modal fade" tabindex="-1" aria-labelledby="direct-payment-modal-title" aria-hidden="true"><div class="modal-dialog"><form id="direct-payment-form" class="modal-content"><div class="modal-header"><h2 id="direct-payment-modal-title" class="modal-title fs-5">Registrar pago</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body"><div class="row g-3"><div class="col-12"><label class="form-label" for="direct-payment-date">Fecha</label><input id="direct-payment-date" name="fecha" type="date" class="form-control" required></div><div class="col-12"><label class="form-label" for="direct-payment-dentist">Dentista</label><select id="direct-payment-dentist" name="dentista_id" class="form-select" required></select></div><div class="col-12"><label class="form-label" for="direct-payment-concept">Concepto</label><input id="direct-payment-concept" name="concepto" class="form-control" required></div><div class="col-md-6"><label class="form-label" for="direct-payment-type">Tipo</label><select id="direct-payment-type" name="tipo" class="form-select"><option value="salario">Salario</option><option value="otro">Otro</option></select></div><div class="col-md-6"><label class="form-label" for="direct-payment-amount">Monto</label><input id="direct-payment-amount" name="monto" type="number" min="0.01" step="0.01" class="form-control" required></div><div class="col-12"><label class="form-label" for="direct-payment-discount">Descuento de saldo</label><input id="direct-payment-discount" name="descuento_saldo" type="number" min="0" step="0.01" class="form-control"></div></div></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary">Guardar</button></div></form></div></div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/edr/common.js') }}"></script>
+<script src="{{ url_for('static', filename='js/edr/pagos_doctores.js') }}"></script>
+{% endblock %}

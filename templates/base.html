@@ -75,6 +75,12 @@
         <i class="bi bi-person-lock"></i><span>Usuarios</span>
       </a>
     </li>
+    <li>
+      <a href="{{ url_for('edr_pages.resumen') }}"
+         class="sidebar-link {% if request.blueprint == 'edr_pages' %}active{% endif %}">
+        <i class="bi bi-cash-stack"></i><span>Contabilidad</span>
+      </a>
+    </li>
     {% endif %}
   </ul>
 
