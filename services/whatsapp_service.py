@@ -51,10 +51,51 @@ def _asegurar_frontera_transaccional():
                 'modificada sin commit')
 
 
-def _enviar_por_twilio(numero_destino, mensaje, status_callback=None):
+def _variables_posicionales(plantilla, valores):
+    """
+    Traduce los placeholders con nombre de la plantilla a las variables
+    numeradas que espera Twilio ({{1}}, {{2}}...), en el orden que declara
+    ``content_variables_orden``. Devuelve el JSON listo o None si la plantilla
+    no lleva variables.
+    """
+    import json
+
+    orden = (getattr(plantilla, 'content_variables_orden', None) or '').strip()
+    if not orden:
+        return None
+
+    nombres = [n.strip() for n in orden.split(',') if n.strip()]
+    if not nombres:
+        return None
+
+    return json.dumps({
+        str(posicion): str(valores.get(nombre, ''))
+        for posicion, nombre in enumerate(nombres, start=1)
+    })
+
+
+def kwargs_plantilla(plantilla, valores):
+    """
+    Argumentos de envio por plantilla aprobada, o vacio si la plantilla no
+    tiene ContentSid cargado — en ese caso el mensaje sale como texto libre,
+    que es lo correcto dentro de la ventana de 24 h.
+    """
+    if plantilla is None or not getattr(plantilla, 'content_sid', None):
+        return {}
+    return {
+        'content_sid': plantilla.content_sid,
+        'content_variables': _variables_posicionales(plantilla, valores),
+    }
+
+
+def _enviar_por_twilio(numero_destino, mensaje, status_callback=None,
+                       content_sid=None, content_variables=None):
     """
     Transporte puro: habla con Twilio y devuelve el SID. No escribe bitacora.
     Lanza excepcion si el envio falla.
+
+    Con ``content_sid`` el mensaje viaja como plantilla aprobada de WhatsApp;
+    sin el, como texto libre.
     """
     account_sid = current_app.config.get('TWILIO_ACCOUNT_SID', '')
     auth_token = current_app.config.get('TWILIO_AUTH_TOKEN', '')
@@ -78,17 +119,27 @@ def _enviar_por_twilio(numero_destino, mensaje, status_callback=None):
     if status_callback is None:
         status_callback = _build_status_callback_url()
 
-    kwargs = {'from_': from_number, 'body': mensaje, 'to': to}
+    kwargs = {'from_': from_number, 'to': to}
+    if content_sid:
+        # Twilio rechaza body y content_sid juntos: el texto lo aporta la
+        # plantilla aprobada.
+        kwargs['content_sid'] = content_sid
+        if content_variables:
+            kwargs['content_variables'] = content_variables
+    else:
+        kwargs['body'] = mensaje
     if status_callback:
         kwargs['status_callback'] = status_callback
 
     msg = client.messages.create(**kwargs)
-    logger.info(f'WA enviado a {numero_destino}: SID={msg.sid}')
+    via = f' (plantilla {content_sid})' if content_sid else ''
+    logger.info(f'WA enviado a {numero_destino}: SID={msg.sid}{via}')
     return msg.sid
 
 
 def _crear_registro(numero_destino, mensaje, tipo, paciente_id, cita_id,
-                    dentista_id, campana_destinatario_id):
+                    dentista_id, campana_destinatario_id,
+                    content_sid=None, content_variables=None):
     """Crea la fila pendiente sin confirmar la sesion Flask del llamador."""
     from extensions import db
     from models import MensajeEnviado, TipoRecordatorio, EstatusRecordatorio
@@ -105,6 +156,8 @@ def _crear_registro(numero_destino, mensaje, tipo, paciente_id, cita_id,
         campana_destinatario_id=campana_destinatario_id,
         estatus=EstatusRecordatorio.pendiente,
         intentos=0,
+        content_sid=content_sid,
+        content_variables=content_variables,
         fecha_creacion=ahora_local(),
     )
     with Session(bind=db.engine, expire_on_commit=False) as ledger_session:
@@ -179,7 +232,8 @@ def _programar_reintento(registro, error):
 
 def enviar_mensaje(numero_destino, mensaje, status_callback=None, tipo=None,
                    paciente_id=None, cita_id=None, dentista_id=None,
-                   campana_destinatario_id=None, registrar=True):
+                   campana_destinatario_id=None, registrar=True,
+                   content_sid=None, content_variables=None):
     """
     Envia un mensaje de WhatsApp via Twilio y lo registra en la bitacora.
 
@@ -188,6 +242,9 @@ def enviar_mensaje(numero_destino, mensaje, status_callback=None, tipo=None,
     tipo: valor de TipoRecordatorio. Si no se pasa, se registra como 'otro'.
     registrar: False omite la bitacora — lo usa el job de reenvio, que actualiza
         la fila que ya existe en vez de crear una nueva.
+    content_sid: ContentSid de una plantilla aprobada de WhatsApp. Sin el, el
+        mensaje sale como texto libre y solo se entrega dentro de la ventana
+        de 24 h. ``mensaje`` se sigue guardando en la bitacora en ambos casos.
 
     Retorna el SID del mensaje. Propaga la excepcion si el envio falla.
     """
@@ -196,10 +253,12 @@ def enviar_mensaje(numero_destino, mensaje, status_callback=None, tipo=None,
     registro = None
     if registrar:
         registro = _crear_registro(numero_destino, mensaje, tipo, paciente_id,
-                                   cita_id, dentista_id, campana_destinatario_id)
+                                   cita_id, dentista_id, campana_destinatario_id,
+                                   content_sid, content_variables)
 
     try:
-        sid = _enviar_por_twilio(numero_destino, mensaje, status_callback)
+        sid = _enviar_por_twilio(numero_destino, mensaje, status_callback,
+                                 content_sid, content_variables)
     except Exception as e:
         logger.error(f'Error enviando WA a {numero_destino}: {e}')
         if registro is not None:
@@ -228,11 +287,9 @@ def enviar_recordatorio_cita(cita):
     plantilla = PlantillaMensaje.query.filter_by(tipo='recordatorio_24h', activo=True).first()
 
     hora = cita.fecha_inicio.strftime('%I:%M %p')
+    valores = {'nombre_paciente': paciente.nombre_completo, 'hora': hora}
     if plantilla:
-        mensaje = plantilla.contenido.format(
-            nombre_paciente=paciente.nombre_completo,
-            hora=hora,
-        )
+        mensaje = plantilla.contenido.format(**valores)
     else:
         mensaje = (
             f'Hola buenas tardes\n'
@@ -243,7 +300,8 @@ def enviar_recordatorio_cita(cita):
 
     try:
         enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.confirmacion_24h,
-                       paciente_id=paciente.id, cita_id=cita.id)
+                       paciente_id=paciente.id, cita_id=cita.id,
+                       **kwargs_plantilla(plantilla, valores))
         return True
     except Exception as e:
         logger.error(f'Error enviando recordatorio cita {cita.id}: {e}')
@@ -270,12 +328,13 @@ def enviar_confirmacion_mismo_dia(cita):
     hora = cita.fecha_inicio.strftime('%I:%M %p')
     dentista = cita.dentista.nombre if cita.dentista else 'su doctor'
 
+    valores = {
+        'nombre_paciente': paciente.nombre_completo,
+        'hora': hora,
+        'dentista': dentista,
+    }
     if plantilla:
-        mensaje = plantilla.contenido.format(
-            nombre_paciente=paciente.nombre_completo,
-            hora=hora,
-            dentista=dentista,
-        )
+        mensaje = plantilla.contenido.format(**valores)
     else:
         mensaje = (
             f'Buenos dias! \U0001f60a\n'
@@ -287,7 +346,8 @@ def enviar_confirmacion_mismo_dia(cita):
 
     try:
         enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.confirmacion_mismo_dia,
-                       paciente_id=paciente.id, cita_id=cita.id)
+                       paciente_id=paciente.id, cita_id=cita.id,
+                       **kwargs_plantilla(plantilla, valores))
         return True
     except Exception as e:
         logger.error(f'Error enviando confirmacion mismo dia cita {cita.id}: {e}')
@@ -308,12 +368,13 @@ def enviar_recordatorio_cita_hoy(cita):
     nombre_doctor = cita.dentista.nombre if cita.dentista else 'su doctor'
     plantilla = PlantillaMensaje.query.filter_by(
         tipo='recordatorio_cita_hoy', activo=True).first()
+    valores = {
+        'nombre_paciente': paciente.nombre_completo,
+        'hora': hora,
+        'nombre_doctor': nombre_doctor,
+    }
     if plantilla:
-        mensaje = plantilla.contenido.format(
-            nombre_paciente=paciente.nombre_completo,
-            hora=hora,
-            nombre_doctor=nombre_doctor,
-        )
+        mensaje = plantilla.contenido.format(**valores)
     else:
         mensaje = (
             f'No olvides tu cita hoy a las {hora} para '
@@ -328,6 +389,7 @@ def enviar_recordatorio_cita_hoy(cita):
             paciente_id=paciente.id,
             cita_id=cita.id,
             dentista_id=cita.dentista_id,
+            **kwargs_plantilla(plantilla, valores),
         )
         return True
     except Exception as e:
@@ -354,11 +416,12 @@ def enviar_postconsulta(cita):
     from models import PlantillaMensaje
     plantilla = PlantillaMensaje.query.filter_by(tipo='postconsulta', activo=True).first()
 
+    valores = {
+        'nombre_paciente': paciente.nombre_completo,
+        'google_reviews_link': reviews_link,
+    }
     if plantilla:
-        mensaje = plantilla.contenido.format(
-            nombre_paciente=paciente.nombre_completo,
-            google_reviews_link=reviews_link,
-        )
+        mensaje = plantilla.contenido.format(**valores)
     else:
         mensaje = (
             f'Hola Sra/Sr buenas tardes :) Como esta? '
@@ -369,7 +432,8 @@ def enviar_postconsulta(cita):
 
     try:
         enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.postconsulta,
-                       paciente_id=paciente.id, cita_id=cita.id)
+                       paciente_id=paciente.id, cita_id=cita.id,
+                       **kwargs_plantilla(plantilla, valores))
         return True
     except Exception as e:
         logger.error(f'Error enviando postconsulta cita {cita.id}: {e}')
@@ -391,11 +455,9 @@ def enviar_reagendar_no_asistencia(cita):
     plantilla = PlantillaMensaje.query.filter_by(tipo='no_asistencia_reagendar', activo=True).first()
 
     fecha_cita = cita.fecha_inicio.strftime('%d/%m/%Y')
+    valores = {'nombre_paciente': paciente.nombre_completo, 'fecha': fecha_cita}
     if plantilla:
-        mensaje = plantilla.contenido.format(
-            nombre_paciente=paciente.nombre_completo,
-            fecha=fecha_cita,
-        )
+        mensaje = plantilla.contenido.format(**valores)
     else:
         mensaje = (
             f'Estimado/a, le escribimos de La Casa del Sr. Perez.\n'
@@ -407,7 +469,8 @@ def enviar_reagendar_no_asistencia(cita):
 
     try:
         enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.no_asistencia,
-                       paciente_id=paciente.id, cita_id=cita.id)
+                       paciente_id=paciente.id, cita_id=cita.id,
+                       **kwargs_plantilla(plantilla, valores))
         return True
     except Exception as e:
         logger.error(f'Error enviando reagendar no-asistencia cita {cita.id}: {e}')
@@ -431,11 +494,12 @@ def enviar_cita_reagendada(cita):
     hora = cita.fecha_inicio.strftime('%H:%M')
     doctor = cita.dentista.nombre if cita.dentista else ''
 
+    valores = {
+        'nombre_paciente': paciente.nombre_completo,
+        'fecha': fecha, 'hora': hora, 'doctor': doctor,
+    }
     if plantilla:
-        mensaje = plantilla.contenido.format(
-            nombre_paciente=paciente.nombre_completo,
-            fecha=fecha, hora=hora, doctor=doctor,
-        )
+        mensaje = plantilla.contenido.format(**valores)
     else:
         mensaje = (
             f'Hola {paciente.nombre_completo}, le escribimos de La Casa del Sr. Perez.\n\n'
@@ -444,7 +508,8 @@ def enviar_cita_reagendada(cita):
         )
 
     enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.otro,
-                   paciente_id=paciente.id, cita_id=cita.id)
+                   paciente_id=paciente.id, cita_id=cita.id,
+                   **kwargs_plantilla(plantilla, valores))
     return True
 
 
@@ -461,11 +526,9 @@ def enviar_recordatorio_proxima_visita(paciente):
     plantilla = PlantillaMensaje.query.filter_by(tipo='proxima_visita', activo=True).first()
 
     tutor = paciente.nombre_tutor or 'Estimado/a'
+    valores = {'nombre_tutor': tutor, 'nombre_paciente': paciente.nombre_completo}
     if plantilla:
-        mensaje = plantilla.contenido.format(
-            nombre_tutor=tutor,
-            nombre_paciente=paciente.nombre_completo,
-        )
+        mensaje = plantilla.contenido.format(**valores)
     else:
         mensaje = (
             f'Hola {tutor}! Le recordamos que ya es momento de programar '
@@ -475,7 +538,8 @@ def enviar_recordatorio_proxima_visita(paciente):
 
     try:
         enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.proxima_visita,
-                       paciente_id=paciente.id)
+                       paciente_id=paciente.id,
+                       **kwargs_plantilla(plantilla, valores))
         return True
     except Exception as e:
         logger.error(f'Error enviando recordatorio proxima visita a {paciente.nombre_completo}: {e}')
@@ -496,18 +560,37 @@ def enviar_resumen_diario_doctor(dentista, citas, fecha_str):
     if not citas:
         return False
 
-    lineas = [f'Hola {dentista.nombre}! Tus citas de manana {fecha_str}:\n']
+    detalle = []
     for c in citas:
         hora = c.fecha_inicio.strftime('%H:%M')
         status = 'CONFIRMADA' if c.status.value == 'confirmada' else 'Pendiente'
-        lineas.append(f'- {hora}: {c.paciente.nombre_completo} ({c.tipo_cita.nombre if c.tipo_cita else "Cita"}) [{status}]')
+        detalle.append(f'- {hora}: {c.paciente.nombre_completo} ({c.tipo_cita.nombre if c.tipo_cita else "Cita"}) [{status}]')
+    listado = '\n'.join(detalle)
 
-    lineas.append('\nBuen dia! La Casa del Sr. Perez')
-    mensaje = '\n'.join(lineas)
+    from models import PlantillaMensaje
+    plantilla = PlantillaMensaje.query.filter_by(
+        tipo='resumen_doctor', activo=True).first()
+
+    # El listado va como una sola variable: una plantilla de WhatsApp no puede
+    # tener un numero variable de lineas.
+    valores = {
+        'nombre_doctor': dentista.nombre,
+        'fecha': fecha_str,
+        'listado': listado,
+    }
+    if plantilla:
+        mensaje = plantilla.contenido.format(**valores)
+    else:
+        mensaje = '\n'.join([
+            f'Hola {dentista.nombre}! Tus citas de manana {fecha_str}:\n',
+            listado,
+            '\nBuen dia! La Casa del Sr. Perez',
+        ])
 
     try:
         enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.resumen_doctor,
-                       dentista_id=dentista.id)
+                       dentista_id=dentista.id,
+                       **kwargs_plantilla(plantilla, valores))
         return True
     except Exception as e:
         logger.error(f'Error enviando resumen a Dr. {dentista.nombre}: {e}')

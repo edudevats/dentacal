@@ -18,6 +18,33 @@ function badgeClassEstatus(estatus) {
   return 'bg-light text-dark';
 }
 
+/* La entrega de WhatsApp manda sobre el estatus de envío: un mensaje que
+   Twilio aceptó pero WhatsApp rechazó nunca debe verse verde. */
+function presentacionEstatus(mensaje) {
+  if (mensaje.no_entregado) {
+    const codigo = mensaje.delivery_error_code
+      ? ' (' + mensaje.delivery_error_code + ')' : '';
+    return {
+      etiqueta: 'No entregado',
+      clase: 'bg-danger',
+      titulo: (mensaje.delivery_error_desc || 'WhatsApp no entregó el mensaje') + codigo
+    };
+  }
+  if (mensaje.delivery_status === 'delivered' || mensaje.delivery_status === 'read') {
+    return {
+      etiqueta: 'Entregado',
+      clase: 'bg-success',
+      titulo: mensaje.delivery_status === 'read'
+        ? 'El paciente lo leyó' : 'Entregado en el teléfono del paciente'
+    };
+  }
+  return {
+    etiqueta: ETIQUETA_ESTATUS[mensaje.estatus] || mensaje.estatus || '',
+    clase: badgeClassEstatus(mensaje.estatus),
+    titulo: mensaje.error || ''
+  };
+}
+
 function formatearFechaMensaje(iso) {
   if (!iso) return '';
   const fecha = new Date(iso);
@@ -44,6 +71,7 @@ function limpiarMensajesMostrados() {
   document.getElementById('resumenEnviados').textContent = '0';
   document.getElementById('resumenFallidos').textContent = '0';
   document.getElementById('resumenReintentando').textContent = '0';
+  document.getElementById('resumenNoEntregados').textContent = '0';
 }
 
 function cargarMensajesTab(page) {
@@ -76,6 +104,8 @@ function cargarMensajesTab(page) {
       document.getElementById('resumenEnviados').textContent = data.resumen.enviados;
       document.getElementById('resumenFallidos').textContent = data.resumen.fallidos;
       document.getElementById('resumenReintentando').textContent = data.resumen.reintentando;
+      document.getElementById('resumenNoEntregados').textContent =
+        data.resumen.no_entregados || 0;
       limpiarErrorMensajes();
     })
     .catch(function (err) {
@@ -136,10 +166,11 @@ function renderMensajesTable(mensajes) {
     tr.appendChild(tdMensaje);
 
     const tdEstatus = document.createElement('td');
+    const presentacion = presentacionEstatus(mensaje);
     const estatusBadge = document.createElement('span');
-    estatusBadge.className = 'badge ' + badgeClassEstatus(mensaje.estatus);
-    estatusBadge.textContent = ETIQUETA_ESTATUS[mensaje.estatus] || mensaje.estatus || '';
-    if (mensaje.error) estatusBadge.title = mensaje.error;
+    estatusBadge.className = 'badge ' + presentacion.clase;
+    estatusBadge.textContent = presentacion.etiqueta;
+    if (presentacion.titulo) estatusBadge.title = presentacion.titulo;
     tdEstatus.appendChild(estatusBadge);
     tr.appendChild(tdEstatus);
 

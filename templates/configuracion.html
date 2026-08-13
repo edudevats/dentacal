@@ -268,6 +268,14 @@
       <div class="small text-muted mb-2">
         Variables disponibles: {nombre_paciente}, {hora}, {fecha}, {nombre_tutor}, {google_reviews_link}
       </div>
+      <div class="alert alert-warning small py-2">
+        <i class="bi bi-whatsapp"></i>
+        <strong>ContentSid:</strong> sin el, el mensaje sale como texto libre y WhatsApp
+        <strong>solo lo entrega si el paciente escribio en las ultimas 24 horas</strong>
+        (error 63016). Los recordatorios automaticos salen fuera de esa ventana, asi que
+        necesitan una plantilla aprobada en Twilio. Pega aqui el ContentSid (empieza con HX)
+        y el orden de sus variables.
+      </div>
       {% for p in plantillas %}
       <div class="card mb-2 shadow-sm">
         <div class="card-body">
@@ -275,6 +283,11 @@
             <div>
               <span class="fw-semibold">{{ p.nombre }}</span>
               <span class="badge bg-secondary ms-2 small">{{ p.tipo }}</span>
+              {% if p.content_sid %}
+              <span class="badge bg-success ms-1 small">plantilla aprobada</span>
+              {% else %}
+              <span class="badge bg-warning text-dark ms-1 small">texto libre</span>
+              {% endif %}
             </div>
             <button class="btn btn-sm btn-outline-primary" onclick="editarPlantilla({{ p.id }})">
               <i class="bi bi-pencil"></i>
@@ -282,6 +295,25 @@
           </div>
           <pre class="mb-0 small bg-light p-2 rounded" id="plantilla-preview-{{ p.id }}"
             style="white-space:pre-wrap">{{ p.contenido }}</pre>
+          <div class="row g-2 mt-2 align-items-end">
+            <div class="col-md-4">
+              <label class="form-label small mb-1" for="content-sid-{{ p.id }}">ContentSid de Twilio</label>
+              <input type="text" class="form-control form-control-sm" id="content-sid-{{ p.id }}"
+                placeholder="HXxxxxxxxx" value="{{ p.content_sid or '' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small mb-1" for="content-orden-{{ p.id }}">
+                Orden de variables ({{ '{{1}}' }}, {{ '{{2}}' }}...)
+              </label>
+              <input type="text" class="form-control form-control-sm" id="content-orden-{{ p.id }}"
+                placeholder="nombre_paciente,hora" value="{{ p.content_variables_orden or '' }}">
+            </div>
+            <div class="col-md-2">
+              <button class="btn btn-sm btn-outline-secondary w-100"
+                onclick="guardarContentSid({{ p.id }})">Guardar</button>
+            </div>
+          </div>
+          <div class="small mt-1" id="content-msg-{{ p.id }}"></div>
         </div>
       </div>
       {% endfor %}
@@ -1003,6 +1035,25 @@
     if (resp.ok) {
       const el = document.getElementById('plantilla-preview-' + id);
       if (el) el.textContent = nuevoContenido;
+    }
+  }
+
+  async function guardarContentSid(id) {
+    const msg = document.getElementById('content-msg-' + id);
+    const resp = await apiFetch(`/api/configuracion/plantillas/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        content_sid: document.getElementById('content-sid-' + id).value,
+        content_variables_orden: document.getElementById('content-orden-' + id).value,
+      }),
+    });
+    if (resp.ok) {
+      msg.className = 'small mt-1 text-success';
+      msg.textContent = 'Guardado. Recarga para ver la etiqueta actualizada.';
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      msg.className = 'small mt-1 text-danger';
+      msg.textContent = data.error || 'No se pudo guardar';
     }
   }
 

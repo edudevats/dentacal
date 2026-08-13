@@ -397,18 +397,19 @@ def _job_cumpleanos(app):
             if not numero:
                 continue
             tutor = paciente.nombre_tutor or 'Estimado padre/madre'
+            valores = {'nombre_tutor': tutor,
+                       'nombre_paciente': paciente.nombre_completo}
             if plantilla:
-                mensaje = plantilla.contenido.format(
-                    nombre_tutor=tutor,
-                    nombre_paciente=paciente.nombre_completo,
-                )
+                mensaje = plantilla.contenido.format(**valores)
             else:
                 mensaje = (f'Hola {tutor}! En el mes de cumpleanos de {paciente.nombre_completo} '
                            f'tiene un regalo especial. Solo tiene que venir a su cita este mes. '
                            f'Le esperamos con gusto!')
             try:
+                from services.whatsapp_service import kwargs_plantilla
                 enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.cumpleanos,
-                               paciente_id=paciente.id)
+                               paciente_id=paciente.id,
+                               **kwargs_plantilla(plantilla, valores))
                 logger.info(f'Mensaje cumpleanos enviado a {paciente.nombre_completo}')
             except Exception as e:
                 logger.error(f'Error cumpleanos {paciente.nombre_completo}: {e}')
@@ -625,8 +626,12 @@ def _job_reenviar_fallidos(app):
                 continue
 
             try:
+                # Se repite el envio tal cual: si salio por plantilla aprobada,
+                # reintentarlo como texto libre volveria a chocar con el 63016.
                 sid = enviar_mensaje(
-                    registro.numero_destino, registro.mensaje, registrar=False)
+                    registro.numero_destino, registro.mensaje, registrar=False,
+                    content_sid=registro.content_sid,
+                    content_variables=registro.content_variables)
             except Exception as e:
                 logger.error(f'Reintento fallido del mensaje {registro.id}: {e}')
                 _programar_reintento(registro, e)

@@ -86,17 +86,38 @@ def whatsapp_status_callback():
 
     log.info(f'Twilio status callback: SID={message_sid} status={message_status} error={error_code}')
 
-    # Buscar el destinatario de campana asociado a este SID
+    from models import MensajeEnviado
+    from services.twilio_errores import avanza, descripcion, es_no_entregado
+
+    cambio = False
+
+    # Bitacora de mensajes salientes (recordatorios, resumenes, campanas).
+    registro = MensajeEnviado.query.filter_by(message_sid=message_sid).first()
+    if registro and avanza(registro.delivery_status, message_status):
+        registro.delivery_status = message_status
+        registro.delivery_updated_at = datetime.utcnow()
+        if es_no_entregado(message_status):
+            registro.delivery_error_code = error_code or None
+            registro.delivery_error_mensaje = (
+                error_message or descripcion(error_code))[:500] or None
+            log.warning(
+                f'Mensaje {registro.id} NO entregado a {registro.numero_destino}: '
+                f'[{error_code}] {descripcion(error_code, error_message)}')
+        cambio = True
+
+    # Destinatario de campana asociado a este SID.
     dest = CampanaDestinatario.query.filter_by(message_sid=message_sid).first()
-    if dest:
-        dest.delivery_status = message_status or dest.delivery_status
+    if dest and avanza(dest.delivery_status, message_status):
+        dest.delivery_status = message_status
         dest.delivery_updated_at = datetime.utcnow()
 
-        if message_status in ('failed', 'undelivered'):
+        if es_no_entregado(message_status):
             dest.estatus = EstatusDestinatario.fallido
             if error_code or error_message:
                 dest.error_mensaje = f'[{error_code}] {error_message}'[:500]
+        cambio = True
 
+    if cambio:
         try:
             db.session.commit()
         except Exception as e:

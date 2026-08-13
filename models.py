@@ -541,6 +541,20 @@ class MensajeEnviado(db.Model):
     intentos = db.Column(db.Integer, default=0, nullable=False)
     proximo_intento = db.Column(db.DateTime, nullable=True, index=True)
 
+    # Entrega real, reportada despues por el Status Callback de Twilio.
+    # 'estatus' dice si Twilio acepto el mensaje; esto dice si llego al
+    # telefono. Un 201 de Twilio no significa que WhatsApp lo haya entregado.
+    delivery_status = db.Column(db.String(20), nullable=True, index=True)
+    delivery_error_code = db.Column(db.String(20), nullable=True)
+    delivery_error_mensaje = db.Column(db.String(500), nullable=True)
+    delivery_updated_at = db.Column(db.DateTime, nullable=True)
+
+    # Con que se envio, para que un reintento lo reproduzca igual. Reintentar
+    # como texto libre un mensaje que salio por plantilla vuelve a chocar con
+    # el 63016.
+    content_sid = db.Column(db.String(64), nullable=True)
+    content_variables = db.Column(db.Text, nullable=True)
+
     fecha_creacion = db.Column(db.DateTime, default=ahora_local, index=True)
     fecha_envio = db.Column(db.DateTime, nullable=True)
 
@@ -557,7 +571,17 @@ class MensajeEnviado(db.Model):
         """
         return self.estatus == EstatusRecordatorio.fallido
 
+    @property
+    def no_entregado(self):
+        """
+        WhatsApp rechazo el mensaje. Es independiente de 'estatus': la fila
+        puede estar en 'enviado' (Twilio la acepto) y aun asi no haber llegado.
+        """
+        from services.twilio_errores import es_no_entregado
+        return es_no_entregado(self.delivery_status)
+
     def to_dict(self):
+        from services.twilio_errores import descripcion
         cita_confirmada = None
         if self.cita is not None:
             cita_confirmada = (self.cita.status == EstatusCita.confirmada)
@@ -575,6 +599,11 @@ class MensajeEnviado(db.Model):
             'message_sid': self.message_sid,
             'error': self.error,
             'intentos': self.intentos or 0,
+            'delivery_status': self.delivery_status,
+            'delivery_error_code': self.delivery_error_code,
+            'delivery_error_desc': descripcion(self.delivery_error_code,
+                                               self.delivery_error_mensaje),
+            'no_entregado': self.no_entregado,
             'fecha_creacion': self.fecha_creacion.isoformat() if self.fecha_creacion else None,
             'fecha_envio': self.fecha_envio.isoformat() if self.fecha_envio else None,
         }
@@ -629,12 +658,23 @@ class PlantillaMensaje(db.Model):
     contenido = db.Column(db.Text, nullable=False)
     activo = db.Column(db.Boolean, default=True)
 
+    # Plantilla aprobada de WhatsApp (Content Template de Twilio). Sin esto el
+    # mensaje sale como texto libre, que WhatsApp solo entrega dentro de la
+    # ventana de 24 h que abre el paciente al escribir. 'contenido' se conserva
+    # igual: es lo que se guarda en la bitacora y lo que lee recepcion.
+    content_sid = db.Column(db.String(64), nullable=True)
+    # Nombres de los placeholders en el orden {{1}}, {{2}}... de la plantilla
+    # de Twilio, separados por coma. Twilio numera; nosotros nombramos.
+    content_variables_orden = db.Column(db.String(255), nullable=True)
+
     def to_dict(self):
         return {
             'id': self.id,
             'nombre': self.nombre,
             'tipo': self.tipo,
             'contenido': self.contenido,
+            'content_sid': self.content_sid,
+            'content_variables_orden': self.content_variables_orden,
         }
 
 

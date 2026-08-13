@@ -177,6 +177,12 @@ def actualizar_plantilla(plantilla_id):
         p.contenido = data['contenido']
     if 'nombre' in data:
         p.nombre = data['nombre']
+    # ContentSid de la plantilla aprobada en Twilio. Vacio = texto libre, que
+    # WhatsApp solo entrega dentro de la ventana de 24 h.
+    for campo in ('content_sid', 'content_variables_orden'):
+        if campo in data:
+            valor = (data[campo] or '').strip()
+            setattr(p, campo, valor or None)
     db.session.commit()
     return jsonify(p.to_dict())
 

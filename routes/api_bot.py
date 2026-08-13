@@ -513,13 +513,19 @@ def mensajes_enviados():
     fecha_desde = request.args.get('fecha_desde')
     fecha_hasta = request.args.get('fecha_hasta')
 
+    from services.twilio_errores import ESTADOS_NO_ENTREGADO
+
     q = MensajeEnviado.query
     if tipo:
         try:
             q = q.filter(MensajeEnviado.tipo == TipoRecordatorio[tipo])
         except KeyError:
             pass
-    if estatus:
+    if estatus == 'no_entregado':
+        # Pseudo-estatus: no vive en EstatusRecordatorio porque describe la
+        # entrega de WhatsApp, no el resultado del envio a Twilio.
+        q = q.filter(MensajeEnviado.delivery_status.in_(ESTADOS_NO_ENTREGADO))
+    elif estatus:
         try:
             q = q.filter(MensajeEnviado.estatus == EstatusRecordatorio[estatus])
         except KeyError:
@@ -562,6 +568,10 @@ def mensajes_enviados():
     ])).count()
     reintentando = del_dia.filter(
         MensajeEnviado.estatus == EstatusRecordatorio.fallido).count()
+    # Aceptados por Twilio pero rechazados por WhatsApp: no aparecen en
+    # 'fallidos' porque el envio si tuvo exito. Es el numero que importa.
+    no_entregados = del_dia.filter(
+        MensajeEnviado.delivery_status.in_(ESTADOS_NO_ENTREGADO)).count()
 
     return jsonify({
         'mensajes': [mensaje.to_dict() for mensaje in mensajes],
@@ -572,5 +582,6 @@ def mensajes_enviados():
             'enviados': enviados,
             'fallidos': fallidos,
             'reintentando': reintentando,
+            'no_entregados': no_entregados,
         },
     })

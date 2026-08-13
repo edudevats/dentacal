@@ -281,11 +281,13 @@
   <div class="d-flex align-items-center gap-3 my-3 flex-wrap">
     <div class="d-flex gap-2">
       <span class="badge bg-success">Enviados hoy: <span id="resumenEnviados">0</span></span>
+      <span class="badge bg-danger" title="Twilio los aceptó, pero WhatsApp no los entregó al paciente">No entregados hoy: <span id="resumenNoEntregados">0</span></span>
       <span class="badge bg-danger">Fallidos hoy: <span id="resumenFallidos">0</span></span>
       <span class="badge bg-warning text-dark">Reintentando: <span id="resumenReintentando">0</span></span>
     </div>
     <select id="msgEstatusFiltro" class="form-select form-select-sm" style="width:auto" onchange="cargarMensajesTab(1)">
       <option value="">Todos los estatus</option>
+      <option value="no_entregado">No entregado (WhatsApp)</option>
       <option value="enviado">Enviado</option>
       <option value="fallido">Fallido</option>
       <option value="fallido_definitivo">Fallido definitivo</option>
