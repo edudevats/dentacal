@@ -55,6 +55,7 @@ class TipoRecordatorio(PyEnum):
     sonrisas_magicas = 'sonrisas_magicas'
     # Agregados para el log unificado de mensajes
     confirmacion_mismo_dia = 'confirmacion_mismo_dia'
+    recordatorio_cita_hoy = 'recordatorio_cita_hoy'
     proxima_visita = 'proxima_visita'
     no_asistencia = 'no_asistencia'
     resumen_doctor = 'resumen_doctor'

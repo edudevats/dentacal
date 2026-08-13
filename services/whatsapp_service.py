@@ -294,6 +294,47 @@ def enviar_confirmacion_mismo_dia(cita):
         return False
 
 
+def enviar_recordatorio_cita_hoy(cita):
+    """Envia un recordatorio informativo para una cita ya confirmada de hoy."""
+    from models import PlantillaMensaje, TipoRecordatorio
+
+    paciente = cita.paciente
+    numero = paciente.numero_contacto_wa
+    if not numero:
+        logger.warning(f'Cita {cita.id}: paciente sin numero de WhatsApp')
+        return False
+
+    hora = cita.fecha_inicio.strftime('%I:%M %p')
+    nombre_doctor = cita.dentista.nombre if cita.dentista else 'su doctor'
+    plantilla = PlantillaMensaje.query.filter_by(
+        tipo='recordatorio_cita_hoy', activo=True).first()
+    if plantilla:
+        mensaje = plantilla.contenido.format(
+            nombre_paciente=paciente.nombre_completo,
+            hora=hora,
+            nombre_doctor=nombre_doctor,
+        )
+    else:
+        mensaje = (
+            f'No olvides tu cita hoy a las {hora} para '
+            f'{paciente.nombre_completo} con {nombre_doctor}.'
+        )
+
+    try:
+        enviar_mensaje(
+            numero,
+            mensaje,
+            tipo=TipoRecordatorio.recordatorio_cita_hoy,
+            paciente_id=paciente.id,
+            cita_id=cita.id,
+            dentista_id=cita.dentista_id,
+        )
+        return True
+    except Exception as e:
+        logger.error(f'Error enviando recordatorio de hoy cita {cita.id}: {e}')
+        return False
+
+
 def enviar_postconsulta(cita):
     """
     Envia mensaje de postconsulta 2 dias despues (protocolo postconsulta).

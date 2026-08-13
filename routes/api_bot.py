@@ -5,6 +5,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import func, text
 from extensions import db, permiso_requerido
 from models import ConversacionWhatsapp, Paciente, LogBot
+from services.tiempo import ahora_local
 
 log = logging.getLogger(__name__)
 
@@ -104,6 +105,171 @@ def hilo_conversacion(numero):
         'timestamp': m.timestamp.isoformat(),
         'paciente_id': m.paciente_id,
     } for m in mensajes])
+
+
+@bot_bp.route('/proximos-recordatorios', methods=['GET'])
+@login_required
+def proximos_recordatorios():
+    """Citas de hoy/manana con sus envios, respuestas y proximo mensaje."""
+    from datetime import date, datetime, timedelta
+
+    from sqlalchemy.orm import joinedload
+    from models import (Cita, EstatusCita, EstatusRecordatorio, MensajeEnviado,
+                        TipoRecordatorio)
+
+    fecha_param = request.args.get('fecha', '').strip()
+    estado_param = request.args.get('estado', '').strip()
+    try:
+        fecha = date.fromisoformat(fecha_param) if fecha_param else None
+    except ValueError:
+        return jsonify(error='fecha_invalida'), 400
+
+    estados = {
+        'pendiente': EstatusCita.pendiente,
+        'confirmada': EstatusCita.confirmada,
+    }
+    if estado_param and estado_param not in estados:
+        return jsonify(error='estado_invalido'), 400
+
+    hoy = ahora_local().date()
+    fecha_inicio = fecha or hoy
+    fecha_fin = fecha or (hoy + timedelta(days=1))
+    inicio = datetime.combine(fecha_inicio, datetime.min.time())
+    fin = datetime.combine(fecha_fin + timedelta(days=1), datetime.min.time())
+
+    query = Cita.query.options(
+        joinedload(Cita.paciente), joinedload(Cita.dentista)
+    ).filter(
+        Cita.fecha_inicio >= inicio,
+        Cita.fecha_inicio < fin,
+        Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
+    )
+    if estado_param:
+        query = query.filter(Cita.status == estados[estado_param])
+    citas = query.order_by(Cita.fecha_inicio, Cita.id).all()
+    if not citas:
+        return jsonify(recordatorios=[], total=0)
+
+    cita_ids = [cita.id for cita in citas]
+    tipos_seguimiento = [
+        TipoRecordatorio.confirmacion_24h,
+        TipoRecordatorio.confirmacion_mismo_dia,
+        TipoRecordatorio.recordatorio_cita_hoy,
+    ]
+    mensajes = MensajeEnviado.query.filter(
+        MensajeEnviado.cita_id.in_(cita_ids),
+        MensajeEnviado.tipo.in_(tipos_seguimiento),
+    ).order_by(
+        MensajeEnviado.fecha_creacion,
+        MensajeEnviado.id,
+    ).all()
+    mensajes_por_cita = {}
+    for mensaje in mensajes:
+        mensajes_por_cita.setdefault(mensaje.cita_id, {})[
+            mensaje.tipo] = mensaje
+
+    paciente_ids = {cita.paciente_id for cita in citas}
+    numeros = {
+        cita.paciente.numero_contacto_wa
+        for cita in citas
+        if cita.paciente and cita.paciente.numero_contacto_wa
+    }
+    condiciones_respuesta = [
+        ConversacionWhatsapp.paciente_id.in_(paciente_ids)
+    ]
+    if numeros:
+        condiciones_respuesta.append(
+            ConversacionWhatsapp.numero_telefono.in_(numeros))
+    respuestas = ConversacionWhatsapp.query.filter(
+        ConversacionWhatsapp.es_bot == False,
+        db.or_(*condiciones_respuesta),
+    ).order_by(ConversacionWhatsapp.timestamp).all()
+
+    resultado = []
+    for cita in citas:
+        por_tipo = mensajes_por_cita.get(cita.id, {})
+        mensaje_24h = por_tipo.get(TipoRecordatorio.confirmacion_24h)
+        tipo_mismo_dia = (
+            TipoRecordatorio.recordatorio_cita_hoy
+            if cita.status == EstatusCita.confirmada
+            else TipoRecordatorio.confirmacion_mismo_dia
+        )
+        mensaje_mismo_dia = por_tipo.get(tipo_mismo_dia)
+
+        if cita.fecha_inicio.date() == hoy:
+            proximo = None if mensaje_mismo_dia else tipo_mismo_dia.value
+        elif mensaje_24h is None and not cita.reminder_24h_sent:
+            proximo = TipoRecordatorio.confirmacion_24h.value
+        else:
+            proximo = tipo_mismo_dia.value
+
+        mensajes_confirmacion = [
+            por_tipo.get(TipoRecordatorio.confirmacion_24h),
+            por_tipo.get(TipoRecordatorio.confirmacion_mismo_dia),
+        ]
+        referencias = [
+            m.fecha_envio
+            for m in mensajes_confirmacion
+            if m is not None
+            and m.estatus == EstatusRecordatorio.enviado
+            and m.fecha_envio is not None
+        ]
+        referencia = max(referencias) if referencias else None
+        numero = (
+            cita.paciente.numero_contacto_wa if cita.paciente else None)
+        candidatas = [
+            respuesta for respuesta in respuestas
+            if (respuesta.paciente_id == cita.paciente_id or
+                (numero and respuesta.numero_telefono == numero))
+            and referencia is not None
+            and respuesta.timestamp > referencia
+        ]
+        ultima_respuesta = (
+            max(r.timestamp for r in candidatas) if candidatas else None)
+
+        def estado_de(mensaje):
+            return mensaje.estatus.value if mensaje and mensaje.estatus else None
+
+        def fecha_de(mensaje):
+            if not mensaje:
+                return None
+            fecha_mensaje = mensaje.fecha_envio or mensaje.fecha_creacion
+            return fecha_mensaje.isoformat() if fecha_mensaje else None
+
+        estado_24h = estado_de(mensaje_24h)
+        if estado_24h is None and cita.reminder_24h_sent:
+            estado_24h = 'enviado'
+
+        resultado.append({
+            'cita_id': cita.id,
+            'paciente_id': cita.paciente_id,
+            'paciente_nombre': (
+                cita.paciente.nombre_completo if cita.paciente else None),
+            'doctor_nombre': cita.dentista.nombre if cita.dentista else None,
+            'numero_destino': numero,
+            'sin_numero': not bool(numero),
+            'fecha_cita': cita.fecha_inicio.isoformat(),
+            'estado_cita': cita.status.value,
+            'confirmada': cita.status == EstatusCita.confirmada,
+            'confirmacion_fecha': (
+                cita.confirmacion_fecha.isoformat()
+                if cita.confirmacion_fecha else None),
+            'proximo_mensaje': proximo,
+            'recordatorio_24h': {
+                'estado': estado_24h,
+                'fecha': fecha_de(mensaje_24h),
+            },
+            'mensaje_mismo_dia': {
+                'tipo': tipo_mismo_dia.value,
+                'estado': estado_de(mensaje_mismo_dia),
+                'fecha': fecha_de(mensaje_mismo_dia),
+            },
+            'respondio': ultima_respuesta is not None,
+            'ultima_respuesta': (
+                ultima_respuesta.isoformat() if ultima_respuesta else None),
+        })
+
+    return jsonify(recordatorios=resultado, total=len(resultado))
 
 
 # ── Status de APIs externas (solo admin) ────────────────────────────────────

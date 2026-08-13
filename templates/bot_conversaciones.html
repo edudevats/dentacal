@@ -124,6 +124,11 @@
       <i class="bi bi-send-check me-1"></i>Mensajes enviados
     </button>
   </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-proximos-recordatorios" type="button" onclick="cargarProximosRecordatorios()">
+      <i class="bi bi-bell me-1"></i>Próximos recordatorios
+    </button>
+  </li>
 </ul>
 
 <div class="tab-content">
@@ -237,6 +242,40 @@
   <div id="logsPaginacion" class="d-flex justify-content-center mt-2"></div>
 </div>
 
+<!-- Tab Proximos recordatorios -->
+<div class="tab-pane fade" id="tab-proximos-recordatorios">
+  <div class="d-flex align-items-center gap-3 my-3 flex-wrap">
+    <label class="d-flex align-items-center gap-1 small text-muted">
+      Fecha
+      <input type="date" id="proximosFechaFiltro" class="form-control form-control-sm"
+             onchange="cargarProximosRecordatorios()">
+    </label>
+    <select id="proximosEstadoFiltro" class="form-select form-select-sm" style="width:auto"
+            onchange="cargarProximosRecordatorios()">
+      <option value="">Pendientes y confirmadas</option>
+      <option value="pendiente">Pendientes</option>
+      <option value="confirmada">Confirmadas</option>
+    </select>
+    <span id="proximosTotalText" class="text-muted small"></span>
+    <button class="btn btn-sm btn-outline-secondary" onclick="cargarProximosRecordatorios()" title="Refrescar">
+      <i class="bi bi-arrow-clockwise"></i>
+    </button>
+  </div>
+  <div id="proximosError" class="alert alert-danger d-none" role="alert" aria-live="assertive"></div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle">
+      <thead>
+        <tr>
+          <th>Cita</th><th>Paciente</th><th>Doctor</th><th>Estado</th>
+          <th>Próximo mensaje</th><th>24 horas</th><th>Mismo día</th>
+          <th>Respondió</th><th>Última respuesta</th>
+        </tr>
+      </thead>
+      <tbody id="proximosBody"></tbody>
+    </table>
+  </div>
+</div>
+
 <!-- Tab Mensajes enviados -->
 <div class="tab-pane fade" id="tab-mensajes">
   <div class="d-flex align-items-center gap-3 my-3 flex-wrap">
@@ -257,6 +296,7 @@
       <option value="">Todos los tipos</option>
       <option value="confirmacion_24h">Confirmación 24h</option>
       <option value="confirmacion_mismo_dia">Confirmación mismo día</option>
+      <option value="recordatorio_cita_hoy">Recordatorio de cita hoy</option>
       <option value="postconsulta">Postconsulta</option>
       <option value="cumpleanos">Cumpleaños</option>
       <option value="proxima_visita">Próxima visita</option>
@@ -300,4 +340,5 @@
 <script src="{{ url_for('static', filename='js/bot_conversaciones.js') }}"></script>
 <script src="{{ url_for('static', filename='js/bot_logs.js') }}"></script>
 <script src="{{ url_for('static', filename='js/bot_mensajes.js') }}"></script>
+<script src="{{ url_for('static', filename='js/bot_proximos_recordatorios.js') }}"></script>
 {% endblock %}

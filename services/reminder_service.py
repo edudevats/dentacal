@@ -131,7 +131,7 @@ def setup_scheduler_jobs(scheduler, app):
         kwargs={'app': app},
     )
 
-    # Confirmacion mismo dia - a las 7am para citas que no recibieron el recordatorio de 24h
+    # Mensaje del mismo dia - a las 7am, segun la cita siga pendiente o confirmada
     scheduler.add_job(
         func=_job_confirmacion_mismo_dia,
         trigger='cron',
@@ -157,39 +157,52 @@ def setup_scheduler_jobs(scheduler, app):
 
 def _job_confirmacion_mismo_dia(app):
     """
-    Envia confirmacion temprana a citas de HOY que no recibieron el recordatorio de 24h.
-    Esto cubre citas reservadas con menos de 24h de anticipacion.
+    Envia el mensaje de HOY segun el estado real de cada cita.
+    Las pendientes reciben una solicitud de confirmacion; las confirmadas, un
+    recordatorio informativo. MensajeEnviado evita duplicados por cita y tipo.
     Se ejecuta a las 7am.
     """
     with app.app_context():
-        from models import Cita, EstatusCita
-        from extensions import db
+        from models import (Cita, EstatusCita, MensajeEnviado,
+                            TipoRecordatorio)
 
         ahora = _ahora_local()
         hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
         hoy_fin = ahora.replace(hour=23, minute=59, second=59, microsecond=0)
 
-        # Citas de hoy, pendientes/confirmadas, que NO recibieron recordatorio 24h
+        # El recordatorio de 24h es independiente: todas las citas vigentes de
+        # hoy deben recibir exactamente el mensaje que corresponda a su estado.
         citas = Cita.query.filter(
             Cita.fecha_inicio >= hoy_inicio,
             Cita.fecha_inicio <= hoy_fin,
             Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
-            Cita.reminder_24h_sent == False,
         ).all()
 
         for cita in citas:
             if cita.paciente and cita.paciente.es_problematico:
                 continue
+            tipo = (
+                TipoRecordatorio.recordatorio_cita_hoy
+                if cita.status == EstatusCita.confirmada
+                else TipoRecordatorio.confirmacion_mismo_dia
+            )
+            if MensajeEnviado.query.filter_by(
+                    cita_id=cita.id, tipo=tipo).first() is not None:
+                continue
             try:
-                from services.whatsapp_service import enviar_confirmacion_mismo_dia
-                enviado = enviar_confirmacion_mismo_dia(cita)
+                from services.whatsapp_service import (
+                    enviar_confirmacion_mismo_dia,
+                    enviar_recordatorio_cita_hoy,
+                )
+                if cita.status == EstatusCita.confirmada:
+                    enviado = enviar_recordatorio_cita_hoy(cita)
+                else:
+                    enviado = enviar_confirmacion_mismo_dia(cita)
                 if enviado:
-                    cita.reminder_24h_sent = True
-                    db.session.commit()
-                    logger.info(f'Confirmacion mismo dia enviada para cita {cita.id}')
+                    logger.info(
+                        f'Mensaje {tipo.value} enviado para cita {cita.id}')
             except Exception as e:
-                logger.error(f'Error confirmacion mismo dia cita {cita.id}: {e}')
-                db.session.rollback()
+                logger.error(f'Error en mensaje del dia cita {cita.id}: {e}')
 
 
 def _job_cancelar_pre_citas_expiradas(app):
@@ -592,6 +605,7 @@ def _job_reenviar_fallidos(app):
             tipos_previos_a_cita = {
                 TipoRecordatorio.confirmacion_24h,
                 TipoRecordatorio.confirmacion_mismo_dia,
+                TipoRecordatorio.recordatorio_cita_hoy,
                 TipoRecordatorio.confirmacion_anticipo,
             }
             if registro.cita_id and registro.tipo in tipos_previos_a_cita:
