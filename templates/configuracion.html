@@ -273,8 +273,8 @@
         <strong>ContentSid:</strong> sin el, el mensaje sale como texto libre y WhatsApp
         <strong>solo lo entrega si el paciente escribio en las ultimas 24 horas</strong>
         (error 63016). Los recordatorios automaticos salen fuera de esa ventana, asi que
-        necesitan una plantilla aprobada en Twilio. Pega aqui el ContentSid (empieza con HX)
-        y el orden de sus variables.
+        necesitan una plantilla aprobada en Twilio. Solo pega aqui el ContentSid
+        (empieza con HX) y guarda — el orden de las variables ya viene puesto.
       </div>
       {% for p in plantillas %}
       <div class="card mb-2 shadow-sm">
@@ -295,24 +295,34 @@
           </div>
           <pre class="mb-0 small bg-light p-2 rounded" id="plantilla-preview-{{ p.id }}"
             style="white-space:pre-wrap">{{ p.contenido }}</pre>
+          {% if p.orden_variables_efectivo %}
           <div class="row g-2 mt-2 align-items-end">
-            <div class="col-md-4">
-              <label class="form-label small mb-1" for="content-sid-{{ p.id }}">ContentSid de Twilio</label>
+            <div class="col-md-9">
+              <label class="form-label small mb-1" for="content-sid-{{ p.id }}">
+                ContentSid de Twilio
+              </label>
               <input type="text" class="form-control form-control-sm" id="content-sid-{{ p.id }}"
                 placeholder="HXxxxxxxxx" value="{{ p.content_sid or '' }}">
             </div>
-            <div class="col-md-6">
-              <label class="form-label small mb-1" for="content-orden-{{ p.id }}">
-                Orden de variables ({{ '{{1}}' }}, {{ '{{2}}' }}...)
-              </label>
-              <input type="text" class="form-control form-control-sm" id="content-orden-{{ p.id }}"
-                placeholder="nombre_paciente,hora" value="{{ p.content_variables_orden or '' }}">
-            </div>
-            <div class="col-md-2">
+            <div class="col-md-3">
               <button class="btn btn-sm btn-outline-secondary w-100"
                 onclick="guardarContentSid({{ p.id }})">Guardar</button>
             </div>
           </div>
+          <div class="small text-muted mt-1">
+            Orden de variables: <code>{{ p.orden_variables_efectivo }}</code>
+            <a href="#" class="ms-1" id="content-orden-editar-{{ p.id }}"
+              onclick="editarOrdenVariables(event, {{ p.id }})">Editar</a>
+          </div>
+          <input type="text" class="form-control form-control-sm mt-1 d-none"
+            id="content-orden-{{ p.id }}" data-editado="0"
+            value="{{ p.orden_variables_efectivo }}">
+          {% else %}
+          <div class="small text-muted mt-2">
+            Este mensaje solo se envia dentro de una conversacion, no necesita
+            plantilla aprobada.
+          </div>
+          {% endif %}
           <div class="small mt-1" id="content-msg-{{ p.id }}"></div>
         </div>
       </div>
@@ -1038,14 +1048,29 @@
     }
   }
 
+  function editarOrdenVariables(evento, id) {
+    evento.preventDefault();
+    const campo = document.getElementById('content-orden-' + id);
+    campo.dataset.editado = '1';
+    campo.classList.remove('d-none');
+    campo.focus();
+    document.getElementById('content-orden-editar-' + id).classList.add('d-none');
+  }
+
   async function guardarContentSid(id) {
     const msg = document.getElementById('content-msg-' + id);
+    const cambios = {
+      content_sid: document.getElementById('content-sid-' + id).value,
+    };
+    // El orden solo se manda si lo abrieron a proposito. Guardarlo siempre
+    // congelaria en la base el valor que hoy conoce la app.
+    const orden = document.getElementById('content-orden-' + id);
+    if (orden.dataset.editado === '1') {
+      cambios.content_variables_orden = orden.value;
+    }
     const resp = await apiFetch(`/api/configuracion/plantillas/${id}`, {
       method: 'PUT',
-      body: JSON.stringify({
-        content_sid: document.getElementById('content-sid-' + id).value,
-        content_variables_orden: document.getElementById('content-orden-' + id).value,
-      }),
+      body: JSON.stringify(cambios),
     });
     if (resp.ok) {
       msg.className = 'small mt-1 text-success';

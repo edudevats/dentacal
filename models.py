@@ -665,7 +665,14 @@ class PlantillaMensaje(db.Model):
     content_sid = db.Column(db.String(64), nullable=True)
     # Nombres de los placeholders en el orden {{1}}, {{2}}... de la plantilla
     # de Twilio, separados por coma. Twilio numera; nosotros nombramos.
+    # Vacio = se usa el orden que conoce la app para ese tipo.
     content_variables_orden = db.Column(db.String(255), nullable=True)
+
+    @property
+    def orden_variables_efectivo(self):
+        """El orden que realmente se va a usar al enviar."""
+        from services.whatsapp_service import orden_variables
+        return orden_variables(self)
 
     def to_dict(self):
         return {
@@ -675,6 +682,7 @@ class PlantillaMensaje(db.Model):
             'contenido': self.contenido,
             'content_sid': self.content_sid,
             'content_variables_orden': self.content_variables_orden,
+            'orden_variables_efectivo': self.orden_variables_efectivo,
         }
 
 

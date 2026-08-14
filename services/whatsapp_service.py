@@ -51,16 +51,43 @@ def _asegurar_frontera_transaccional():
                 'modificada sin commit')
 
 
+# Orden de las variables de cada plantilla aprobada de WhatsApp, tal como se
+# registro en Twilio. Vive aqui y no solo en la base porque recepcion no tiene
+# por que saberlo: un orden mal escrito no falla, manda el nombre donde va la
+# hora. El campo de la pantalla de Configuracion es un override para servicio.
+ORDEN_VARIABLES_POR_TIPO = {
+    'recordatorio_24h': 'nombre_paciente,hora',
+    'confirmacion_mismo_dia': 'nombre_paciente,hora,dentista',
+    'recordatorio_cita_hoy': 'hora,nombre_paciente,nombre_doctor',
+    'postconsulta': 'nombre_paciente,google_reviews_link',
+    'proxima_visita': 'nombre_tutor,nombre_paciente',
+    'no_asistencia_reagendar': 'nombre_paciente,fecha',
+    'cumpleanos': 'nombre_tutor,nombre_paciente',
+    'resumen_doctor': 'nombre_doctor,fecha,listado',
+    'cita_reagendada': 'nombre_paciente,fecha,hora,doctor',
+}
+
+
+def orden_variables(plantilla):
+    """
+    Orden de variables efectivo: el que tenga cargado la plantilla, o el que
+    conoce la app para ese tipo. Cadena vacia si no aplica.
+    """
+    explicito = (getattr(plantilla, 'content_variables_orden', None) or '').strip()
+    if explicito:
+        return explicito
+    return ORDEN_VARIABLES_POR_TIPO.get(getattr(plantilla, 'tipo', None), '')
+
+
 def _variables_posicionales(plantilla, valores):
     """
     Traduce los placeholders con nombre de la plantilla a las variables
-    numeradas que espera Twilio ({{1}}, {{2}}...), en el orden que declara
-    ``content_variables_orden``. Devuelve el JSON listo o None si la plantilla
-    no lleva variables.
+    numeradas que espera Twilio ({{1}}, {{2}}...). Devuelve el JSON listo o
+    None si la plantilla no lleva variables.
     """
     import json
 
-    orden = (getattr(plantilla, 'content_variables_orden', None) or '').strip()
+    orden = orden_variables(plantilla)
     if not orden:
         return None
 
