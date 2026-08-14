@@ -65,6 +65,10 @@ ORDEN_VARIABLES_POR_TIPO = {
     'cumpleanos': 'nombre_tutor,nombre_paciente',
     'resumen_doctor': 'nombre_doctor,fecha,listado',
     'cita_reagendada': 'nombre_paciente,fecha,hora,doctor',
+    # Envios manuales a doctores (services/doctor_envios.py)
+    'horario_doctor': 'nombre_doctor,rango,listado',
+    'resumen_doctor_dia': 'nombre_doctor,fecha,listado',
+    'resumen_semanal_doctor': 'nombre_doctor,rango,listado',
 }
 
 

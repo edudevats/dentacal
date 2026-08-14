@@ -130,6 +130,26 @@
               <div class="d-flex gap-1">
                 <button class="btn btn-outline-primary btn-sm flex-grow-1"
                   onclick="editarDentista({{ d.id }})">Editar</button>
+                <div class="dropdown" data-doctor-id="{{ d.id }}" data-doctor-nombre="{{ d.nombre }}">
+                  <button class="btn btn-outline-success btn-sm dropdown-toggle" type="button"
+                    data-bs-toggle="dropdown" data-bs-boundary="viewport"
+                    title="{{ 'Enviar por WhatsApp' if d.telefono else 'Sin telefono cargado' }}"
+                    {{ '' if d.telefono else 'disabled' }}>
+                    <i class="bi bi-whatsapp"></i>
+                  </button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><h6 class="dropdown-header">Enviar por WhatsApp</h6></li>
+                    <li><button type="button" class="dropdown-item small" data-envio="horario">
+                      <i class="bi bi-calendar-week me-2"></i>Horario de la semana
+                    </button></li>
+                    <li><button type="button" class="dropdown-item small" data-envio="dia">
+                      <i class="bi bi-calendar-day me-2"></i>Resumen de citas de hoy
+                    </button></li>
+                    <li><button type="button" class="dropdown-item small" data-envio="semana">
+                      <i class="bi bi-calendar-range me-2"></i>Resumen de citas de la semana
+                    </button></li>
+                  </ul>
+                </div>
                 <span class="badge {{ 'bg-success' if d.activo else 'bg-secondary' }} align-self-center">
                   {{ 'Activo' if d.activo else 'Inactivo' }}
                 </span>
@@ -848,6 +868,44 @@
       msg.textContent = d.error || 'Error al guardar';
     }
   }
+
+  // Envios manuales al doctor (horario / resumen del dia / resumen semanal)
+  const ENVIOS_DOCTOR = {
+    horario: { confirmar: 'el horario de la semana', ok: 'Horario enviado a' },
+    dia:     { confirmar: 'el resumen de citas de hoy', ok: 'Resumen de hoy enviado a' },
+    semana:  { confirmar: 'el resumen de citas de la semana', ok: 'Resumen semanal enviado a' },
+  };
+
+  document.getElementById('dentistasGrid')?.addEventListener('click', async (ev) => {
+    const item = ev.target.closest('[data-envio]');
+    if (!item) return;
+    const caja = item.closest('[data-doctor-id]');
+    if (!caja) return;
+
+    const tipo = item.dataset.envio;
+    const id = caja.dataset.doctorId;
+    const nombre = caja.dataset.doctorNombre;
+    const cfg = ENVIOS_DOCTOR[tipo];
+    if (!confirm(`Enviar ${cfg.confirmar} a ${nombre} por WhatsApp?`)) return;
+
+    item.disabled = true;
+    try {
+      const resp = await apiFetch(`/api/dentistas/${id}/enviar`, {
+        method: 'POST',
+        body: JSON.stringify({ tipo }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok) {
+        showToast(`${cfg.ok} ${nombre}`);
+      } else {
+        showToast(data.error || 'No se pudo enviar', 'danger');
+      }
+    } catch (e) {
+      showToast('No se pudo contactar al servidor', 'danger');
+    } finally {
+      item.disabled = false;
+    }
+  });
 
   // Vacaciones
   const vacToggle = document.getElementById('vacaciones_toggle');

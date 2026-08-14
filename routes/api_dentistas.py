@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from extensions import db, permiso_requerido
 from models import Dentista, HorarioDentista, BloqueoDentista
-from datetime import time, datetime
+from datetime import date, time, datetime
 
 dentistas_bp = Blueprint('dentistas', __name__, url_prefix='/api/dentistas')
 
@@ -183,6 +183,41 @@ def eliminar_bloqueo(dentista_id, bloqueo_id):
     db.session.delete(bloqueo)
     db.session.commit()
     return jsonify(ok=True)
+
+
+@dentistas_bp.route('/<int:dentista_id>/enviar', methods=['POST'])
+@login_required
+def enviar_a_doctor(dentista_id):
+    """Manda por WhatsApp, a demanda, el horario o el resumen de citas del
+    doctor. `tipo`: horario | dia | semana. `fecha` (opcional, YYYY-MM-DD) es
+    el dia del resumen diario o el arranque de la semana; default hoy."""
+    from services.doctor_envios import ENVIOS, EnvioDoctorError
+
+    d = Dentista.query.get_or_404(dentista_id)
+    data = request.get_json(silent=True) or {}
+
+    tipo = data.get('tipo')
+    if tipo not in ENVIOS:
+        return jsonify(error=f'Tipo de envio invalido: {tipo!r}'), 400
+    enviar, etiqueta = ENVIOS[tipo]
+
+    fecha = None
+    if data.get('fecha'):
+        try:
+            fecha = date.fromisoformat(data['fecha'])
+        except (TypeError, ValueError):
+            return jsonify(error='Fecha invalida, se espera YYYY-MM-DD'), 400
+
+    try:
+        mensaje = enviar(d, fecha)
+    except EnvioDoctorError as e:
+        # No hay nada que mandar (sin telefono, sin citas): es un aviso para
+        # recepcion, no una falla del envio.
+        return jsonify(error=str(e)), 400
+    except Exception as e:
+        return jsonify(error=f'No se pudo enviar por WhatsApp: {e}'), 502
+
+    return jsonify(ok=True, tipo=tipo, etiqueta=etiqueta, mensaje=mensaje)
 
 
 def _parse_time(s):
