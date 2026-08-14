@@ -33,7 +33,11 @@ DESCRIPCIONES = {
     '63003': 'No se encontro el destinatario de WhatsApp',
     '63005': 'WhatsApp bloqueo el mensaje por politica de contenido',
     '63007': 'El numero del consultorio no tiene un perfil de WhatsApp valido',
-    '63024': 'Parametros invalidos en la plantilla de WhatsApp',
+    # 63024 es "Invalid message recipient": Meta no reconoce el numero de
+    # destino como usuario de WhatsApp. NO tiene nada que ver con las
+    # variables de la plantilla, aunque el nombre del codigo lo sugiera.
+    '63024': ('El numero de destino no tiene WhatsApp activo (o no acepto los '
+              'terminos de WhatsApp)'),
     '63018': 'Limite de mensajes de WhatsApp excedido por ahora',
     '63021': 'El paciente bloqueo al consultorio en WhatsApp',
     '63032': 'El paciente aun no acepta recibir mensajes del consultorio',
