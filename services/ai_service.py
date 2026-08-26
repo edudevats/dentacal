@@ -574,8 +574,15 @@ def _cargar_historial(numero):
         .limit(MAX_HISTORIAL).all()
     mensajes.reverse()
 
+    from services.bot_respuesta import MARCA_NO_ENVIADO
+
     historial = []
     for m in mensajes:
+        # Una respuesta que Twilio rechazo esta en el hilo para recepcion, pero
+        # el paciente nunca la vio: darsela al modelo como algo que "ya dijo"
+        # lo haria continuar una conversacion que no ocurrio.
+        if m.es_bot and (m.mensaje or '').startswith(MARCA_NO_ENVIADO):
+            continue
         rol = 'assistant' if m.es_bot else 'user'
         historial.append({'role': rol, 'content': m.mensaje})
     return historial

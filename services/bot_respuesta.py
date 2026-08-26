@@ -19,6 +19,11 @@ from models import ConversacionWhatsapp
 
 log = logging.getLogger(__name__)
 
+# Prefijo de las respuestas que Twilio rechazo. Se guardan en el hilo para que
+# recepcion vea que el paciente NO fue contestado, y se filtran del historial
+# que lee Gemini: el bot no dijo eso, no debe creer que lo dijo.
+MARCA_NO_ENVIADO = '[NO SE ENVIO'
+
 MENSAJE_ERROR = (
     'Lo siento, en este momento tengo un inconveniente técnico. '
     'Por favor llama al consultorio directamente o inténtalo en unos minutos.'
@@ -98,11 +103,15 @@ def responder(app, numero, paciente_id, body):
     from models import TipoRecordatorio
     from services.whatsapp_service import enviar_mensaje
 
+    from services.twilio_errores import motivo_envio
+
     with app.app_context():
         with _lock_de(numero):
             respuesta = calcular_respuesta(numero, paciente_id, body)
-            guardar_mensaje(numero, paciente_id, respuesta, es_bot=True)
 
+            # Enviar ANTES de guardar. Al reves, un envio rechazado (tope de
+            # cuota, numero invalido) dejaba la respuesta en el hilo como si
+            # hubiera salido, y recepcion daba al paciente por atendido.
             try:
                 sid = enviar_mensaje(
                     numero, respuesta,
@@ -110,12 +119,19 @@ def responder(app, numero, paciente_id, body):
                     paciente_id=paciente_id,
                     registrar=False,
                 )
-                log.info(f'Respuesta del bot enviada a {numero}: SID={sid}')
-                return sid
             except Exception as e:
+                motivo = motivo_envio(e)
                 log.error(
                     f'No se pudo enviar la respuesta del bot a {numero}: {e}')
+                guardar_mensaje(
+                    numero, paciente_id,
+                    f'{MARCA_NO_ENVIADO}: {motivo}] {respuesta}',
+                    es_bot=True)
                 return None
+
+            guardar_mensaje(numero, paciente_id, respuesta, es_bot=True)
+            log.info(f'Respuesta del bot enviada a {numero}: SID={sid}')
+            return sid
 
 
 def responder_en_hilo(app, numero, paciente_id, body):

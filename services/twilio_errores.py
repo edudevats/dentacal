@@ -39,6 +39,7 @@ DESCRIPCIONES = {
     '63024': ('El numero de destino no tiene WhatsApp activo (o no acepto los '
               'terminos de WhatsApp)'),
     '63018': 'Limite de mensajes de WhatsApp excedido por ahora',
+    '63038': 'La cuenta de Twilio agoto su limite de mensajes del dia',
     '63021': 'El paciente bloqueo al consultorio en WhatsApp',
     '63032': 'El paciente aun no acepta recibir mensajes del consultorio',
     '21211': 'El numero de destino no es valido',
@@ -64,7 +65,23 @@ ERRORES_ENVIO = {
             '(el destinatario no ha escrito recientemente)'),
     20003: 'Twilio rechazo las credenciales del consultorio',
     21211: 'El numero de destino no es valido',
+    63038: ('La cuenta de Twilio agoto su limite de mensajes del dia. No se '
+            'puede enviar nada mas hasta que la cuota se reinicie. El tope se '
+            'levanta desde la consola de Twilio, no desde la app'),
 }
+
+# 63038 es un tope DIARIO de la cuenta: reintentar en minutos no sirve de nada,
+# hay que esperar a que la cuota se reinicie. Distinto de 63018, que es
+# throttling momentaneo y si se beneficia del backoff normal.
+CODIGOS_CUOTA = {63038}
+
+
+def es_limite_de_cuota(error):
+    """True si Twilio rechazo el envio por tope de mensajes, no por el mensaje."""
+    codigo = getattr(error, 'code', None)
+    if codigo in CODIGOS_CUOTA:
+        return True
+    return any(str(c) in str(error) for c in CODIGOS_CUOTA)
 
 
 def motivo_envio(error):

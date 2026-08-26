@@ -288,6 +288,7 @@ def _programar_reintento(registro, error):
     from extensions import db
     from models import EstatusRecordatorio, MensajeEnviado
     from services.tiempo import ahora_local
+    from services.twilio_errores import es_limite_de_cuota
     from sqlalchemy.orm import Session
 
     with Session(bind=db.engine) as ledger_session:
@@ -300,10 +301,33 @@ def _programar_reintento(registro, error):
             persistido.proximo_intento = None
         else:
             persistido.estatus = EstatusRecordatorio.fallido
-            espera = BACKOFF_MINUTOS[persistido.intentos - 1]
-            persistido.proximo_intento = ahora_local() + timedelta(minutes=espera)
+            persistido.proximo_intento = _cuando_reintentar(
+                persistido.intentos, error)
 
         ledger_session.commit()
+
+
+def _cuando_reintentar(intentos, error):
+    """
+    Momento del proximo intento.
+
+    El backoff normal (15 min / 1 h / 4 h) sirve para fallas puntuales. Un tope
+    DIARIO de la cuenta no: los tres reintentos se queman en 5 h con la cuota
+    todavia agotada y el mensaje queda en fallido_definitivo. Para esos se
+    espera a la medianoche local, que cae a las 06:00 UTC y por lo tanto ya
+    pasado cualquier reinicio de cuota por dia UTC.
+    """
+    from datetime import timedelta
+    from services.tiempo import ahora_local
+    from services.twilio_errores import es_limite_de_cuota
+
+    ahora = ahora_local()
+    if es_limite_de_cuota(error):
+        manana = (ahora + timedelta(days=1)).replace(
+            hour=0, minute=20, second=0, microsecond=0)
+        return manana
+
+    return ahora + timedelta(minutes=BACKOFF_MINUTOS[intentos - 1])
 
 
 def enviar_mensaje(numero_destino, mensaje, status_callback=None, tipo=None,
