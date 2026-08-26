@@ -468,10 +468,16 @@ def actualizar_grupo(grupo_id):
 
 
 def _normalizar_numero(numero):
-    if not numero:
-        return numero
-    numero = numero.replace('whatsapp:', '').replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
-    return numero
+    """
+    Canoniza el WhatsApp antes de guardarlo y antes de buscar duplicados.
+
+    Es el mismo helper que usa el envio, asi que dos fichas con el mismo
+    telefono escrito distinto ('5549527650' y '+5215549527650') ahora si
+    colisionan y recepcion recibe el 409 duplicate_whatsapp. Antes no: por eso
+    se colaron fichas duplicadas del mismo numero en formatos distintos.
+    """
+    from services.paises import normalizar_whatsapp
+    return normalizar_whatsapp(numero)
 
 
 def _snapshot_paciente(p):

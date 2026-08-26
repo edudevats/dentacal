@@ -151,6 +151,15 @@ def kwargs_plantilla(plantilla, valores):
     }
 
 
+def _normalizado(numero):
+    """Canoniza el destino y deja rastro en el log cuando hubo que corregirlo."""
+    from services.paises import normalizar_whatsapp
+    arreglado = normalizar_whatsapp(numero)
+    if arreglado != numero:
+        logger.info(f'Numero corregido antes de enviar: {numero} -> {arreglado}')
+    return arreglado
+
+
 def _enviar_por_twilio(numero_destino, mensaje, status_callback=None,
                        content_sid=None, content_variables=None):
     """
@@ -166,6 +175,10 @@ def _enviar_por_twilio(numero_destino, mensaje, status_callback=None,
 
     if not all([account_sid, auth_token, from_number]):
         raise ValueError('Credenciales de Twilio no configuradas')
+
+    # Ultima red: ningun numero sale a Twilio sin codigo de pais. En el log de
+    # produccion se vio "WA enviado a 5549527650" -- pelon, sin +52.
+    numero_destino = _normalizado(numero_destino)
 
     if account_sid.startswith('test') or account_sid == 'test_sid':
         logger.info(f'[TEST] WA a {numero_destino}: {mensaje[:80]}...')
@@ -312,6 +325,10 @@ def enviar_mensaje(numero_destino, mensaje, status_callback=None, tipo=None,
     Retorna el SID del mensaje. Propaga la excepcion si el envio falla.
     """
     _asegurar_frontera_transaccional()
+
+    # Antes de _crear_registro: la bitacora tiene que guardar el mismo numero
+    # que recibe Twilio, porque el job de reenvio reintenta desde esa fila.
+    numero_destino = _normalizado(numero_destino)
 
     registro = None
     if registrar:

@@ -54,3 +54,73 @@ def formatear_numero_e164(telefono, pais='MX'):
     if tiene_plus or digitos.startswith(prefijo):
         return f'+{digitos}'
     return f'+{prefijo}{digitos}'
+
+
+# ── Normalizacion del WhatsApp de pacientes ─────────────────────────────────
+#
+# La BD trae tres formas conviviendo (conteo sobre 1642 fichas con numero):
+#   1071  +521XXXXXXXXXX   <- la forma canonica, la misma que Twilio usa al
+#                              entregar los mensajes entrantes
+#    560  +52XXXXXXXXXX    <- entrega bien tambien; NO se toca
+#      ~7  basura (9 digitos, 20 digitos, vacio con espacios...)
+#
+# `normalizar_whatsapp` solo arregla lo que le falta el codigo de pais. Un
+# numero que ya es E.164 valido se deja intacto: reescribir 560 destinos que
+# hoy funcionan es un riesgo que no compra nada. Y un numero que no se puede
+# salvar con certeza se devuelve como esta, para que Twilio lo rechace de
+# forma visible (21211) en vez de que adivinemos y le mandemos los datos de
+# una cita a un desconocido.
+
+def _solo_digitos(numero):
+    return re.sub(r'\D', '', numero or '')
+
+
+def es_e164_valido(numero):
+    """True si el numero ya viene en E.164 utilizable por Twilio."""
+    if not numero or not numero.strip().startswith('+'):
+        return False
+    return 11 <= len(_solo_digitos(numero)) <= 15
+
+
+def normalizar_whatsapp(numero):
+    """
+    Deja el numero de WhatsApp listo para Twilio sin adivinar.
+
+    - Ya es E.164 valido      -> se devuelve limpio, sin cambios de fondo.
+    - 10 digitos pelones      -> movil mexicano: +521XXXXXXXXXX.
+    - 52/521 sin el '+'       -> se le pone el '+'.
+    - Cualquier otra cosa     -> se devuelve limpio y sin tocar.
+
+    Devuelve el valor original si viene vacio o None.
+    """
+    if not numero or not numero.strip():
+        return numero
+
+    limpio = (numero.replace('whatsapp:', '')
+                    .replace(' ', '').replace('-', '')
+                    .replace('(', '').replace(')', '')
+                    .strip())
+
+    if es_e164_valido(limpio):
+        return limpio
+
+    digitos = _solo_digitos(limpio)
+
+    # Si ya trae '+' pero no es E.164 valido, esta roto de origen y no hay
+    # nada que deducir: '+5212345678' no es "10 digitos mexicanos", es un
+    # numero mal capturado. Anteponerle otro '+521' inventaria un destino.
+    if limpio.startswith('+'):
+        return limpio
+
+    # El caso que se vio en produccion: "5549527650" salio a Twilio pelon.
+    if len(digitos) == 10:
+        return f'+521{digitos}'
+
+    if len(digitos) == 13 and digitos.startswith('521'):
+        return f'+{digitos}'
+
+    if len(digitos) == 12 and digitos.startswith('52'):
+        return f'+{digitos}'
+
+    # No hay forma de saber que quiso decir. Que falle a la vista.
+    return limpio
