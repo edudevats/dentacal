@@ -124,8 +124,21 @@ def _init_extensions(app):
 
     @login_manager.user_loader
     def load_user(user_id):
+        # Corre en CADA request autenticado, dentro de preprocess_request. Un
+        # 2013 de MySQL aqui tumba la pagina entera antes de llegar a la vista:
+        # el 2026-08-26 dejo a recepcion sin calendario. Es una lectura pura,
+        # asi que se puede reintentar sin riesgo.
         from models import User
-        return User.query.get(int(user_id))
+        from services.db_resiliencia import reintentar_lectura
+
+        def _cargar():
+            return User.query.get(int(user_id))
+
+        try:
+            return reintentar_lectura(_cargar, descripcion='load_user')
+        except Exception as e:
+            app.logger.error(f'No se pudo cargar el usuario {user_id}: {e}')
+            return None
 
     # Verificar que la BD existe antes de iniciar
     with app.app_context():
@@ -183,6 +196,9 @@ def _register_blueprints(app):
 
 
 def _register_error_handlers(app):
+    from flask import request
+    from sqlalchemy.exc import OperationalError
+
     @app.errorhandler(404)
     def not_found(e):
         if _is_api_request():
@@ -202,6 +218,25 @@ def _register_error_handlers(app):
         if _is_api_request():
             return jsonify(error='Acceso denegado'), 403
         return render_template('errors/404.html'), 403
+
+    @app.errorhandler(OperationalError)
+    def bd_no_disponible(e):
+        """
+        MySQL se cayo a media consulta (error 2013).
+
+        Un 500 con traceback no le dice nada a recepcion. Un 503 con un mensaje
+        claro si: el problema es momentaneo y basta recargar. El rollback deja
+        la sesion limpia para el siguiente request de este worker.
+        """
+        from services.db_resiliencia import sanear_sesion
+        sanear_sesion()
+        app.logger.error(f'BD no disponible en {request.path}: {e}')
+        if _is_api_request():
+            return jsonify(
+                error='bd_no_disponible',
+                mensaje=('La base de datos no respondió. Vuelve a intentarlo '
+                         'en unos segundos.')), 503
+        return render_template('errors/500.html'), 503
 
 
 def _is_api_request():

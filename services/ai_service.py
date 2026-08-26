@@ -722,29 +722,12 @@ TOOLS_SOLO_LECTURA = frozenset({
 })
 
 
-def _es_falla_de_conexion(e):
-    """True si la excepcion es la conexion a la BD cayendose, no un dato malo."""
-    from sqlalchemy.exc import InterfaceError, OperationalError, PendingRollbackError
-    if isinstance(e, (OperationalError, InterfaceError, PendingRollbackError)):
-        return True
-    return bool(getattr(e, 'connection_invalidated', False))
-
-
-def _sanear_sesion():
-    """
-    Devuelve la sesion a un estado usable despues de un error de BD.
-
-    Sin esto queda envenenada ("Can't reconnect until invalid transaction is
-    rolled back") y todo lo que venga despues falla, incluido el guardado de
-    la respuesta del bot en el historial.
-    """
-    try:
-        from extensions import db
-        db.session.rollback()
-        return True
-    except Exception as e:
-        logger.error(f'No se pudo hacer rollback de la sesion: {e}')
-        return False
+# Una sola definicion de "se cayo la BD", compartida con load_user y con el
+# errorhandler de la app. Ver services/db_resiliencia.py.
+from services.db_resiliencia import (  # noqa: E402
+    es_falla_de_conexion as _es_falla_de_conexion,
+    sanear_sesion as _sanear_sesion,
+)
 
 
 def _despachar_tool(nombre, args, numero_telefono=None):
