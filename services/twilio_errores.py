@@ -51,6 +51,38 @@ DESCRIPCIONES = {
 }
 
 
+# Errores que Twilio devuelve al CREAR el mensaje (HTTP 4xx), antes de que
+# WhatsApp llegue a verlo. Son otra familia distinta de los de entrega de
+# arriba: aqui el mensaje ni siquiera salio.
+ERRORES_ENVIO = {
+    21656: ('La plantilla aprobada no coincide con lo que manda la app: '
+            'revise cuantas variables ({{1}}, {{2}}...) tiene registrada en '
+            'Twilio y el orden guardado en Configuracion > Plantillas'),
+    21617: ('El mensaje es mas largo de lo que WhatsApp acepta '
+            '(1024 caracteres en una plantilla)'),
+    63016: ('WhatsApp exige plantilla aprobada fuera de la ventana de 24 h '
+            '(el destinatario no ha escrito recientemente)'),
+    20003: 'Twilio rechazo las credenciales del consultorio',
+    21211: 'El numero de destino no es valido',
+}
+
+
+def motivo_envio(error):
+    """
+    Frase en español para una excepcion de Twilio al crear el mensaje.
+
+    Recepcion ve este texto en la alerta del boton de envio, asi que tiene que
+    decir que hacer, no repetir el ingles de Twilio.
+    """
+    codigo = getattr(error, 'code', None)
+    texto = ERRORES_ENVIO.get(codigo)
+    if texto:
+        return f'{texto} (error {codigo} de Twilio)'
+    if codigo:
+        return f'{error} (error {codigo} de Twilio)'
+    return str(error)
+
+
 def avanza(estado_actual, estado_nuevo):
     """
     True si ``estado_nuevo`` debe reemplazar a ``estado_actual``.

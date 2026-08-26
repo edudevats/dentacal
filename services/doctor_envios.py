@@ -101,8 +101,8 @@ def _enviar(dentista, tipo_plantilla, valores, fallback):
     return mensaje
 
 
-def enviar_horario_semanal(dentista, desde=None):
-    """Manda al doctor los dias y horas que atiende en los proximos 7 dias.
+def _armar_horario_semanal(dentista, desde=None):
+    """Arma el horario de los proximos 7 dias sin mandarlo.
 
     Usa `horario_efectivo`, asi que respeta los turnos rotativos: si el doctor
     comparte un sabado con otra doctora, solo aparece el sabado que le toca.
@@ -141,11 +141,16 @@ def enviar_horario_semanal(dentista, desde=None):
     fallback = (f'Hola {dentista.nombre}! Este es tu horario del {rango_str}:\n'
                 f'{listado}\n'
                 f'Si algo no coincide avisanos. La Casa del Sr. Perez')
-    return _enviar(dentista, 'horario_doctor', valores, fallback)
+    return 'horario_doctor', valores, fallback
 
 
-def enviar_resumen_dia(dentista, fecha=None):
-    """Manda al doctor sus citas de un dia (por defecto hoy)."""
+def enviar_horario_semanal(dentista, desde=None):
+    """Manda al doctor los dias y horas que atiende en los proximos 7 dias."""
+    return _enviar(dentista, *_armar_horario_semanal(dentista, desde))
+
+
+def _armar_resumen_dia(dentista, fecha=None):
+    """Arma las citas de un dia (por defecto hoy) sin mandarlas."""
     fecha = _fecha(fecha)
     citas = _citas_entre(dentista, fecha, fecha)
     if not citas:
@@ -162,11 +167,16 @@ def enviar_resumen_dia(dentista, fecha=None):
     fallback = (f'Hola {dentista.nombre}! Estas son tus citas del {fecha_str}:\n'
                 f'{listado}\n'
                 f'La Casa del Sr. Perez')
-    return _enviar(dentista, 'resumen_doctor_dia', valores, fallback)
+    return 'resumen_doctor_dia', valores, fallback
 
 
-def enviar_resumen_semanal(dentista, desde=None):
-    """Manda al doctor sus citas de los proximos 7 dias, agrupadas por dia."""
+def enviar_resumen_dia(dentista, fecha=None):
+    """Manda al doctor sus citas de un dia (por defecto hoy)."""
+    return _enviar(dentista, *_armar_resumen_dia(dentista, fecha))
+
+
+def _armar_resumen_semanal(dentista, desde=None):
+    """Arma las citas de los proximos 7 dias, agrupadas por dia, sin mandarlas."""
     desde = _fecha(desde)
     hasta = desde + timedelta(days=DIAS_SEMANA - 1)
     citas = _citas_entre(dentista, desde, hasta)
@@ -196,8 +206,21 @@ def enviar_resumen_semanal(dentista, desde=None):
                 f'del {rango_str}:\n'
                 f'{listado}\n'
                 f'La Casa del Sr. Perez')
-    return _enviar(dentista, 'resumen_semanal_doctor', valores, fallback)
+    return 'resumen_semanal_doctor', valores, fallback
 
+
+def enviar_resumen_semanal(dentista, desde=None):
+    """Manda al doctor sus citas de los proximos 7 dias, agrupadas por dia."""
+    return _enviar(dentista, *_armar_resumen_semanal(dentista, desde))
+
+
+# Como armar cada envio sin mandarlo. Lo usa `manage.py revisar_envio_doctor`
+# para ver que le llegaria a Twilio sin gastar un mensaje.
+ARMADORES = {
+    'horario': _armar_horario_semanal,
+    'dia': _armar_resumen_dia,
+    'semana': _armar_resumen_semanal,
+}
 
 # Lo que la ruta acepta en el campo `tipo`, y con que se responde.
 ENVIOS = {

@@ -7,12 +7,11 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
 class Config:
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev_key_change_in_production')
-    # DATABASE_URL manda si esta definida (MySQL en prod); si no, SQLite local.
-    # Se lee en la config BASE para que aplique en CUALQUIER FLASK_ENV. Antes solo
-    # ProductionConfig la leia, asi que con FLASK_ENV != 'production' (o sin poner)
-    # la app ignoraba DATABASE_URL y arrancaba en SQLite aunque estuviera configurada.
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-        ('sqlite:///' + os.path.join(BASE_DIR, 'app.db'))
+    # DATABASE_URL es OBLIGATORIA (MySQL local en dev, MySQL en prod). Ya no hay
+    # fallback a SQLite: creaba app.db en silencio cuando no se encontraba el .env.
+    # Si falta, create_app() falla ruidosamente. TestingConfig la sobrescribe con
+    # SQLite en memoria, que es solo para la suite de pytest y nunca crea archivos.
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     # pool_pre_ping: valida la conexion (SELECT 1) antes de cada query y descarta
     #   las muertas. pool_recycle: renueva conexiones inactivas cada 280s, antes de

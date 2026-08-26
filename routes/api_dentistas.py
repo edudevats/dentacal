@@ -215,7 +215,8 @@ def enviar_a_doctor(dentista_id):
         # recepcion, no una falla del envio.
         return jsonify(error=str(e)), 400
     except Exception as e:
-        return jsonify(error=f'No se pudo enviar por WhatsApp: {e}'), 502
+        from services.twilio_errores import motivo_envio
+        return jsonify(error=f'No se pudo enviar por WhatsApp: {motivo_envio(e)}'), 502
 
     return jsonify(ok=True, tipo=tipo, etiqueta=etiqueta, mensaje=mensaje)
 

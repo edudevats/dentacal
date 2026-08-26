@@ -44,27 +44,25 @@ def create_app(config_name=None):
     from config import config_map
     app.config.from_object(config_map.get(config_name, config_map['default']))
 
-    # Salvaguarda: en producción NO permitir caer en SQLite. En PythonAnywhere
-    # SQLite provoca "disk I/O error" y pérdida de pacientes. Si DATABASE_URL
-    # falta, fallar ruidosamente al arrancar en vez de degradar en silencio.
-    if config_name == 'production' and \
-            str(app.config.get('SQLALCHEMY_DATABASE_URI', '')).startswith('sqlite'):
-        raise RuntimeError(
-            'Producción está apuntando a SQLite. Configura DATABASE_URL con la '
-            'cadena mysql+pymysql://... en el .env '
-            '(guía: scripts/migrate_sqlite_to_mysql.py).'
-        )
-
-    # En dev no fallamos (SQLite es válido para pruebas rápidas), pero avisamos
-    # fuerte: si esto aparece cuando esperabas MySQL, es que no se encontró el
-    # .env o le falta DATABASE_URL, y se va a (re)crear app.db en silencio.
-    if config_name != 'production' and config_name != 'testing' and \
-            str(app.config.get('SQLALCHEMY_DATABASE_URI', '')).startswith('sqlite'):
-        logging.getLogger(__name__).warning(
-            'La app está usando SQLite (app.db), no MySQL. Si esperabas MySQL, '
-            'revisa que DATABASE_URL esté en el .env de %s.',
-            os.path.dirname(__file__)
-        )
+    # DATABASE_URL es obligatoria fuera de la suite de tests. Sin ella no
+    # arrancamos: antes se caia a SQLite (app.db) en silencio, y en PythonAnywhere
+    # SQLite provoca "disk I/O error" y perdida de pacientes. 'testing' usa su
+    # propia URI (SQLite en memoria), asi que se exceptua.
+    if config_name != 'testing':
+        uri = str(app.config.get('SQLALCHEMY_DATABASE_URI') or '')
+        if not uri:
+            raise RuntimeError(
+                'Falta DATABASE_URL en el .env. Configúrala con la cadena '
+                'mysql+pymysql://... (la BD local de desarrollo, la misma que MySQL '
+                'en producción). Revisa que el .env esté en %s.'
+                % os.path.dirname(__file__)
+            )
+        if uri.startswith('sqlite'):
+            raise RuntimeError(
+                'La app está apuntando a SQLite. Configura DATABASE_URL con la '
+                'cadena mysql+pymysql://... en el .env '
+                '(guía: scripts/migrate_sqlite_to_mysql.py).'
+            )
 
     # Logging
     logging.basicConfig(
