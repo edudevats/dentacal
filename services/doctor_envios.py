@@ -21,6 +21,14 @@ DIAS = ('Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo'
 # desde el dia que recepcion aprieta el boton.
 DIAS_SEMANA = 7
 
+# Meta no acepta saltos de linea dentro del valor de una variable de plantilla:
+# Twilio rechaza el envio con el error 21656 antes de siquiera intentarlo. Por
+# eso las citas de un mismo dia van en un solo renglon separadas por esto, y
+# cada dia viaja en su propia variable ({{3}} a {{9}}) para que los saltos de
+# linea los ponga el CUERPO de la plantilla, que si los admite.
+SEPARADOR_CITAS = ' · '
+SIN_CITAS = 'sin citas'
+
 
 class EnvioDoctorError(Exception):
     """No hay nada que mandar, o no hay a donde mandarlo. Es culpa del dato,
@@ -55,7 +63,26 @@ def _linea_cita(cita):
     hora = cita.fecha_inicio.strftime('%H:%M')
     estatus = 'CONFIRMADA' if cita.status.value == 'confirmada' else 'Pendiente'
     tipo = cita.tipo_cita.nombre if cita.tipo_cita else 'Cita'
-    return f'- {hora}: {cita.paciente.nombre_completo} ({tipo}) [{estatus}]'
+    return f'{hora} {cita.paciente.nombre_completo} ({tipo}) [{estatus}]'
+
+
+def citas_en_un_renglon(citas):
+    """Las citas de un dia, en una sola linea. Ver SEPARADOR_CITAS."""
+    return SEPARADOR_CITAS.join(_linea_cita(c) for c in citas)
+
+
+def _por_dia(desde, valor_de_cada_dia):
+    """
+    Arma las siete variables de dia ({{3}} a {{9}}) para las plantillas
+    semanales. `valor_de_cada_dia` recibe la fecha y devuelve lo que va despues
+    de los dos puntos; ninguna puede quedar vacia porque Meta rechaza las
+    variables en blanco.
+    """
+    valores = {}
+    for i in range(DIAS_SEMANA):
+        dia = desde + timedelta(days=i)
+        valores[f'dia_{i + 1}'] = f'{_etiqueta_dia(dia)}: {valor_de_cada_dia(dia)}'
+    return valores
 
 
 def _etiqueta_dia(fecha):
@@ -93,7 +120,14 @@ def _enviar(dentista, tipo_plantilla, valores, fallback):
 
     plantilla = PlantillaMensaje.query.filter_by(
         tipo=tipo_plantilla, activo=True).first()
-    mensaje = plantilla.contenido.format(**valores) if plantilla else fallback
+    try:
+        mensaje = plantilla.contenido.format(**valores) if plantilla else fallback
+    except KeyError as falta:
+        # Pasa si la fila de plantillas_mensaje quedo con un placeholder que el
+        # envio ya no manda: casi siempre, migraciones sin correr.
+        raise EnvioDoctorError(
+            f'La plantilla "{tipo_plantilla}" usa {falta}, que este envio ya no '
+            'manda. Falta correr las migraciones (flask db upgrade).')
 
     enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.resumen_doctor,
                    dentista_id=dentista.id,
@@ -111,33 +145,32 @@ def _armar_horario_semanal(dentista, desde=None):
 
     desde = _fecha(desde)
     hasta = desde + timedelta(days=DIAS_SEMANA - 1)
-
-    lineas = []
     trabaja_algun_dia = False
-    for i in range(DIAS_SEMANA):
-        dia = desde + timedelta(days=i)
+
+    def _estado_del_dia(dia):
+        nonlocal trabaja_algun_dia
         rango = horario_efectivo(dentista.id, dia)
-        if rango and _en_vacaciones(dentista, dia):
-            lineas.append(f'- {_etiqueta_dia(dia)}: vacaciones')
-        elif rango:
-            trabaja_algun_dia = True
-            inicio, fin = rango
-            lineas.append(f'- {_etiqueta_dia(dia)}: '
-                          f'{inicio.strftime("%H:%M")} a {fin.strftime("%H:%M")}')
-        else:
-            lineas.append(f'- {_etiqueta_dia(dia)}: descanso')
+        if not rango:
+            return 'descanso'
+        if _en_vacaciones(dentista, dia):
+            return 'vacaciones'
+        trabaja_algun_dia = True
+        inicio, fin = rango
+        return f'{inicio.strftime("%H:%M")} a {fin.strftime("%H:%M")}'
+
+    dias = _por_dia(desde, _estado_del_dia)
 
     if not trabaja_algun_dia:
         raise EnvioDoctorError(
             f'{dentista.nombre} no tiene dias de atencion en esa semana.')
 
     rango_str = _rango_str(desde, hasta)
-    listado = '\n'.join(lineas)
     valores = {
         'nombre_doctor': dentista.nombre,
         'rango': rango_str,
-        'listado': listado,
+        **dias,
     }
+    listado = '\n'.join(f'- {dias[f"dia_{i}"]}' for i in range(1, DIAS_SEMANA + 1))
     fallback = (f'Hola {dentista.nombre}! Este es tu horario del {rango_str}:\n'
                 f'{listado}\n'
                 f'Si algo no coincide avisanos. La Casa del Sr. Perez')
@@ -158,7 +191,7 @@ def _armar_resumen_dia(dentista, fecha=None):
             f'{dentista.nombre} no tiene citas el {fecha.strftime("%d/%m/%Y")}.')
 
     fecha_str = fecha.strftime('%d/%m/%Y')
-    listado = '\n'.join(_linea_cita(c) for c in citas)
+    listado = citas_en_un_renglon(citas)
     valores = {
         'nombre_doctor': dentista.nombre,
         'fecha': fecha_str,
@@ -184,24 +217,22 @@ def _armar_resumen_semanal(dentista, desde=None):
         raise EnvioDoctorError(
             f'{dentista.nombre} no tiene citas del {_rango_str(desde, hasta)}.')
 
-    lineas = []
-    dia_actual = None
+    por_fecha = {}
     for cita in citas:
-        dia = cita.fecha_inicio.date()
-        if dia != dia_actual:
-            dia_actual = dia
-            if lineas:
-                lineas.append('')
-            lineas.append(f'{_etiqueta_dia(dia)}:')
-        lineas.append(_linea_cita(cita))
+        por_fecha.setdefault(cita.fecha_inicio.date(), []).append(cita)
+
+    dias = _por_dia(
+        desde,
+        lambda dia: citas_en_un_renglon(por_fecha[dia]) if dia in por_fecha
+        else SIN_CITAS)
 
     rango_str = _rango_str(desde, hasta)
-    listado = '\n'.join(lineas)
     valores = {
         'nombre_doctor': dentista.nombre,
         'rango': rango_str,
-        'listado': listado,
+        **dias,
     }
+    listado = '\n'.join(f'- {dias[f"dia_{i}"]}' for i in range(1, DIAS_SEMANA + 1))
     fallback = (f'Hola {dentista.nombre}! Estas son tus citas de la semana '
                 f'del {rango_str}:\n'
                 f'{listado}\n'

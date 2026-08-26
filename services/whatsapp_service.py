@@ -2,6 +2,8 @@
 Integracion con Twilio para enviar mensajes de WhatsApp.
 """
 import logging
+import re
+
 from flask import current_app
 
 logger = logging.getLogger(__name__)
@@ -65,11 +67,41 @@ ORDEN_VARIABLES_POR_TIPO = {
     'cumpleanos': 'nombre_tutor,nombre_paciente',
     'resumen_doctor': 'nombre_doctor,fecha,listado',
     'cita_reagendada': 'nombre_paciente,fecha,hora,doctor',
-    # Envios manuales a doctores (services/doctor_envios.py)
-    'horario_doctor': 'nombre_doctor,rango,listado',
+    # Envios manuales a doctores (services/doctor_envios.py). Los dos semanales
+    # mandan un dia por variable porque Meta no admite saltos de linea dentro
+    # del valor de una variable: los renglones los pone el cuerpo de la
+    # plantilla. Ver SEPARADOR_CITAS en services/doctor_envios.py.
+    'horario_doctor': ('nombre_doctor,rango,'
+                       'dia_1,dia_2,dia_3,dia_4,dia_5,dia_6,dia_7'),
     'resumen_doctor_dia': 'nombre_doctor,fecha,listado',
-    'resumen_semanal_doctor': 'nombre_doctor,rango,listado',
+    'resumen_semanal_doctor': ('nombre_doctor,rango,'
+                               'dia_1,dia_2,dia_3,dia_4,dia_5,dia_6,dia_7'),
 }
+
+
+# Lo que WhatsApp no acepta dentro del valor de una variable de plantilla:
+# saltos de linea, tabuladores y cuatro o mas espacios seguidos. Twilio lo
+# rechaza con el error 21656 ("The Content Variables parameter is invalid")
+# antes de intentar la entrega.
+_SALTOS_DE_LINEA = re.compile(r'[ \t]*\n[ \t\n]*')
+_ESPACIOS_DE_MAS = re.compile(r'\t+|    +')
+
+
+def limpiar_valor_de_variable(valor):
+    """
+    Aplana un valor para que WhatsApp lo acepte como variable de plantilla.
+
+    Es una red de seguridad, no el lugar donde se le da formato al mensaje: si
+    llega aqui algo con saltos de linea es que quien lo armo no contemplo la
+    regla, y sale un aviso en el log. El texto legible de la bitacora no pasa
+    por aqui, asi que no se degrada.
+    """
+    limpio = _ESPACIOS_DE_MAS.sub(' ', _SALTOS_DE_LINEA.sub(' · ', valor)).strip()
+    if limpio != valor:
+        logger.warning(
+            'Variable de plantilla aplanada para WhatsApp (traia saltos de '
+            f'linea o espacios de mas): {valor[:80]!r}')
+    return limpio
 
 
 def orden_variables(plantilla):
@@ -100,7 +132,7 @@ def _variables_posicionales(plantilla, valores):
         return None
 
     return json.dumps({
-        str(posicion): str(valores.get(nombre, ''))
+        str(posicion): limpiar_valor_de_variable(str(valores.get(nombre, '')))
         for posicion, nombre in enumerate(nombres, start=1)
     })
 
@@ -591,19 +623,16 @@ def enviar_resumen_diario_doctor(dentista, citas, fecha_str):
     if not citas:
         return False
 
-    detalle = []
-    for c in citas:
-        hora = c.fecha_inicio.strftime('%H:%M')
-        status = 'CONFIRMADA' if c.status.value == 'confirmada' else 'Pendiente'
-        detalle.append(f'- {hora}: {c.paciente.nombre_completo} ({c.tipo_cita.nombre if c.tipo_cita else "Cita"}) [{status}]')
-    listado = '\n'.join(detalle)
+    from services.doctor_envios import citas_en_un_renglon
+    listado = citas_en_un_renglon(citas)
 
     from models import PlantillaMensaje
     plantilla = PlantillaMensaje.query.filter_by(
         tipo='resumen_doctor', activo=True).first()
 
-    # El listado va como una sola variable: una plantilla de WhatsApp no puede
-    # tener un numero variable de lineas.
+    # El listado va como una sola variable y en un solo renglon: una plantilla
+    # de WhatsApp no puede tener un numero variable de lineas, y Meta ademas no
+    # admite saltos de linea dentro del valor de una variable.
     valores = {
         'nombre_doctor': dentista.nombre,
         'fecha': fecha_str,
