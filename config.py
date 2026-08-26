@@ -65,6 +65,13 @@ class Config:
     # Scheduler
     SCHEDULER_ENABLED = os.environ.get('SCHEDULER_ENABLED', 'true').lower() == 'true'
 
+    # El bot contesta desde un hilo, por la REST API de Twilio, en vez de meter
+    # la respuesta en el TwiML del webhook. Twilio corta la conexion a los
+    # ~15 s y el agentic loop de Gemini a veces tarda mas. Ponerlo en false
+    # deja el camino sincrono de antes (util para depurar).
+    BOT_RESPUESTA_ASINCRONA = os.environ.get(
+        'BOT_RESPUESTA_ASINCRONA', 'true').lower() == 'true'
+
     # Zona horaria
     TIMEZONE = 'America/Mexico_City'
 
@@ -99,6 +106,9 @@ class TestingConfig(Config):
     SQLALCHEMY_ENGINE_OPTIONS = {'pool_pre_ping': True}
     WTF_CSRF_ENABLED = False
     SCHEDULER_ENABLED = False
+    # Los tests corren el bot dentro del request para poder inspeccionar la
+    # respuesta; el hilo se prueba aparte en test_bot_respuesta.py.
+    BOT_RESPUESTA_ASINCRONA = False
     GEMINI_API_KEY = 'test_key'
     TWILIO_ACCOUNT_SID = 'test_sid'
     TWILIO_AUTH_TOKEN = 'test_token'

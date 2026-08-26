@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from flask import Blueprint, request, Response
+from flask import Blueprint, current_app, request, Response
 from extensions import db, csrf, limiter
 from models import ConversacionWhatsapp, Paciente, CampanaDestinatario, EstatusDestinatario
 
@@ -48,16 +48,18 @@ def whatsapp_incoming():
     # ── Mensaje de texto normal → procesar con bot IA ──────────────────────
     _guardar_mensaje(numero, pid, body, es_bot=False)
 
-    try:
-        from services.ai_service import procesar_mensaje_bot
-        respuesta = procesar_mensaje_bot(body, numero, paciente)
-    except Exception as e:
-        log.error(f'Error en bot IA: {e}')
-        respuesta = (
-            'Lo siento, en este momento tengo un inconveniente técnico. '
-            'Por favor llama al consultorio directamente o inténtalo en unos minutos.'
-        )
+    from services.bot_respuesta import calcular_respuesta, responder_en_hilo
 
+    if current_app.config.get('BOT_RESPUESTA_ASINCRONA', True):
+        # Twilio cierra la conexion a los ~15 s y el agentic loop de Gemini
+        # puede tardar mas: el TwiML se escribia sobre un socket muerto
+        # ("OSError: write error") y el paciente se quedaba sin respuesta.
+        # Cerramos el request ya y contestamos por la REST API desde un hilo.
+        responder_en_hilo(current_app._get_current_object(), numero, pid, body)
+        return _twiml_vacio()
+
+    # Camino sincrono (tests y depuracion): la respuesta viaja en el TwiML.
+    respuesta = calcular_respuesta(numero, pid, body)
     _guardar_mensaje(numero, pid, respuesta, es_bot=True)
     return _twiml_response(respuesta)
 
@@ -128,6 +130,15 @@ def whatsapp_status_callback():
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
+def _twiml_vacio():
+    """TwiML sin mensaje: cierra el request de Twilio sin contestar nada."""
+    try:
+        from twilio.twiml.messaging_response import MessagingResponse
+        return Response(str(MessagingResponse()), mimetype='text/xml')
+    except ImportError:
+        return Response('', status=200)
+
 
 def _twiml_response(texto):
     """Devuelve respuesta TwiML (o texto plano si Twilio no está instalado)."""
@@ -222,15 +233,7 @@ def _buscar_o_registrar_paciente(numero):
 
 
 def _guardar_mensaje(numero, paciente_id, mensaje, es_bot=False):
-    try:
-        conv = ConversacionWhatsapp(
-            numero_telefono=numero,
-            paciente_id=paciente_id,
-            mensaje=mensaje,
-            es_bot=es_bot,
-        )
-        db.session.add(conv)
-        db.session.commit()
-    except Exception as e:
-        log.error(f'Error guardando conversacion: {e}')
-        db.session.rollback()
+    # La implementacion vive en el servicio porque el hilo que contesta fuera
+    # del request tambien la necesita.
+    from services.bot_respuesta import guardar_mensaje
+    guardar_mensaje(numero, paciente_id, mensaje, es_bot=es_bot)
