@@ -28,9 +28,15 @@ def _guardar_log_bot(nivel, mensaje, detalle=None, numero_telefono=None, pacient
         )
         db.session.add(log)
         db.session.commit()
-    except Exception:
-        # No fallar si el log mismo falla
-        pass
+    except Exception as e:
+        # El log no puede tumbar al bot, pero tampoco puede dejar la sesion
+        # a medias: sin el rollback lo siguiente que la use tambien falla.
+        logger.warning(f'No se pudo guardar el log del bot: {e}')
+        try:
+            from extensions import db
+            db.session.rollback()
+        except Exception:
+            pass
 
 # Definicion de tools (function declarations) del bot para el nuevo SDK
 BOT_FUNCTION_DECLARATIONS = [
@@ -671,6 +677,17 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
                     return response.text
                 return 'Gracias por tu mensaje. Te atenderemos en breve.'
 
+    except ErrorInfraestructura as e:
+        # La BD se cayo a media tool. No es culpa del modelo ni del paciente:
+        # cortamos el turno en vez de seguir iterando con la sesion muerta.
+        logger.error(f'Turno del bot abortado por falla de infraestructura: {e}')
+        _guardar_log_bot(
+            'error', f'Turno abortado: {e}', detalle=traceback.format_exc(),
+            numero_telefono=numero_telefono,
+        )
+        return ('En este momento no puedo consultar la agenda 😔 '
+                'Por favor inténtalo en unos minutos o llámanos al consultorio.')
+
     except Exception as e:
         logger.error(f'Error procesando mensaje con Gemini: {e}')
         tb = traceback.format_exc()
@@ -685,60 +702,150 @@ def procesar_mensaje_bot(mensaje_usuario, numero_telefono, paciente=None):
 
 
 
-def _ejecutar_tool(nombre, args, numero_telefono=None):
-    """Ejecuta una tool del bot y retorna el resultado."""
+class ErrorInfraestructura(Exception):
+    """
+    La BD (u otra dependencia) se cayo a media tool.
+
+    Corta el agentic loop: seguir iterando con la sesion muerta solo gasta
+    llamadas a Gemini, hace fallar todas las tools siguientes y termina con el
+    paciente sin respuesta.
+    """
+
+
+# Tools que solo leen. Si MySQL cierra la conexion a media query (error 2013)
+# se pueden reintentar sin riesgo. Las que escriben NO: un 2013 durante el
+# COMMIT deja en duda si la cita quedo guardada, y reintentar la duplicaria.
+TOOLS_SOLO_LECTURA = frozenset({
+    'buscar_paciente',
+    'obtener_info_consultorio',
+    'buscar_disponibilidad',
+})
+
+
+def _es_falla_de_conexion(e):
+    """True si la excepcion es la conexion a la BD cayendose, no un dato malo."""
+    from sqlalchemy.exc import InterfaceError, OperationalError, PendingRollbackError
+    if isinstance(e, (OperationalError, InterfaceError, PendingRollbackError)):
+        return True
+    return bool(getattr(e, 'connection_invalidated', False))
+
+
+def _sanear_sesion():
+    """
+    Devuelve la sesion a un estado usable despues de un error de BD.
+
+    Sin esto queda envenenada ("Can't reconnect until invalid transaction is
+    rolled back") y todo lo que venga despues falla, incluido el guardado de
+    la respuesta del bot en el historial.
+    """
     try:
-        if nombre == 'buscar_paciente':
-            return _tool_buscar_paciente(args)
-        elif nombre == 'registrar_paciente':
-            return _tool_registrar_paciente(args)
-        elif nombre == 'obtener_info_consultorio':
-            return _tool_info_consultorio()
-        elif nombre == 'buscar_disponibilidad':
-            return _tool_buscar_disponibilidad(args)
-        elif nombre == 'crear_solicitud_cita':
-            return _tool_crear_cita(args)
-        elif nombre == 'confirmar_anticipo':
-            return _tool_confirmar_anticipo(args)
-        elif nombre == 'cancelar_cita':
-            return _tool_cancelar_cita(args)
-        elif nombre == 'reagendar_cita':
-            return _tool_reagendar_cita(args)
-        elif nombre == 'confirmar_asistencia_cita':
-            return _tool_confirmar_asistencia_cita(args)
-        elif nombre == 'registrar_solicitud_contacto':
-            # Forzar SIEMPRE el numero real del remitente — nunca confiar en lo
-            # que Gemini haya puesto en args (puede inventar "+52XXXXXXXXXX").
-            if not numero_telefono:
-                _guardar_log_bot(
-                    'error',
-                    'registrar_solicitud_contacto invocada sin numero_telefono del remitente',
-                    detalle=json.dumps(args), tool_name=nombre,
-                )
-                return {'error': 'Falta numero del remitente'}
-            args['numero_whatsapp'] = numero_telefono
-            return _tool_registrar_solicitud_contacto(args)
-        elif nombre == 'agendar_llamada':
-            if not numero_telefono:
-                _guardar_log_bot(
-                    'error',
-                    'agendar_llamada invocada sin numero_telefono del remitente',
-                    detalle=json.dumps(args), tool_name=nombre,
-                )
-                return {'error': 'Falta numero del remitente'}
-            args['numero_whatsapp'] = numero_telefono
-            return _tool_agendar_llamada(args)
-        else:
-            _guardar_log_bot('warning', f'Tool desconocida: {nombre}', detalle=json.dumps(args), tool_name=nombre, numero_telefono=numero_telefono)
-            return {'error': f'Tool desconocida: {nombre}'}
+        from extensions import db
+        db.session.rollback()
+        return True
     except Exception as e:
-        logger.error(f'Error ejecutando tool {nombre}: {e}')
-        _guardar_log_bot(
-            'error', f'Error en tool {nombre}: {e}',
-            detalle=traceback.format_exc(), tool_name=nombre,
-            numero_telefono=numero_telefono,
-        )
-        return {'error': str(e)}
+        logger.error(f'No se pudo hacer rollback de la sesion: {e}')
+        return False
+
+
+def _despachar_tool(nombre, args, numero_telefono=None):
+    """Ruta el nombre de la tool a su implementacion. Propaga excepciones."""
+    if nombre == 'buscar_paciente':
+        return _tool_buscar_paciente(args)
+    elif nombre == 'registrar_paciente':
+        return _tool_registrar_paciente(args)
+    elif nombre == 'obtener_info_consultorio':
+        return _tool_info_consultorio()
+    elif nombre == 'buscar_disponibilidad':
+        return _tool_buscar_disponibilidad(args)
+    elif nombre == 'crear_solicitud_cita':
+        return _tool_crear_cita(args)
+    elif nombre == 'confirmar_anticipo':
+        return _tool_confirmar_anticipo(args)
+    elif nombre == 'cancelar_cita':
+        return _tool_cancelar_cita(args)
+    elif nombre == 'reagendar_cita':
+        return _tool_reagendar_cita(args)
+    elif nombre == 'confirmar_asistencia_cita':
+        return _tool_confirmar_asistencia_cita(args)
+    elif nombre == 'registrar_solicitud_contacto':
+        # Forzar SIEMPRE el numero real del remitente — nunca confiar en lo
+        # que Gemini haya puesto en args (puede inventar "+52XXXXXXXXXX").
+        if not numero_telefono:
+            _guardar_log_bot(
+                'error',
+                'registrar_solicitud_contacto invocada sin numero_telefono del remitente',
+                detalle=json.dumps(args), tool_name=nombre,
+            )
+            return {'error': 'Falta numero del remitente'}
+        args['numero_whatsapp'] = numero_telefono
+        return _tool_registrar_solicitud_contacto(args)
+    elif nombre == 'agendar_llamada':
+        if not numero_telefono:
+            _guardar_log_bot(
+                'error',
+                'agendar_llamada invocada sin numero_telefono del remitente',
+                detalle=json.dumps(args), tool_name=nombre,
+            )
+            return {'error': 'Falta numero del remitente'}
+        args['numero_whatsapp'] = numero_telefono
+        return _tool_agendar_llamada(args)
+    else:
+        _guardar_log_bot('warning', f'Tool desconocida: {nombre}', detalle=json.dumps(args), tool_name=nombre, numero_telefono=numero_telefono)
+        return {'error': f'Tool desconocida: {nombre}'}
+
+
+def _ejecutar_tool(nombre, args, numero_telefono=None):
+    """
+    Ejecuta una tool del bot y retorna el resultado para Gemini.
+
+    Una tool que falla por un dato malo devuelve {'error': ...} y el modelo
+    sigue conversando. Una que falla porque la BD se cayo levanta
+    ErrorInfraestructura y aborta el turno.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+
+    try:
+        return _despachar_tool(nombre, args, numero_telefono)
+    except Exception as e:
+        if not _es_falla_de_conexion(e):
+            logger.error(f'Error ejecutando tool {nombre}: {e}')
+            _guardar_log_bot(
+                'error', f'Error en tool {nombre}: {e}',
+                detalle=traceback.format_exc(), tool_name=nombre,
+                numero_telefono=numero_telefono,
+            )
+            # El texto de un error de SQLAlchemy trae la consulta completa y
+            # sus parametros (el telefono del paciente, entre otros). Eso no
+            # se le manda al modelo.
+            if isinstance(e, SQLAlchemyError):
+                return {'error': 'No se pudo completar la operacion'}
+            return {'error': str(e)[:200]}
+
+        logger.warning(f'Conexion a la BD perdida ejecutando {nombre}: {e}')
+        _sanear_sesion()
+
+        if nombre not in TOOLS_SOLO_LECTURA:
+            _guardar_log_bot(
+                'error',
+                f'BD caida en tool {nombre}: escribe, no se reintenta',
+                detalle=traceback.format_exc(), tool_name=nombre,
+                numero_telefono=numero_telefono,
+            )
+            raise ErrorInfraestructura(f'BD no disponible en {nombre}') from e
+
+        try:
+            resultado = _despachar_tool(nombre, args, numero_telefono)
+            logger.info(f'Tool {nombre} recuperada tras reconectar a la BD')
+            return resultado
+        except Exception as e2:
+            _sanear_sesion()
+            _guardar_log_bot(
+                'error',
+                f'BD caida en tool {nombre}: el reintento tambien fallo',
+                detalle=traceback.format_exc(), tool_name=nombre,
+                numero_telefono=numero_telefono,
+            )
+            raise ErrorInfraestructura(f'BD no disponible en {nombre}') from e2
 
 
 def _variantes_numero_mx(numero):

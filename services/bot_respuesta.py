@@ -41,19 +41,32 @@ def _lock_de(numero):
 
 
 def guardar_mensaje(numero, paciente_id, mensaje, es_bot=False):
-    """Registra una linea de la conversacion. Nunca propaga la excepcion."""
-    try:
-        conv = ConversacionWhatsapp(
-            numero_telefono=numero,
-            paciente_id=paciente_id,
-            mensaje=mensaje,
-            es_bot=es_bot,
-        )
-        db.session.add(conv)
-        db.session.commit()
-    except Exception as e:
-        log.error(f'Error guardando conversacion: {e}')
-        db.session.rollback()
+    """
+    Registra una linea de la conversacion. Nunca propaga la excepcion.
+
+    Reintenta una vez tras el rollback: si una tool tumbo la conexion a MySQL,
+    la sesion queda envenenada y el primer commit falla aunque la BD ya este
+    de vuelta. Sin el reintento se perdia la respuesta del bot del historial.
+    """
+    for intento in (1, 2):
+        try:
+            conv = ConversacionWhatsapp(
+                numero_telefono=numero,
+                paciente_id=paciente_id,
+                mensaje=mensaje,
+                es_bot=es_bot,
+            )
+            db.session.add(conv)
+            db.session.commit()
+            return True
+        except Exception as e:
+            log.error(f'Error guardando conversacion (intento {intento}): {e}')
+            try:
+                db.session.rollback()
+            except Exception as e2:
+                log.error(f'Rollback fallido guardando conversacion: {e2}')
+                return False
+    return False
 
 
 def calcular_respuesta(numero, paciente_id, body):
