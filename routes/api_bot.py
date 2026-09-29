@@ -6,6 +6,7 @@ from sqlalchemy import func, text
 from extensions import db, permiso_requerido
 from models import ConversacionWhatsapp, Paciente, LogBot
 from services.tiempo import ahora_local
+from services.reminder_service import _hora_envio_mismo_dia, _local_a_utc_naive
 
 log = logging.getLogger(__name__)
 
@@ -196,9 +197,23 @@ def proximos_recordatorios():
         )
         mensaje_mismo_dia = por_tipo.get(tipo_mismo_dia)
 
+        # Refleja el arbol de reminder_service: la confirmacion del dia
+        # anterior solo sale a pendientes, y el mensaje del mismo dia solo a
+        # citas creadas antes de la hora de envio (apertura - 1h).
         if cita.fecha_inicio.date() == hoy:
-            proximo = None if mensaje_mismo_dia else tipo_mismo_dia.value
-        elif mensaje_24h is None and not cita.reminder_24h_sent:
+            if mensaje_mismo_dia:
+                proximo = None
+            else:
+                hora_envio = _hora_envio_mismo_dia(hoy)
+                creada_tarde = (
+                    hora_envio is not None
+                    and cita.created_at is not None
+                    and cita.created_at >= _local_a_utc_naive(hora_envio)
+                )
+                proximo = (None if hora_envio is None or creada_tarde
+                           else tipo_mismo_dia.value)
+        elif (cita.status == EstatusCita.pendiente
+              and mensaje_24h is None and not cita.reminder_24h_sent):
             proximo = TipoRecordatorio.confirmacion_24h.value
         else:
             proximo = tipo_mismo_dia.value

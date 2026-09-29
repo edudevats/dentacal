@@ -304,6 +304,120 @@ def _resumen_horario_consultorio():
     return '; '.join(partes)
 
 
+# Mensajes automaticos a los que el paciente puede estar respondiendo. Viven
+# en MensajeEnviado, no en ConversacionWhatsapp, asi que el historial del bot
+# no los ve: sin esto un "si, ahi estaremos" llega sin contexto.
+VENTANA_MENSAJES_AUTOMATICOS_HORAS = 36
+MAX_MENSAJES_AUTOMATICOS = 5
+MAX_CHARS_MENSAJE_AUTOMATICO = 300
+
+
+def _etiquetas_mensajes_automaticos():
+    """tipo -> descripcion humana. 'otro' solo cuenta si trae cita_id: hoy
+    eso es el aviso de cita reagendada (enviar_cita_reagendada)."""
+    from models import TipoRecordatorio
+    return {
+        TipoRecordatorio.confirmacion_24h: 'Solicitud de confirmacion de cita de manana',
+        TipoRecordatorio.confirmacion_mismo_dia: 'Solicitud de confirmacion de cita de hoy',
+        TipoRecordatorio.recordatorio_cita_hoy: 'Recordatorio de cita de hoy (ya confirmada, no pide confirmar)',
+        TipoRecordatorio.no_asistencia: 'Aviso de inasistencia: falto a su cita, le ofrecimos reagendar (NO es confirmacion)',
+        TipoRecordatorio.otro: 'Aviso de que su cita fue reagendada',
+    }
+
+
+def _consultar_mensajes_automaticos(numero_whatsapp):
+    """Lectura pura: filas de MensajeEnviado recientes para ese numero."""
+    from sqlalchemy import func, or_
+    from models import (EstatusRecordatorio, MensajeEnviado, Paciente,
+                        TipoRecordatorio)
+    from services.tiempo import ahora_local
+    from services.twilio_errores import ESTADOS_NO_ENTREGADO
+
+    variantes = _variantes_numero_mx(numero_whatsapp)
+    variantes_bd = set(variantes) | {f'whatsapp:{v}' for v in variantes}
+
+    # Pacientes cuyo numero de contacto es este: los que tienen el whatsapp
+    # propio y los menores que usan el del tutor. Se filtra con
+    # numero_contacto_wa para no traer mensajes que salieron a OTRO numero.
+    tutores = Paciente.query.filter(Paciente.whatsapp.in_(variantes)).all()
+    ids_tutores = [t.id for t in tutores]
+    condiciones = [Paciente.whatsapp.in_(variantes),
+                   Paciente.telefono_tutor.in_(variantes)]
+    if ids_tutores:
+        condiciones.append(Paciente.tutor_id.in_(ids_tutores))
+    candidatos = Paciente.query.filter(or_(*condiciones)).all()
+    set_variantes = set(variantes)
+    ids_pacientes = [p.id for p in candidatos
+                     if (p.numero_contacto_wa or '') in set_variantes]
+
+    por_destino = MensajeEnviado.numero_destino.in_(variantes_bd)
+    if ids_pacientes:
+        destinatario = or_(por_destino,
+                           MensajeEnviado.paciente_id.in_(ids_pacientes))
+    else:
+        destinatario = por_destino
+
+    tipos = list(_etiquetas_mensajes_automaticos().keys())
+    fecha = func.coalesce(MensajeEnviado.fecha_envio,
+                          MensajeEnviado.fecha_creacion)
+    corte = ahora_local() - timedelta(hours=VENTANA_MENSAJES_AUTOMATICOS_HORAS)
+
+    return MensajeEnviado.query.filter(
+        destinatario,
+        MensajeEnviado.tipo.in_(tipos),
+        or_(MensajeEnviado.tipo != TipoRecordatorio.otro,
+            MensajeEnviado.cita_id.isnot(None)),
+        # Solo lo que Twilio acepto. 'fallido' aun se va a reintentar y
+        # 'pendiente' no ha salido: el paciente no lo ha visto.
+        MensajeEnviado.estatus == EstatusRecordatorio.enviado,
+        or_(MensajeEnviado.delivery_status.is_(None),
+            MensajeEnviado.delivery_status.notin_(ESTADOS_NO_ENTREGADO)),
+        fecha >= corte,
+    ).order_by(fecha.desc(), MensajeEnviado.id.desc())\
+        .limit(MAX_MENSAJES_AUTOMATICOS).all()
+
+
+def _contexto_mensajes_automaticos(numero_whatsapp):
+    """
+    Lineas con los mensajes automaticos (confirmaciones, recordatorios,
+    avisos de cita) enviados a este numero en las ultimas 36 h. '' si no hay
+    o si la consulta falla: esto es contexto, nunca debe tumbar al bot.
+    """
+    if not numero_whatsapp:
+        return ''
+    from services.db_resiliencia import reintentar_lectura
+
+    try:
+        mensajes = reintentar_lectura(
+            _consultar_mensajes_automaticos, numero_whatsapp,
+            descripcion='contexto mensajes automaticos')
+    except Exception as e:
+        logger.warning(f'No se pudo cargar el contexto de mensajes automaticos: {e}')
+        _sanear_sesion()
+        return ''
+
+    etiquetas = _etiquetas_mensajes_automaticos()
+    lineas = []
+    for m in mensajes:
+        enviado = m.fecha_envio or m.fecha_creacion
+        hora = enviado.strftime('%Y-%m-%d %H:%M') if enviado else '?'
+        paciente = m.paciente.nombre_completo if m.paciente else 'Sin paciente'
+        if m.cita:
+            datos_cita = (f"cita_id: {m.cita.id} | cita: "
+                          f"{m.cita.fecha_inicio.strftime('%Y-%m-%d %H:%M')} | "
+                          f"estatus actual: {m.cita.status.value}")
+        else:
+            datos_cita = 'sin cita asociada'
+        texto = ' '.join((m.mensaje or '').split())
+        if len(texto) > MAX_CHARS_MENSAJE_AUTOMATICO:
+            texto = texto[:MAX_CHARS_MENSAJE_AUTOMATICO].rstrip() + '...'
+        lineas.append(
+            f'- [{hora} CDMX] {etiquetas.get(m.tipo, m.tipo.value)} | '
+            f'Paciente: {paciente} | {datos_cita} | Texto: "{texto}"'
+        )
+    return '\n'.join(lineas)
+
+
 def _get_system_prompt(numero_whatsapp=None):
     config = _get_config()
 
@@ -339,9 +453,13 @@ def _get_system_prompt(numero_whatsapp=None):
             es_problematico = False
             for p in familia:
                 if p.es_problematico: es_problematico = True
+                # Hora local (Cita.fecha_inicio se guarda en hora CDMX). Con
+                # utcnow se perdian las citas de las proximas ~6 h, justo las
+                # de la confirmacion del mismo dia.
+                from services.tiempo import ahora_local
                 proxima = Cita.query.filter(
                     Cita.paciente_id == p.id,
-                    Cita.fecha_inicio >= datetime.utcnow(),
+                    Cita.fecha_inicio >= ahora_local(),
                     Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada])
                 ).order_by(Cita.fecha_inicio).first()
 
@@ -362,7 +480,10 @@ def _get_system_prompt(numero_whatsapp=None):
 
                 if proxima:
                     estado_pago = "(Anticipo PAGADO)" if proxima.anticipo_pagado else "(Anticipo PENDIENTE DE PAGO)"
-                    str_proxima = f"Proxima cita: {proxima.fecha_inicio.strftime('%Y-%m-%d %H:%M')} {estado_pago}"
+                    str_proxima = (
+                        f"Proxima cita: {proxima.fecha_inicio.strftime('%Y-%m-%d %H:%M')} "
+                        f"(cita_id: {proxima.id}, estatus: {proxima.status.value}) {estado_pago}"
+                    )
                 else:
                     str_proxima = "Sin citas proximas"
 
@@ -393,6 +514,14 @@ def _get_system_prompt(numero_whatsapp=None):
                 contexto_familia += "\nALERTA IMPORTANTE: Este paciente (o alguien en su familia) esta marcado como PROBLEMATICO. NO AGENDES NINGUNA CITA por este medio. Pide amablemente que llame directamente al consultorio."
         else:
             contexto_familia = "\n\nINFORMACION DEL CONTACTO: NUMERO NUEVO — no hay pacientes registrados con este numero."
+
+        mensajes_auto = _contexto_mensajes_automaticos(numero_whatsapp)
+        if mensajes_auto:
+            contexto_familia += (
+                "\n\nMENSAJES AUTOMATICOS QUE LE ENVIAMOS RECIENTEMENTE "
+                "(el paciente puede estar respondiendo a esto; mas reciente primero):\n"
+                f"{mensajes_auto}"
+            )
 
     doctor_schedule = _get_doctor_schedule_summary()
     horario_resumen = _resumen_horario_consultorio()
@@ -463,9 +592,14 @@ ANTICIPOS Y PRE-CITAS (REGLA CRITICA — revisar el historial del paciente antes
 - Si dice "Anticipo PAGADO", confirma alegremente que su cita esta 100% asegurada.
 - En grupos familiares, evalua el historial de CADA paciente por separado.
 
-CONFIRMACION 24h:
-- Si el paciente responde "si"/"confirmo"/"ahi estaremos", usar confirmar_asistencia_cita.
-- Si quiere cancelar o reagendar, usar cancelar_cita o reagendar_cita.
+CONFIRMACION DE CITAS (respuestas a MENSAJES AUTOMATICOS QUE LE ENVIAMOS):
+- Si le enviamos una solicitud de confirmacion y el paciente responde afirmativamente ("si", "confirmo", "ahi estaremos", "ok", "claro", "👍", etc.), llama confirmar_asistencia_cita con el cita_id de ESE mensaje (o el cita_id de su "Proxima cita"). Despues responde breve agradeciendo y repitiendo fecha y hora de la cita.
+- Si en este numero hay varias citas pendientes de confirmar (grupo familiar) y la respuesta no deja claro cual, pregunta para cual cita/paciente es. Si dice "si a todas", "si a ambos" o similar, llama confirmar_asistencia_cita una vez por cada cita_id pendiente.
+- Si responde que no puede asistir, ofrece reagendar (buscar_disponibilidad y luego reagendar_cita) o cancelar (cancelar_cita), segun lo que prefiera.
+- Si la cita ya esta confirmada (estatus confirmada) y lo que le mandamos fue un recordatorio, NO vuelvas a pedir confirmacion ni llames la tool de nuevo; solo responde amable (ej. "Con gusto, le esperamos").
+- Si el mensaje fue un aviso de inasistencia, un "si" significa que quiere reagendar, NO confirmar: busca disponibilidad para una nueva cita.
+- Si el mensaje fue un aviso de cita reagendada y responde "ok"/"gracias", solo agradece; si dice que la nueva fecha no le funciona, ofrece reagendar.
+- NUNCA inventes un cita_id: usa solo los que aparecen en este prompt o en resultados de tools.
 
 DUDAS DEL PACIENTE:
 - Si el paciente tiene muchas dudas o dudas muy especificas que no puedes resolver bien por chat, ofrecele agendar una llamada con la recepcionista.

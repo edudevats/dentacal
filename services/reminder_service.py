@@ -1,12 +1,13 @@
 """
 Tareas programadas con APScheduler.
-- Recordatorios 24h antes de la cita
+- Confirmacion a pendientes el dia anterior (9am y barrido 8pm)
+- Mensaje del mismo dia 1h antes de la apertura del consultorio
 - Postconsulta 2 dias despues
 - Seguimientos CRM automaticos
 - Resumen diario a doctores
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta, timezone
 from services.tiempo import TIMEZONE, ahora_local
 
 logger = logging.getLogger(__name__)
@@ -32,13 +33,26 @@ def _hora_resumen_doctores(app):
 def setup_scheduler_jobs(scheduler, app):
     """Registra todos los jobs del scheduler."""
 
-    # Recordatorio de confirmacion - diario a las 9am, para las citas de manana
+    # Confirmacion de las citas PENDIENTES de manana - diario a las 9am (CDMX).
+    # Las confirmadas no reciben nada este dia.
     scheduler.add_job(
         func=_job_recordatorios_24h,
         trigger='cron',
         hour=9,
         minute=0,
         id='recordatorios_24h',
+        replace_existing=True,
+        kwargs={'app': app},
+    )
+
+    # Barrido nocturno - 8pm (CDMX): pendientes de manana agendadas durante el
+    # dia. Misma funcion; reminder_24h_sent evita duplicar lo de las 9am.
+    scheduler.add_job(
+        func=_job_recordatorios_24h,
+        trigger='cron',
+        hour=20,
+        minute=0,
+        id='recordatorios_24h_noche',
         replace_existing=True,
         kwargs={'app': app},
     )
@@ -131,12 +145,13 @@ def setup_scheduler_jobs(scheduler, app):
         kwargs={'app': app},
     )
 
-    # Mensaje del mismo dia - a las 7am, segun la cita siga pendiente o confirmada
+    # Mensaje del mismo dia - revisa cada 10 min; solo envia a partir de 1h
+    # antes de la apertura del consultorio de ese dia (HorarioConsultorio).
+    # MensajeEnviado evita duplicados entre corridas.
     scheduler.add_job(
         func=_job_confirmacion_mismo_dia,
-        trigger='cron',
-        hour=7,
-        minute=0,
+        trigger='interval',
+        minutes=10,
         id='confirmacion_mismo_dia',
         replace_existing=True,
         kwargs={'app': app},
@@ -155,27 +170,65 @@ def setup_scheduler_jobs(scheduler, app):
     logger.info('Jobs del scheduler registrados.')
 
 
+def _hora_envio_mismo_dia(fecha):
+    """
+    Hora local (naive) a partir de la cual sale el mensaje del mismo dia:
+    1 hora antes de la apertura del consultorio ese dia.
+    None si el consultorio no abre ese dia o no tiene horario configurado.
+    """
+    from models import HorarioConsultorio
+
+    horario = HorarioConsultorio.del_dia(fecha.weekday())
+    if horario is None:
+        logger.warning(
+            f'Sin horario de consultorio configurado para el dia '
+            f'{fecha.weekday()} ({fecha}); no se envia mensaje del mismo dia.')
+        return None
+    if horario.cerrado:
+        return None
+    apertura = horario.hora_apertura or time(9, 0)
+    return datetime.combine(fecha, apertura) - timedelta(hours=1)
+
+
+def _local_a_utc_naive(dt_local):
+    """Convierte hora local naive a UTC naive (formato de Cita.created_at)."""
+    return (dt_local.replace(tzinfo=TIMEZONE)
+            .astimezone(timezone.utc).replace(tzinfo=None))
+
+
 def _job_confirmacion_mismo_dia(app):
     """
     Envia el mensaje de HOY segun el estado real de cada cita.
     Las pendientes reciben una solicitud de confirmacion; las confirmadas, un
     recordatorio informativo. MensajeEnviado evita duplicados por cita y tipo.
-    Se ejecuta a las 7am.
+
+    Corre cada 10 min, pero solo actua a partir de 1h antes de la apertura del
+    consultorio de hoy (HorarioConsultorio). Si hoy no abre, no hace nada.
+    Solo toma citas que aun no empiezan y que fueron creadas antes de la hora
+    de envio: las agendadas despues ya se acaban de acordar con el paciente.
     """
     with app.app_context():
+        from sqlalchemy import or_
         from models import (Cita, EstatusCita, MensajeEnviado,
                             TipoRecordatorio)
 
         ahora = _ahora_local()
-        hoy_inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+        hora_envio = _hora_envio_mismo_dia(ahora.date())
+        if hora_envio is None or ahora < hora_envio:
+            return
+
         hoy_fin = ahora.replace(hour=23, minute=59, second=59, microsecond=0)
+        # created_at se guarda con datetime.utcnow() (UTC naive)
+        limite_creacion = _local_a_utc_naive(hora_envio)
 
         # El recordatorio de 24h es independiente: todas las citas vigentes de
         # hoy deben recibir exactamente el mensaje que corresponda a su estado.
         citas = Cita.query.filter(
-            Cita.fecha_inicio >= hoy_inicio,
+            Cita.fecha_inicio > ahora,
             Cita.fecha_inicio <= hoy_fin,
             Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
+            or_(Cita.created_at.is_(None),
+                Cita.created_at < limite_creacion),
         ).all()
 
         for cita in citas:
@@ -232,7 +285,11 @@ def _job_cancelar_pre_citas_expiradas(app):
 
 
 def _job_recordatorios_24h(app):
-    """Envia el recordatorio de confirmacion a las 9am, para las citas de manana."""
+    """
+    Envia la confirmacion a las citas PENDIENTES de manana que aun no la
+    recibieron (reminder_24h_sent == False). Corre a las 9am y a las 8pm;
+    las confirmadas no reciben nada (les llega el recordatorio del mismo dia).
+    """
     with app.app_context():
         from models import Cita, EstatusCita
         from extensions import db
@@ -245,7 +302,7 @@ def _job_recordatorios_24h(app):
         citas = Cita.query.filter(
             Cita.fecha_inicio >= inicio,
             Cita.fecha_inicio <= fin,
-            Cita.status.in_([EstatusCita.pendiente, EstatusCita.confirmada]),
+            Cita.status == EstatusCita.pendiente,
             Cita.reminder_24h_sent == False,
         ).all()
 
