@@ -138,15 +138,28 @@ BOT_FUNCTION_DECLARATIONS = [
         }
     },
     {
-        "name": "cancelar_cita",
-        "description": "Cancela una cita del paciente.",
+        "name": "marcar_no_asistira",
+        "description": "Registra que el paciente NO asistira a su cita (o quiere cancelarla). NO cancela la cita: avisa a recepcion, que decide. Despues ofrece reagendar.",
         "parameters": {
             "type": "object",
             "properties": {
-                "cita_id": {"type": "integer", "description": "ID de la cita a cancelar"},
-                "motivo": {"type": "string", "description": "Motivo de cancelacion"}
+                "cita_id": {"type": "integer", "description": "ID de la cita a la que no asistira"},
+                "motivo": {"type": "string", "description": "Motivo que dio el paciente (opcional)"}
             },
             "required": ["cita_id"]
+        }
+    },
+    {
+        "name": "dejar_comentario_recepcion",
+        "description": "Deja una nota corta para recepcion en tercera persona (ej: el paciente no quiso reagendar, no eligio ningun horario). Recepcion la ve en sus avisos.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "texto": {"type": "string", "description": "Nota corta en tercera persona, con el motivo si lo dio"},
+                "cita_id": {"type": "integer", "description": "ID de la cita relacionada (opcional)"},
+                "paciente_id": {"type": "integer", "description": "ID del paciente (opcional si se da cita_id)"}
+            },
+            "required": ["texto"]
         }
     },
     {
@@ -317,11 +330,12 @@ def _etiquetas_mensajes_automaticos():
     eso es el aviso de cita reagendada (enviar_cita_reagendada)."""
     from models import TipoRecordatorio
     return {
-        TipoRecordatorio.confirmacion_24h: 'Solicitud de confirmacion de cita de manana',
+        TipoRecordatorio.confirmacion_24h: 'Confirmación de cita (pide confirmar)',
         TipoRecordatorio.confirmacion_mismo_dia: 'Solicitud de confirmacion de cita de hoy',
         TipoRecordatorio.recordatorio_cita_hoy: 'Recordatorio de cita de hoy (ya confirmada, no pide confirmar)',
         TipoRecordatorio.no_asistencia: 'Aviso de inasistencia: falto a su cita, le ofrecimos reagendar (NO es confirmacion)',
         TipoRecordatorio.otro: 'Aviso de que su cita fue reagendada',
+        TipoRecordatorio.reagendado_mismo_dia: 'Mensaje para reagendar (no confirmó)',
     }
 
 
@@ -554,7 +568,7 @@ FLUJO PARA PACIENTE REGISTRADO
 ════════════════════════════════
 Este contacto SI esta registrado. Puedes ayudarle con cualquiera de estas acciones:
 1️⃣  Agendar una nueva cita
-2️⃣  Cancelar una cita
+2️⃣  Avisar que no podrá asistir / reagendar una cita
 3️⃣  Mover/reagendar una cita a otro dia u hora
 4️⃣  Consultar sus citas proximas
 
@@ -595,7 +609,9 @@ ANTICIPOS Y PRE-CITAS (REGLA CRITICA — revisar el historial del paciente antes
 CONFIRMACION DE CITAS (respuestas a MENSAJES AUTOMATICOS QUE LE ENVIAMOS):
 - Si le enviamos una solicitud de confirmacion y el paciente responde afirmativamente ("si", "confirmo", "ahi estaremos", "ok", "claro", "👍", etc.), llama confirmar_asistencia_cita con el cita_id de ESE mensaje (o el cita_id de su "Proxima cita"). Despues responde breve agradeciendo y repitiendo fecha y hora de la cita.
 - Si en este numero hay varias citas pendientes de confirmar (grupo familiar) y la respuesta no deja claro cual, pregunta para cual cita/paciente es. Si dice "si a todas", "si a ambos" o similar, llama confirmar_asistencia_cita una vez por cada cita_id pendiente.
-- Si responde que no puede asistir, ofrece reagendar (buscar_disponibilidad y luego reagendar_cita) o cancelar (cancelar_cita), segun lo que prefiera.
+- Si responde que NO asistira a una confirmacion o a un mensaje de reagendado, o pide cancelar cualquier cita: llama marcar_no_asistira con el cita_id de ESE mensaje y ofrecele reagendar (buscar_disponibilidad y luego reagendar_cita). NUNCA canceles citas: recepcion decide.
+- Si no quiere reagendar o no elige ninguno de los horarios ofrecidos: llama dejar_comentario_recepcion con una nota corta en tercera persona que incluya el motivo si lo dio (ej: "Dijo que no asistira y no quiso reagendar (estan de viaje)").
+- Si responde al mensaje para reagendar que si quiere otra fecha: ofrece horarios (buscar_disponibilidad) y reagenda (reagendar_cita).
 - Si la cita ya esta confirmada (estatus confirmada) y lo que le mandamos fue un recordatorio, NO vuelvas a pedir confirmacion ni llames la tool de nuevo; solo responde amable (ej. "Con gusto, le esperamos").
 - Si el mensaje fue un aviso de inasistencia, un "si" significa que quiere reagendar, NO confirmar: busca disponibilidad para una nueva cita.
 - Si el mensaje fue un aviso de cita reagendada y responde "ok"/"gracias", solo agradece; si dice que la nueva fecha no le funciona, ofrece reagendar.
@@ -634,7 +650,7 @@ MENU DEL BOT (mostrar al inicio o cuando el paciente no sabe que puede hacer):
 Hola! Soy Muelina, la recepcionista virtual de {config['nombre_consultorio']} 😊
 Puedo ayudarte con:
 1️⃣  Agendar una cita
-2️⃣  Cancelar una cita
+2️⃣  Avisar que no podrá asistir / reagendar una cita
 3️⃣  Mover tu cita a otro dia u hora
 4️⃣  Consultar tus citas proximas
 5️⃣  Informacion del consultorio (ubicacion, horarios, precios)
@@ -650,7 +666,7 @@ REGLAS IMPORTANTES:
 - Si el paciente esta marcado como PROBLEMATICO, NO agendar citas; pedir que llame directamente al consultorio.
 - NUNCA inventar disponibilidad; siempre usar buscar_disponibilidad.
 - NUNCA crear cita sin confirmar horario (y anticipo en primera vez).
-- Manejar cancelaciones con empatia, recordar politica de 24h.
+- Si avisa que no asistira, manejarlo con empatia: marca la cita con marcar_no_asistira y ofrece reagendar (recordar politica de 24h). Nunca canceles citas.
 - ESPECIALISTAS: Si preguntan si hay especialistas o quien atiende, menciona SOLO las especialidades y los servicios disponibles. NUNCA enumeres los nombres de los doctores. Puedes referirte por su nombre unicamente al doctor asignado de un paciente concreto.
 
 NOTIFICACIONES DEL SISTEMA EN EL HISTORIAL:
@@ -885,8 +901,11 @@ def _despachar_tool(nombre, args, numero_telefono=None):
         return _tool_crear_cita(args)
     elif nombre == 'confirmar_anticipo':
         return _tool_confirmar_anticipo(args)
-    elif nombre == 'cancelar_cita':
-        return _tool_cancelar_cita(args)
+    elif nombre in ('marcar_no_asistira', 'cancelar_cita'):
+        # El bot nunca cancela; si el modelo alucina cancelar_cita se redirige.
+        return _tool_marcar_no_asistira(args)
+    elif nombre == 'dejar_comentario_recepcion':
+        return _tool_dejar_comentario_recepcion(args)
     elif nombre == 'reagendar_cita':
         return _tool_reagendar_cita(args)
     elif nombre == 'confirmar_asistencia_cita':
@@ -1665,17 +1684,61 @@ def _tool_confirmar_anticipo(args):
     }
 
 
-def _tool_cancelar_cita(args):
+def _tool_marcar_no_asistira(args):
+    """El paciente dice que no asistira. NO cancela: marca y avisa a recepcion."""
     from models import Cita, EstatusCita
     from extensions import db
+    from services.avisos_service import (MARCA_NO_ASISTIRA,
+                                         TIPO_CANCELO_REAGENDO, crear_aviso,
+                                         marcar_cita)
     cita = Cita.query.get(args.get('cita_id'))
     if not cita:
         return {'error': 'Cita no encontrada'}
-    cita.status = EstatusCita.cancelada
+    if cita.status not in (EstatusCita.pendiente, EstatusCita.confirmada,
+                           EstatusCita.pre_cita):
+        return {'error': 'La cita no esta activa'}
+
+    respuesta = {'ok': True, 'cita_id': cita.id,
+                 'mensaje': 'Cita marcada como no asistirá. Ofrece reagendar.'}
+    if cita.aviso_asistencia == MARCA_NO_ASISTIRA:
+        return respuesta
+
+    marcar_cita(cita, MARCA_NO_ASISTIRA)
+    if cita.status == EstatusCita.confirmada:
+        cita.status = EstatusCita.pendiente
+    detalle = 'Dijo que no asistirá'
     if args.get('motivo'):
-        cita.notas = (cita.notas or '') + f' | Cancelada: {args["motivo"]}'
+        detalle += f': {args["motivo"]}'
+    crear_aviso(TIPO_CANCELO_REAGENDO, cita, detalle=detalle, origen='bot')
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return {'error': f'No se pudo registrar: {str(e)[:100]}'}
+    return respuesta
+
+
+def _tool_dejar_comentario_recepcion(args):
+    from models import Cita, Paciente
+    from extensions import db
+    from services.avisos_service import dejar_comentario
+    cita = Cita.query.get(args['cita_id']) if args.get('cita_id') else None
+    paciente = Paciente.query.get(args['paciente_id']) if args.get('paciente_id') else None
+    try:
+        dejar_comentario(args.get('texto'), cita=cita, paciente=paciente,
+                         origen='bot')
+    except ValueError as e:
+        db.session.rollback()
+        return {'error': str(e)}
     db.session.commit()
-    return {'ok': True, 'mensaje': 'Cita cancelada. Recuerda que para reagendar puedes escribirnos cuando gustes.'}
+    return {'ok': True}
+
+
+def _estatus_cita_cerrada():
+    """Status en los que el bot ya no puede confirmar ni mover la cita."""
+    from models import EstatusCita
+    return (EstatusCita.cancelada, EstatusCita.completada,
+            EstatusCita.no_asistencia)
 
 
 def _tool_reagendar_cita(args):
@@ -1686,6 +1749,10 @@ def _tool_reagendar_cita(args):
     cita = Cita.query.get(args.get('cita_id'))
     if not cita:
         return {'error': 'Cita no encontrada'}
+
+    if cita.status in _estatus_cita_cerrada():
+        return {'error': f'La cita ya no esta activa ({cita.status.value}); '
+                         'no se puede reagendar. Ofrece agendar una nueva.'}
 
     if cita.paciente and cita.paciente.es_problematico:
         return {'error': 'No se puede reagendar. Favor de contactar al consultorio directamente.'}
@@ -1713,12 +1780,27 @@ def _tool_reagendar_cita(args):
     if conflicto:
         return {'error': 'El nuevo horario no esta disponible. Por favor elige otro.'}
 
+    from services.avisos_service import (TIPO_CANCELO_REAGENDO, crear_aviso,
+                                         limpiar_marca)
+    from services.tiempo import ahora_local
+    fecha_vieja = cita.fecha_inicio.strftime('%d/%m %H:%M')
+    if nueva_inicio != cita.fecha_inicio:
+        # Los intentos de confirmacion de la fecha vieja ya no cuentan.
+        cita.confirmacion_reset_at = ahora_local()
     cita.fecha_inicio = nueva_inicio
     cita.fecha_fin = nueva_fin
     cita.consultorio_id = consultorio_id
     cita.status = EstatusCita.pendiente
     cita.reminder_24h_sent = False
-    db.session.commit()
+    limpiar_marca(cita)
+    crear_aviso(TIPO_CANCELO_REAGENDO, cita,
+                detalle=f'Reagendó: {fecha_vieja} → {nueva_inicio.strftime("%d/%m %H:%M")}',
+                origen='bot')
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return {'error': f'No se pudo reagendar: {str(e)[:100]}'}
 
     return {
         'ok': True,
@@ -1752,6 +1834,10 @@ def _tool_confirmar_asistencia_cita(args):
     if not cita:
         return {'error': 'No se encontro cita proxima para este paciente'}
 
+    if cita.status in _estatus_cita_cerrada():
+        return {'error': f'La cita ya no esta activa ({cita.status.value}); '
+                         'no se puede confirmar.'}
+
     if cita.status == EstatusCita.confirmada:
         return {
             'ok': True,
@@ -1761,9 +1847,16 @@ def _tool_confirmar_asistencia_cita(args):
             'hora': cita.fecha_inicio.strftime('%H:%M'),
         }
 
+    from services.avisos_service import TIPO_CONFIRMO, crear_aviso, limpiar_marca
     cita.status = EstatusCita.confirmada
     cita.confirmacion_fecha = datetime.utcnow()
-    db.session.commit()
+    limpiar_marca(cita)
+    crear_aviso(TIPO_CONFIRMO, cita, detalle='Confirmó por WhatsApp', origen='bot')
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return {'error': f'No se pudo confirmar: {str(e)[:100]}'}
 
     return {
         'ok': True,

@@ -3,6 +3,7 @@
 const PROXIMOS_TIPOS = {
   confirmacion_24h: 'Confirmación 24 h',
   confirmacion_mismo_dia: 'Confirmar hoy',
+  reagendado_mismo_dia: 'Reagendar',
   recordatorio_cita_hoy: 'Recordatorio de cita hoy'
 };
 

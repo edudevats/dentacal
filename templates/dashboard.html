@@ -46,7 +46,29 @@
       {% endfor %}
     </select>
 
-    <button class="btn btn-primary btn-sm ms-auto" id="btnNuevaCita">
+    <!-- Campanita de avisos -->
+    <div class="dropdown ms-auto avisos-wrap">
+      <button class="btn btn-outline-secondary btn-sm avisos-bell" id="avisosBell" type="button"
+              data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="Avisos de hoy">
+        <i class="bi bi-bell"></i>
+        <span class="avisos-badge d-none" id="avisosBadge">0</span>
+      </button>
+      <div class="dropdown-menu dropdown-menu-end avisos-drop p-0" id="avisosDrop">
+        <div class="avisos-head">
+          <span class="fw-bold">Avisos de hoy</span>
+          <a href="#" id="avisosMarcarLeidos" class="small">Marcar todo como leído</a>
+        </div>
+        <div class="avisos-tabs" id="avisosTabs">
+          <button type="button" class="avisos-tab on" data-tipo="confirmo">Confirmó<span class="avisos-cnt">0</span></button>
+          <button type="button" class="avisos-tab" data-tipo="no_contesto">No contestó<span class="avisos-cnt">0</span></button>
+          <button type="button" class="avisos-tab" data-tipo="cancelo_reagendo">Canceló / Reagendó<span class="avisos-cnt">0</span></button>
+          <button type="button" class="avisos-tab" data-tipo="comentario">Comentarios<span class="avisos-cnt">0</span></button>
+        </div>
+        <div class="avisos-list" id="avisosLista"></div>
+      </div>
+    </div>
+
+    <button class="btn btn-primary btn-sm" id="btnNuevaCita">
       <i class="bi bi-plus-lg me-1"></i>Nueva Cita
     </button>
   </div>
@@ -158,6 +180,12 @@
                 placeholder="Monto del anticipo ($)" step="50" min="0">
             </div>
 
+            <!-- Marca de asistencia (solo edicion) -->
+            <div class="col-12 d-none" id="avisoAsistenciaWrapper">
+              <span class="badge" id="avisoAsistenciaBadge"></span>
+              <button type="button" class="btn btn-outline-secondary btn-sm ms-2" id="btnQuitarMarca">Quitar marca</button>
+            </div>
+
             <!-- Status (solo edicion) -->
             <div class="col-md-6" id="statusWrapper" style="display:none">
               <label class="form-label fw-semibold">Status</label>
@@ -259,6 +287,7 @@
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar-scheduler@6.1.15/index.global.min.js"></script>
 <script src="{{ url_for('static', filename='js/calendario.js') }}"></script>
+<script src="{{ url_for('static', filename='js/avisos.js') }}"></script>
 
 <script>
   // Datos para el calendario (pasados desde Jinja)

@@ -6,7 +6,9 @@ from sqlalchemy import func, text
 from extensions import db, permiso_requerido
 from models import ConversacionWhatsapp, Paciente, LogBot
 from services.tiempo import ahora_local
-from services.reminder_service import _hora_envio_mismo_dia, _local_a_utc_naive
+from services.reminder_service import (
+    TURNO_MANANA, TURNO_NOCHE, _hora_envio_mismo_dia, _local_a_utc_naive,
+    intentos_confirmacion, objetivos_confirmacion)
 
 log = logging.getLogger(__name__)
 
@@ -108,6 +110,33 @@ def hilo_conversacion(numero):
     } for m in mensajes])
 
 
+_HORA_TURNO = {TURNO_MANANA: 9, TURNO_NOCHE: 21}
+
+
+def _proximo_turno_confirmacion(cita, ahora, intentos=None):
+    """
+    True si queda algun turno futuro de confirmacion_24h que alcance a esta
+    cita: el turno de hoy que aun no pasa, o cualquiera de los dias entre hoy
+    y la cita, con max_intentos mayor a los intentos actuales.
+    """
+    from datetime import timedelta
+
+    if intentos is None:
+        intentos = intentos_confirmacion(cita)
+    fecha_cita = cita.fecha_inicio.date()
+    hoy = ahora.date()
+    dia = hoy
+    while dia < fecha_cita:
+        for turno in (TURNO_MANANA, TURNO_NOCHE):
+            if dia == hoy and ahora.hour >= _HORA_TURNO[turno]:
+                continue
+            for objetivo, tope in objetivos_confirmacion(dia, turno):
+                if objetivo == fecha_cita and tope > intentos:
+                    return True
+        dia += timedelta(days=1)
+    return False
+
+
 @bot_bp.route('/proximos-recordatorios', methods=['GET'])
 @login_required
 def proximos_recordatorios():
@@ -117,6 +146,7 @@ def proximos_recordatorios():
     from sqlalchemy.orm import joinedload
     from models import (Cita, EstatusCita, EstatusRecordatorio, MensajeEnviado,
                         TipoRecordatorio)
+    from services.avisos_service import MARCA_NO_ASISTIRA
 
     fecha_param = request.args.get('fecha', '').strip()
     estado_param = request.args.get('estado', '').strip()
@@ -132,7 +162,8 @@ def proximos_recordatorios():
     if estado_param and estado_param not in estados:
         return jsonify(error='estado_invalido'), 400
 
-    hoy = ahora_local().date()
+    ahora = ahora_local()
+    hoy = ahora.date()
     fecha_inicio = fecha or hoy
     fecha_fin = fecha or (hoy + timedelta(days=1))
     inicio = datetime.combine(fecha_inicio, datetime.min.time())
@@ -155,6 +186,7 @@ def proximos_recordatorios():
     tipos_seguimiento = [
         TipoRecordatorio.confirmacion_24h,
         TipoRecordatorio.confirmacion_mismo_dia,
+        TipoRecordatorio.reagendado_mismo_dia,
         TipoRecordatorio.recordatorio_cita_hoy,
     ]
     mensajes = MensajeEnviado.query.filter(
@@ -165,9 +197,15 @@ def proximos_recordatorios():
         MensajeEnviado.id,
     ).all()
     mensajes_por_cita = {}
+    # Como el scheduler: el anti-duplicado solo cuenta filas creadas hoy
+    enviados_hoy = set()
+    inicio_hoy = datetime.combine(hoy, datetime.min.time())
     for mensaje in mensajes:
         mensajes_por_cita.setdefault(mensaje.cita_id, {})[
             mensaje.tipo] = mensaje
+        if (mensaje.fecha_creacion is not None
+                and mensaje.fecha_creacion >= inicio_hoy):
+            enviados_hoy.add((mensaje.cita_id, mensaje.tipo))
 
     paciente_ids = {cita.paciente_id for cita in citas}
     numeros = {
@@ -190,18 +228,35 @@ def proximos_recordatorios():
     for cita in citas:
         por_tipo = mensajes_por_cita.get(cita.id, {})
         mensaje_24h = por_tipo.get(TipoRecordatorio.confirmacion_24h)
-        tipo_mismo_dia = (
-            TipoRecordatorio.recordatorio_cita_hoy
-            if cita.status == EstatusCita.confirmada
-            else TipoRecordatorio.confirmacion_mismo_dia
-        )
+        intentos = (intentos_confirmacion(cita)
+                    if cita.status == EstatusCita.pendiente else 0)
+        if cita.status == EstatusCita.confirmada:
+            tipo_mismo_dia = TipoRecordatorio.recordatorio_cita_hoy
+        elif intentos >= 1:
+            tipo_mismo_dia = TipoRecordatorio.reagendado_mismo_dia
+        else:
+            tipo_mismo_dia = TipoRecordatorio.confirmacion_mismo_dia
+        tipo_aplicable = tipo_mismo_dia
         mensaje_mismo_dia = por_tipo.get(tipo_mismo_dia)
+        if mensaje_mismo_dia is None and cita.status == EstatusCita.pendiente:
+            mensaje_mismo_dia = (
+                por_tipo.get(TipoRecordatorio.reagendado_mismo_dia)
+                or por_tipo.get(TipoRecordatorio.confirmacion_mismo_dia))
+            if mensaje_mismo_dia is not None:
+                tipo_mismo_dia = mensaje_mismo_dia.tipo
+        ya_enviado_hoy = (cita.id, tipo_aplicable) in enviados_hoy
+        no_asistira = (cita.status == EstatusCita.pendiente
+                       and cita.aviso_asistencia == MARCA_NO_ASISTIRA)
 
-        # Refleja el arbol de reminder_service: la confirmacion del dia
-        # anterior solo sale a pendientes, y el mensaje del mismo dia solo a
-        # citas creadas antes de la hora de envio (apertura - 1h).
-        if cita.fecha_inicio.date() == hoy:
-            if mensaje_mismo_dia:
+        # Refleja el arbol de reminder_service: confirmacion_24h por turnos
+        # (9:00 y 21:00) solo a pendientes, y el mensaje del mismo dia solo a
+        # citas creadas antes de la hora de envio (apertura - 1h). Quien
+        # avisó que no asistirá no recibe nada mas.
+        problematico = bool(cita.paciente and cita.paciente.es_problematico)
+        if no_asistira or problematico:
+            proximo = None
+        elif cita.fecha_inicio.date() == hoy:
+            if ya_enviado_hoy:
                 proximo = None
             else:
                 hora_envio = _hora_envio_mismo_dia(hoy)
@@ -211,12 +266,12 @@ def proximos_recordatorios():
                     and cita.created_at >= _local_a_utc_naive(hora_envio)
                 )
                 proximo = (None if hora_envio is None or creada_tarde
-                           else tipo_mismo_dia.value)
+                           else tipo_aplicable.value)
         elif (cita.status == EstatusCita.pendiente
-              and mensaje_24h is None and not cita.reminder_24h_sent):
+              and _proximo_turno_confirmacion(cita, ahora, intentos)):
             proximo = TipoRecordatorio.confirmacion_24h.value
         else:
-            proximo = tipo_mismo_dia.value
+            proximo = tipo_aplicable.value
 
         mensajes_confirmacion = [
             por_tipo.get(TipoRecordatorio.confirmacion_24h),
@@ -265,6 +320,7 @@ def proximos_recordatorios():
             'sin_numero': not bool(numero),
             'fecha_cita': cita.fecha_inicio.isoformat(),
             'estado_cita': cita.status.value,
+            'aviso_asistencia': cita.aviso_asistencia,
             'confirmada': cita.status == EstatusCita.confirmada,
             'confirmacion_fecha': (
                 cita.confirmacion_fecha.isoformat()

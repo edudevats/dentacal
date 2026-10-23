@@ -1,6 +1,7 @@
 """
 Tareas programadas con APScheduler.
-- Confirmacion a pendientes el dia anterior (9am y barrido 8pm)
+- Confirmacion a pendientes el dia anterior (turnos 9am y 9pm; el fin de
+  semana cubre el lunes: sabado 9/21 y domingo 9am)
 - Mensaje del mismo dia 1h antes de la apertura del consultorio
 - Postconsulta 2 dias despues
 - Seguimientos CRM automaticos
@@ -11,6 +12,11 @@ from datetime import datetime, time, timedelta, timezone
 from services.tiempo import TIMEZONE, ahora_local
 
 logger = logging.getLogger(__name__)
+
+TURNO_MANANA = 'manana'
+TURNO_NOCHE = 'noche'
+_HORAS_TURNO = (time(9, 0), time(21, 0))
+
 
 def _ahora_local():
     """Retorna datetime actual en la timezone del consultorio."""
@@ -33,8 +39,9 @@ def _hora_resumen_doctores(app):
 def setup_scheduler_jobs(scheduler, app):
     """Registra todos los jobs del scheduler."""
 
-    # Confirmacion de las citas PENDIENTES de manana - diario a las 9am (CDMX).
-    # Las confirmadas no reciben nada este dia.
+    # Turno de la manana (9am CDMX): confirmacion de las citas PENDIENTES del
+    # dia siguiente (sabado: domingo y lunes; domingo: lunes). Las confirmadas
+    # y las marcadas "no asistira" no reciben nada.
     scheduler.add_job(
         func=_job_recordatorios_24h,
         trigger='cron',
@@ -42,19 +49,20 @@ def setup_scheduler_jobs(scheduler, app):
         minute=0,
         id='recordatorios_24h',
         replace_existing=True,
-        kwargs={'app': app},
+        kwargs={'app': app, 'turno': TURNO_MANANA},
     )
 
-    # Barrido nocturno - 8pm (CDMX): pendientes de manana agendadas durante el
-    # dia. Misma funcion; reminder_24h_sent evita duplicar lo de las 9am.
+    # Turno de la noche (9pm CDMX): segundo intento a quien no contesto y
+    # primer aviso a lo agendado durante el dia. intentos_confirmacion topa
+    # los envios por cita.
     scheduler.add_job(
         func=_job_recordatorios_24h,
         trigger='cron',
-        hour=20,
+        hour=21,
         minute=0,
         id='recordatorios_24h_noche',
         replace_existing=True,
-        kwargs={'app': app},
+        kwargs={'app': app, 'turno': TURNO_NOCHE},
     )
 
     # Postconsulta - diario a las 10am
@@ -209,7 +217,7 @@ def _job_confirmacion_mismo_dia(app):
     """
     with app.app_context():
         from sqlalchemy import or_
-        from models import (Cita, EstatusCita, MensajeEnviado,
+        from models import (AvisoRecepcion, Cita, EstatusCita, MensajeEnviado,
                             TipoRecordatorio)
 
         ahora = _ahora_local()
@@ -231,31 +239,88 @@ def _job_confirmacion_mismo_dia(app):
                 Cita.created_at < limite_creacion),
         ).all()
 
+        from extensions import db
+        from services.avisos_service import (
+            MARCA_NO_ASISTIRA, MARCA_SIN_CONFIRMAR, TIPO_NO_CONTESTO,
+            _rango_hoy_utc, crear_aviso, marcar_cita)
+        from services.whatsapp_service import (
+            enviar_confirmacion_mismo_dia,
+            enviar_recordatorio_cita_hoy,
+            enviar_reagendado_mismo_dia,
+        )
+
+        inicio_hoy = datetime.combine(ahora.date(), time.min)
+        aviso_desde, aviso_hasta = _rango_hoy_utc(ahora)
+
         for cita in citas:
             if cita.paciente and cita.paciente.es_problematico:
                 continue
-            tipo = (
-                TipoRecordatorio.recordatorio_cita_hoy
-                if cita.status == EstatusCita.confirmada
-                else TipoRecordatorio.confirmacion_mismo_dia
-            )
-            if MensajeEnviado.query.filter_by(
-                    cita_id=cita.id, tipo=tipo).first() is not None:
+            reagenda = False
+            if cita.status == EstatusCita.confirmada:
+                if _contesto_mensaje_de_hoy(cita.id, inicio_hoy):
+                    continue  # acaba de confirmar respondiendo el de hoy
+                tipo, enviar = (TipoRecordatorio.recordatorio_cita_hoy,
+                                enviar_recordatorio_cita_hoy)
+            elif cita.aviso_asistencia == MARCA_NO_ASISTIRA:
                 continue
-            try:
-                from services.whatsapp_service import (
-                    enviar_confirmacion_mismo_dia,
-                    enviar_recordatorio_cita_hoy,
-                )
-                if cita.status == EstatusCita.confirmada:
-                    enviado = enviar_recordatorio_cita_hoy(cita)
-                else:
-                    enviado = enviar_confirmacion_mismo_dia(cita)
-                if enviado:
-                    logger.info(
-                        f'Mensaje {tipo.value} enviado para cita {cita.id}')
-            except Exception as e:
-                logger.error(f'Error en mensaje del dia cita {cita.id}: {e}')
+            elif intentos_confirmacion(cita) >= 1:
+                tipo, enviar = (TipoRecordatorio.reagendado_mismo_dia,
+                                enviar_reagendado_mismo_dia)
+                reagenda = True
+            else:
+                tipo, enviar = (TipoRecordatorio.confirmacion_mismo_dia,
+                                enviar_confirmacion_mismo_dia)
+            if MensajeEnviado.query.filter(
+                    MensajeEnviado.cita_id == cita.id,
+                    MensajeEnviado.tipo == tipo,
+                    MensajeEnviado.fecha_creacion >= inicio_hoy).first() is None:
+                try:
+                    if enviar(cita):
+                        logger.info(
+                            f'Mensaje {tipo.value} enviado para cita {cita.id}')
+                except Exception as e:
+                    db.session.rollback()
+                    logger.error(f'Error en mensaje del dia cita {cita.id}: {e}')
+            if reagenda:
+                # El hecho "no confirmo" es independiente de que el envio llegue.
+                try:
+                    if AvisoRecepcion.query.filter(
+                            AvisoRecepcion.tipo == TIPO_NO_CONTESTO,
+                            AvisoRecepcion.cita_id == cita.id,
+                            AvisoRecepcion.created_at >= aviso_desde,
+                            AvisoRecepcion.created_at < aviso_hasta,
+                    ).first() is None:
+                        marcar_cita(cita, MARCA_SIN_CONFIRMAR)
+                        crear_aviso(
+                            TIPO_NO_CONTESTO, cita=cita,
+                            detalle='No contestó la confirmación; se le envió '
+                                    'mensaje para reagendar',
+                            origen='sistema')
+                        db.session.commit()
+                except Exception as e:
+                    db.session.rollback()
+                    logger.error(f'Error creando aviso cita {cita.id}: {e}')
+
+
+def _contesto_mensaje_de_hoy(cita_id, inicio_hoy):
+    """
+    True si hoy ya salio (no fallido) la confirmacion o el reagendado del
+    mismo dia: si la cita esta confirmada, el paciente acaba de contestarlo y
+    el recordatorio informativo sobra.
+    """
+    from models import EstatusRecordatorio, MensajeEnviado, TipoRecordatorio
+
+    return MensajeEnviado.query.filter(
+        MensajeEnviado.cita_id == cita_id,
+        MensajeEnviado.tipo.in_([TipoRecordatorio.confirmacion_mismo_dia,
+                                 TipoRecordatorio.reagendado_mismo_dia]),
+        MensajeEnviado.fecha_creacion >= inicio_hoy,
+        MensajeEnviado.estatus.notin_([
+            EstatusRecordatorio.fallido,
+            EstatusRecordatorio.fallido_definitivo,
+            EstatusRecordatorio.caducado,
+        ]),
+    ).first() is not None
 
 
 def _job_cancelar_pre_citas_expiradas(app):
@@ -284,42 +349,143 @@ def _job_cancelar_pre_citas_expiradas(app):
             logger.info(f'{len(expiradas)} pre-cita(s) expirada(s) cancelada(s).')
 
 
-def _job_recordatorios_24h(app):
+def objetivos_confirmacion(hoy, turno):
     """
-    Envia la confirmacion a las citas PENDIENTES de manana que aun no la
-    recibieron (reminder_24h_sent == False). Corre a las 9am y a las 8pm;
-    las confirmadas no reciben nada (les llega el recordatorio del mismo dia).
+    Pares (fecha_de_cita, max_intentos) que cubre un turno de confirmacion.
+    Sabado: domingo y lunes. Domingo: solo lunes (3er intento, solo en la
+    manana). Otro dia: manana. max_intentos es el tope acumulado de envios.
+    """
+    un_dia = timedelta(days=1)
+    noche = turno == TURNO_NOCHE
+    if hoy.weekday() == 5:
+        tope = 2 if noche else 1
+        return [(hoy + un_dia, tope), (hoy + 2 * un_dia, tope)]
+    if hoy.weekday() == 6:
+        return [] if noche else [(hoy + un_dia, 3)]
+    return [(hoy + un_dia, 2 if noche else 1)]
+
+
+def _confirmaciones_contadas(cita_id, desde=None):
+    """
+    Query de confirmacion_24h de una cita que no fallaron ni caducaron. Con
+    desde, solo las creadas (hora local naive) a partir de ese instante.
+    """
+    from models import EstatusRecordatorio, MensajeEnviado, TipoRecordatorio
+
+    query = MensajeEnviado.query.filter(
+        MensajeEnviado.cita_id == cita_id,
+        MensajeEnviado.tipo == TipoRecordatorio.confirmacion_24h,
+        MensajeEnviado.estatus.notin_([
+            EstatusRecordatorio.fallido,
+            EstatusRecordatorio.fallido_definitivo,
+            EstatusRecordatorio.caducado,
+        ]),
+    )
+    if desde is not None:
+        query = query.filter(MensajeEnviado.fecha_creacion >= desde)
+    return query
+
+
+def _inicio_conteo(cita, desde):
+    """El mas tardio entre desde y el ultimo cambio de fecha de la cita."""
+    reset = getattr(cita, 'confirmacion_reset_at', None)
+    if reset is not None and reset > desde:
+        return reset
+    return desde
+
+
+def intentos_confirmacion(cita):
+    """
+    Envios de confirmacion_24h de la cita para su fecha actual: no fallaron ni
+    caducaron y se crearon desde 2 dias antes de fecha_inicio y despues del
+    ultimo cambio de fecha (confirmacion_reset_at): una cita reagendada no
+    arrastra los intentos de su fecha anterior.
+    """
+    desde = datetime.combine(
+        cita.fecha_inicio.date() - timedelta(days=2), time(0, 0))
+    return _confirmaciones_contadas(
+        cita.id, _inicio_conteo(cita, desde)).count()
+
+
+def _enviado_en_turno(cita, inicio_turno):
+    """
+    True si ya hay una confirmacion_24h de esta cita desde inicio_turno (o
+    desde su ultimo cambio de fecha, si es posterior): una contada, o una
+    fallida con reintento en curso (ya se mando, solo no llego).
+    """
+    from models import EstatusRecordatorio, MensajeEnviado, TipoRecordatorio
+
+    reciente = MensajeEnviado.fecha_creacion >= _inicio_conteo(
+        cita, inicio_turno)
+    if _confirmaciones_contadas(cita.id).filter(reciente).first() is not None:
+        return True
+    return MensajeEnviado.query.filter(
+        MensajeEnviado.cita_id == cita.id,
+        MensajeEnviado.tipo == TipoRecordatorio.confirmacion_24h,
+        MensajeEnviado.estatus == EstatusRecordatorio.fallido,
+        MensajeEnviado.proximo_intento.isnot(None),
+        reciente,
+    ).first() is not None
+
+
+def _paso_turno_confirmacion(creado_local, ahora):
+    """True si entre creado_local y ahora pasó un turno (9:00 o 21:00)."""
+    dia = creado_local.date()
+    while dia <= ahora.date():
+        for hora in _HORAS_TURNO:
+            turno = datetime.combine(dia, hora)
+            if creado_local < turno <= ahora:
+                return True
+        dia += timedelta(days=1)
+    return False
+
+
+def _job_recordatorios_24h(app, turno):
+    """
+    Envia la confirmacion a las citas PENDIENTES de las fechas que cubre el
+    turno (objetivos_confirmacion) que no esten marcadas "no asistira", cuyo
+    paciente no sea problematico y que no hayan llegado al tope de intentos.
+    Las confirmadas no reciben nada (les llega el recordatorio del mismo dia).
     """
     with app.app_context():
         from models import Cita, EstatusCita
         from extensions import db
+        from services.avisos_service import MARCA_NO_ASISTIRA
+        from sqlalchemy import or_
 
-        ahora = _ahora_local()
-        manana = (ahora + timedelta(days=1)).date()
-        inicio = datetime(manana.year, manana.month, manana.day, 0, 0, 0)
-        fin = datetime(manana.year, manana.month, manana.day, 23, 59, 59)
+        hoy = _ahora_local().date()
+        hora_turno = _HORAS_TURNO[1 if turno == TURNO_NOCHE else 0]
+        inicio_turno = datetime.combine(hoy, hora_turno)
+        for fecha, maximo in objetivos_confirmacion(hoy, turno):
+            inicio = datetime(fecha.year, fecha.month, fecha.day, 0, 0, 0)
+            fin = datetime(fecha.year, fecha.month, fecha.day, 23, 59, 59)
 
-        citas = Cita.query.filter(
-            Cita.fecha_inicio >= inicio,
-            Cita.fecha_inicio <= fin,
-            Cita.status == EstatusCita.pendiente,
-            Cita.reminder_24h_sent == False,
-        ).all()
+            citas = Cita.query.filter(
+                Cita.fecha_inicio >= inicio,
+                Cita.fecha_inicio <= fin,
+                Cita.status == EstatusCita.pendiente,
+                or_(Cita.aviso_asistencia.is_(None),
+                    Cita.aviso_asistencia != MARCA_NO_ASISTIRA),
+            ).all()
 
-        for cita in citas:
-            if cita.paciente and cita.paciente.es_problematico:
-                logger.info(f'Saltando recordatorio para paciente problematico: cita {cita.id}')
-                continue
-            try:
-                from services.whatsapp_service import enviar_recordatorio_cita
-                enviado = enviar_recordatorio_cita(cita)
-                if enviado:
-                    cita.reminder_24h_sent = True
-                    db.session.commit()
-                    logger.info(f'Recordatorio enviado para cita {cita.id}')
-            except Exception as e:
-                logger.error(f'Error en recordatorio cita {cita.id}: {e}')
-                db.session.rollback()
+            for cita in citas:
+                if cita.paciente and cita.paciente.es_problematico:
+                    logger.info(f'Saltando recordatorio para paciente problematico: cita {cita.id}')
+                    continue
+                if intentos_confirmacion(cita) >= maximo:
+                    continue
+                if _enviado_en_turno(cita, inicio_turno):
+                    continue  # el mismo turno nunca manda dos veces
+                try:
+                    from services.whatsapp_service import enviar_recordatorio_cita
+                    enviado = enviar_recordatorio_cita(cita)
+                    if enviado:
+                        cita.reminder_24h_sent = True
+                        db.session.commit()
+                        logger.info(f'Recordatorio enviado para cita {cita.id}')
+                except Exception as e:
+                    logger.error(f'Error en recordatorio cita {cita.id}: {e}')
+                    db.session.rollback()
 
 
 def _job_postconsulta(app):
@@ -629,6 +795,39 @@ def _reclamar_fila_reenvio(registro_id, ahora):
         return False
 
 
+def _cita_ya_no_requiere(tipo, cita, registro=None, ahora=None):
+    """
+    True si el estado actual de la cita vuelve obsoleto el mensaje:
+    - la confirmacion del dia anterior ya no sirve el dia de la cita (ese dia
+      le toca el mensaje del mismo dia);
+    - un reintento creado antes de mover la cita lleva la fecha vieja;
+    - el status/marca de la cita ya no corresponde al tipo de mensaje.
+    """
+    from models import EstatusCita, TipoRecordatorio
+    from services.avisos_service import MARCA_NO_ASISTIRA
+
+    if (tipo == TipoRecordatorio.confirmacion_24h and ahora is not None
+            and ahora.date() >= cita.fecha_inicio.date()):
+        return True
+    reset = getattr(cita, 'confirmacion_reset_at', None)
+    if (tipo in (TipoRecordatorio.confirmacion_24h,
+                 TipoRecordatorio.confirmacion_mismo_dia,
+                 TipoRecordatorio.reagendado_mismo_dia,
+                 TipoRecordatorio.recordatorio_cita_hoy)
+            and reset is not None and registro is not None
+            and registro.fecha_creacion is not None
+            and registro.fecha_creacion < reset):
+        return True
+    if tipo in (TipoRecordatorio.confirmacion_24h,
+                TipoRecordatorio.confirmacion_mismo_dia,
+                TipoRecordatorio.reagendado_mismo_dia):
+        return (cita.status != EstatusCita.pendiente
+                or cita.aviso_asistencia == MARCA_NO_ASISTIRA)
+    if tipo == TipoRecordatorio.recordatorio_cita_hoy:
+        return cita.status != EstatusCita.confirmada
+    return False
+
+
 def _job_reenviar_fallidos(app):
     """
     Reintenta los mensajes fallidos cuyo proximo_intento ya vencio.
@@ -642,9 +841,8 @@ def _job_reenviar_fallidos(app):
                             TipoRecordatorio)
         from services.whatsapp_service import (
             enviar_mensaje, _persistir_sid_aceptado, _programar_reintento)
-        from services.tiempo import ahora_local
 
-        ahora = ahora_local()
+        ahora = _ahora_local()
         pendientes = MensajeEnviado.query.filter(
             MensajeEnviado.estatus == EstatusRecordatorio.fallido,
             MensajeEnviado.message_sid.is_(None),
@@ -665,7 +863,17 @@ def _job_reenviar_fallidos(app):
                 TipoRecordatorio.confirmacion_mismo_dia,
                 TipoRecordatorio.recordatorio_cita_hoy,
                 TipoRecordatorio.confirmacion_anticipo,
+                TipoRecordatorio.reagendado_mismo_dia,
             }
+            if (registro.tipo == TipoRecordatorio.confirmacion_24h
+                    and registro.fecha_creacion
+                    and _paso_turno_confirmacion(registro.fecha_creacion, ahora)):
+                # Ya hubo otro turno: el siguiente decide si vuelve a mandar.
+                registro.estatus = EstatusRecordatorio.caducado
+                registro.proximo_intento = None
+                db.session.commit()
+                logger.info(f'Mensaje {registro.id} caducado: paso un turno de confirmacion.')
+                continue
             if registro.cita_id and registro.tipo in tipos_previos_a_cita:
                 cita = db.session.get(Cita, registro.cita_id)
                 if cita and cita.fecha_inicio and cita.fecha_inicio < ahora:
@@ -674,6 +882,23 @@ def _job_reenviar_fallidos(app):
                     db.session.commit()
                     logger.info(f'Mensaje {registro.id} caducado: la cita ya paso.')
                     continue
+                if cita and _cita_ya_no_requiere(registro.tipo, cita,
+                                                registro=registro,
+                                                ahora=ahora):
+                    registro.estatus = EstatusRecordatorio.caducado
+                    registro.proximo_intento = None
+                    db.session.commit()
+                    logger.info(f'Mensaje {registro.id} caducado: cambio el estado de la cita.')
+                    continue
+            if registro.tipo in tipos_previos_a_cita and (
+                    ahora.hour >= 22 or ahora.hour < 7):
+                # Nada al paciente de madrugada: la fila se reclamo (pendiente),
+                # se devuelve a fallido para el proximo 07:00 local.
+                dia = ahora.date() + timedelta(days=1 if ahora.hour >= 22 else 0)
+                registro.estatus = EstatusRecordatorio.fallido
+                registro.proximo_intento = datetime.combine(dia, time(7, 0))
+                db.session.commit()
+                continue
 
             if registro.paciente and registro.paciente.es_problematico:
                 registro.estatus = EstatusRecordatorio.fallido_definitivo

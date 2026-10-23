@@ -91,7 +91,17 @@ function initCalendario() {
       } else if (status === 'cancelada') {
         info.el.style.opacity = '0.4';
       }
-      if (status !== 'pre_cita') {
+      const marca = info.event.extendedProps.aviso_asistencia;
+      if (marca === 'no_asistira' || marca === 'sin_confirmar') {
+        const noAsiste = marca === 'no_asistira';
+        info.el.classList.add('fc-event-aviso', noAsiste ? 'fc-event-aviso-no' : 'fc-event-aviso-sin');
+        const icono = document.createElement('i');
+        icono.className = 'bi me-1 ' + (noAsiste ? 'bi-x-circle' : 'bi-question-circle');
+        const titulo = info.el.querySelector('.fc-event-title');
+        if (titulo) titulo.prepend(icono);
+        info.el.title = info.event.title + (noAsiste ? ' - NO ASISTIRA' : ' - SIN CONFIRMAR');
+      }
+      if (status !== 'pre_cita' && !marca) {
         info.el.title = info.event.title + ' - ' + status;
       }
     },
@@ -273,6 +283,7 @@ function initModal() {
   });
 
   initReagendar();
+  document.getElementById('btnQuitarMarca')?.addEventListener('click', quitarMarcaCita);
 }
 
 function abrirModalNuevo(start = null, end = null, resourceId = null) {
@@ -283,6 +294,7 @@ function abrirModalNuevo(start = null, end = null, resourceId = null) {
   document.getElementById('btnCancelarCita').classList.add('d-none');
   document.getElementById('btnReagendar')?.classList.add('d-none');
   document.getElementById('formMsg').textContent = '';
+  actualizarMarcaModal(null);
 
   if (start) {
     const d = new Date(start);
@@ -340,8 +352,49 @@ function abrirModalEditar(evento) {
   document.getElementById('hora_inicio').value = horaLocalHM(start);
   document.getElementById('hora_fin').value = horaLocalHM(end);
 
+  actualizarMarcaModal(ext.aviso_asistencia);
+
   new bootstrap.Modal(document.getElementById('modalCita')).show();
 }
+
+const MARCA_TEXTO = { no_asistira: 'No asistirá', sin_confirmar: 'Sin confirmar' };
+
+function actualizarMarcaModal(marca) {
+  const wrap = document.getElementById('avisoAsistenciaWrapper');
+  if (!wrap) return;
+  if (!MARCA_TEXTO[marca]) { wrap.classList.add('d-none'); return; }
+  const badge = document.getElementById('avisoAsistenciaBadge');
+  badge.textContent = MARCA_TEXTO[marca];
+  badge.className = 'badge ' + (marca === 'no_asistira' ? 'badge-aviso-no' : 'badge-aviso-sin');
+  wrap.classList.remove('d-none');
+}
+
+async function quitarMarcaCita() {
+  if (!citaEditandoId) return;
+  const resp = await apiFetch(`/api/citas/${citaEditandoId}`, {
+    method: 'PUT', body: JSON.stringify({ aviso_asistencia: null }),
+  });
+  if (!resp.ok) {
+    const d = await resp.json().catch(() => ({}));
+    alert(d.error || 'No se pudo quitar la marca');
+    return;
+  }
+  actualizarMarcaModal(null);
+  calendar.refetchEvents();
+}
+
+// Usada por la campanita: va al dia de la cita y abre su modal.
+window.irACita = async function (citaId, citaFecha) {
+  if (!calendar) return;
+  if (citaFecha) calendar.gotoDate(citaFecha);
+  const id = String(citaId);
+  for (let i = 0; i < 30; i++) {
+    const ev = calendar.getEventById(id);
+    if (ev) { abrirModalEditar(ev); return; }
+    await new Promise(r => setTimeout(r, 150));
+  }
+  alert('No se encontró la cita en el calendario (puede estar cancelada o filtrada).');
+};
 
 function limpiarFormulario() {
   ['paciente_id', 'paciente_search', 'dentista_id', 'consultorio_id',

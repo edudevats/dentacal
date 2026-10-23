@@ -61,6 +61,7 @@ ORDEN_VARIABLES_POR_TIPO = {
     'recordatorio_24h': 'nombre_paciente,hora',
     'confirmacion_mismo_dia': 'nombre_paciente,hora,dentista',
     'recordatorio_cita_hoy': 'hora,nombre_paciente,nombre_doctor',
+    'reagendado_mismo_dia': 'nombre_paciente,hora,dentista',
     'postconsulta': 'nombre_paciente,google_reviews_link',
     'proxima_visita': 'nombre_tutor,nombre_paciente',
     'no_asistencia_reagendar': 'nombre_paciente,fecha',
@@ -374,9 +375,25 @@ def enviar_mensaje(numero_destino, mensaje, status_callback=None, tipo=None,
     return sid
 
 
+_DIAS_SEMANA_ES = ('lunes', 'martes', 'miércoles', 'jueves', 'viernes',
+                   'sábado', 'domingo')
+
+
+def _dia_de_la_cita(fecha_cita):
+    """'mañana' si la cita es mañana (hora local); si no, 'el lunes', etc.
+    El sabado se confirma la cita del lunes: decir 'mañana' seria falso."""
+    from datetime import timedelta
+    from services.tiempo import ahora_local
+
+    if fecha_cita.date() == ahora_local().date() + timedelta(days=1):
+        return 'mañana'
+    return 'el ' + _DIAS_SEMANA_ES[fecha_cita.weekday()]
+
+
 def enviar_recordatorio_cita(cita):
     """
-    Envia recordatorio de confirmacion 24h antes de la cita.
+    Envia la confirmacion de la cita (turnos del dia anterior; el sabado
+    tambien cubre el lunes). {dia} = 'mañana' o 'el lunes'.
     """
     from models import TipoRecordatorio
 
@@ -391,14 +408,16 @@ def enviar_recordatorio_cita(cita):
     plantilla = PlantillaMensaje.query.filter_by(tipo='recordatorio_24h', activo=True).first()
 
     hora = cita.fecha_inicio.strftime('%I:%M %p')
-    valores = {'nombre_paciente': paciente.nombre_completo, 'hora': hora}
+    dia = _dia_de_la_cita(cita.fecha_inicio)
+    valores = {'nombre_paciente': paciente.nombre_completo, 'hora': hora,
+               'dia': dia}
     if plantilla:
         mensaje = plantilla.contenido.format(**valores)
     else:
         mensaje = (
             f'Hola buenas tardes\n'
             f'Como esta? Le escribo para confirmar la cita de {paciente.nombre_completo} '
-            f'manana a las {hora}.\n'
+            f'{dia} a las {hora}.\n'
             f'Gracias :)'
         )
 
@@ -412,12 +431,10 @@ def enviar_recordatorio_cita(cita):
         return False
 
 
-def enviar_confirmacion_mismo_dia(cita):
-    """
-    Envia confirmacion temprana para citas de hoy que fueron reservadas
-    con menos de 24h de anticipacion y no recibieron el recordatorio normal.
-    """
-    from models import TipoRecordatorio
+def _enviar_mensaje_mismo_dia(cita, tipo_plantilla, tipo_recordatorio,
+                              texto_defecto):
+    """Envio comun de los mensajes de hoy (nombre_paciente, hora, dentista)."""
+    from models import PlantillaMensaje
 
     paciente = cita.paciente
     numero = paciente.numero_contacto_wa
@@ -426,36 +443,55 @@ def enviar_confirmacion_mismo_dia(cita):
         logger.warning(f'Cita {cita.id}: paciente sin numero de WhatsApp')
         return False
 
-    from models import PlantillaMensaje
-    plantilla = PlantillaMensaje.query.filter_by(tipo='confirmacion_mismo_dia', activo=True).first()
-
-    hora = cita.fecha_inicio.strftime('%I:%M %p')
-    dentista = cita.dentista.nombre if cita.dentista else 'su doctor'
+    plantilla = PlantillaMensaje.query.filter_by(
+        tipo=tipo_plantilla, activo=True).first()
 
     valores = {
         'nombre_paciente': paciente.nombre_completo,
-        'hora': hora,
-        'dentista': dentista,
+        'hora': cita.fecha_inicio.strftime('%I:%M %p'),
+        'dentista': cita.dentista.nombre if cita.dentista else 'su doctor',
     }
     if plantilla:
         mensaje = plantilla.contenido.format(**valores)
     else:
-        mensaje = (
-            f'Buenos dias! \U0001f60a\n'
-            f'Le recordamos que {paciente.nombre_completo} tiene cita '
-            f'el dia de HOY a las {hora} con {dentista}.\n'
-            f'Les esperamos en La Casa del Sr. Perez \U0001f9b7\u2728\n'
-            f'Si necesita reagendar, por favor respondanos lo antes posible.'
-        )
+        mensaje = texto_defecto.format(**valores)
 
     try:
-        enviar_mensaje(numero, mensaje, tipo=TipoRecordatorio.confirmacion_mismo_dia,
+        enviar_mensaje(numero, mensaje, tipo=tipo_recordatorio,
                        paciente_id=paciente.id, cita_id=cita.id,
                        **kwargs_plantilla(plantilla, valores))
         return True
     except Exception as e:
-        logger.error(f'Error enviando confirmacion mismo dia cita {cita.id}: {e}')
+        logger.error(f'Error enviando {tipo_plantilla} cita {cita.id}: {e}')
         return False
+
+
+def enviar_confirmacion_mismo_dia(cita):
+    """
+    Envia confirmacion temprana para citas de hoy que fueron reservadas
+    con menos de 24h de anticipacion y no recibieron el recordatorio normal.
+    """
+    from models import TipoRecordatorio
+
+    return _enviar_mensaje_mismo_dia(
+        cita, 'confirmacion_mismo_dia', TipoRecordatorio.confirmacion_mismo_dia,
+        'Buenos dias! \U0001f60a\n'
+        'Le recordamos que {nombre_paciente} tiene cita '
+        'el dia de HOY a las {hora} con {dentista}.\n'
+        'Les esperamos en La Casa del Sr. Perez \U0001f9b7\u2728\n'
+        'Si necesita reagendar, por favor respondanos lo antes posible.')
+
+
+def enviar_reagendado_mismo_dia(cita):
+    """Pide reagendar a quien no contesto ninguna confirmacion y la cita es hoy."""
+    from models import TipoRecordatorio
+
+    return _enviar_mensaje_mismo_dia(
+        cita, 'reagendado_mismo_dia', TipoRecordatorio.reagendado_mismo_dia,
+        'Hola, no recibimos la confirmación de la cita de '
+        '{nombre_paciente} hoy a las {hora} con {dentista}. Si no '
+        'podrá asistir, respóndanos este mensaje y con gusto le '
+        'buscamos otro día.')
 
 
 def enviar_recordatorio_cita_hoy(cita):

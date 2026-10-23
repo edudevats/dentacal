@@ -30,6 +30,7 @@ const SEG_LABEL = {
   whatsapp_1: 'WhatsApp 1',
   whatsapp_2: 'WhatsApp 2',
   llamada: 'Llamada',
+  comentario_bot: 'Comentario del bot',
 };
 const SEG_ICON = {
   confirmacion_cita: 'bi-calendar-check',

@@ -5,6 +5,7 @@ from models import (Cita, Paciente, Dentista, Consultorio, TipoCita,
                     EstatusCita, EstatusCRM)
 from services.scheduler_service import (verificar_disponibilidad, obtener_slots_disponibles,
                                         validar_horario_consultorio, describir_conflicto)
+from services import avisos_service
 from datetime import datetime
 import pytz
 import logging
@@ -21,6 +22,10 @@ def _check_permiso():
     pass
 
 TIMEZONE = pytz.timezone('America/Mexico_City')
+
+
+def _fmt_aviso(dt):
+    return dt.strftime('%d/%m %H:%M')
 
 
 @citas_bp.route('', methods=['GET'])
@@ -150,6 +155,17 @@ def actualizar(cita_id):
     notificar_no_asistencia = False
     notificar_anticipo = False
 
+    # Recepcion solo puede QUITAR la marca a mano, nunca ponerla.
+    quitar_marca = False
+    if 'aviso_asistencia' in data:
+        if data['aviso_asistencia'] is not None:
+            return jsonify(error='aviso_asistencia solo acepta null'), 400
+        quitar_marca = True
+
+    inicio_anterior = cita.fecha_inicio
+    status_anterior = cita.status
+    fecha_movida = False
+
     if 'fecha_inicio' in data and 'fecha_fin' in data:
         try:
             nueva_inicio = datetime.fromisoformat(data['fecha_inicio'])
@@ -182,6 +198,11 @@ def actualizar(cita_id):
             ), 409
         cita.fuera_de_horario = bool(fuera_horario)
 
+        fecha_movida = nueva_inicio != inicio_anterior
+        if fecha_movida:
+            # Los intentos de confirmacion de la fecha vieja ya no cuentan.
+            from services.tiempo import ahora_local
+            cita.confirmacion_reset_at = ahora_local()
         cita.fecha_inicio = nueva_inicio
         cita.fecha_fin = nueva_fin
         cita.reminder_24h_sent = False  # resetear reminder si se reprograma
@@ -240,6 +261,29 @@ def actualizar(cita_id):
     if 'anticipo_monto' in data:
         cita.anticipo_monto = data['anticipo_monto']
 
+    if quitar_marca:
+        avisos_service.limpiar_marca(cita)
+
+    if cita.status == EstatusCita.cancelada and status_anterior != EstatusCita.cancelada:
+        avisos_service.limpiar_marca(cita)
+        avisos_service.crear_aviso(
+            avisos_service.TIPO_CANCELO_REAGENDO, cita=cita,
+            detalle='Cancelada por recepción', origen='recepcion')
+    else:
+        if fecha_movida:
+            avisos_service.limpiar_marca(cita)
+            avisos_service.crear_aviso(
+                avisos_service.TIPO_CANCELO_REAGENDO, cita=cita,
+                detalle=f'Movida por recepción: {_fmt_aviso(inicio_anterior)} → '
+                        f'{_fmt_aviso(cita.fecha_inicio)}',
+                origen='recepcion')
+        if (cita.status == EstatusCita.confirmada
+                and status_anterior != EstatusCita.confirmada):
+            avisos_service.limpiar_marca(cita)
+            avisos_service.crear_aviso(
+                avisos_service.TIPO_CONFIRMO, cita=cita,
+                detalle='Confirmada por recepción', origen='recepcion')
+
     db.session.commit()
 
     if notificar_no_asistencia:
@@ -260,7 +304,13 @@ def actualizar(cita_id):
 @login_required
 def cancelar(cita_id):
     cita = Cita.query.get_or_404(cita_id)
+    ya_cancelada = cita.status == EstatusCita.cancelada
     cita.status = EstatusCita.cancelada
+    avisos_service.limpiar_marca(cita)
+    if not ya_cancelada:
+        avisos_service.crear_aviso(
+            avisos_service.TIPO_CANCELO_REAGENDO, cita=cita,
+            detalle='Cancelada por recepción', origen='recepcion')
     db.session.commit()
     return jsonify(ok=True)
 
@@ -456,12 +506,23 @@ def reagendar(cita_id):
             cierre=fuera_horario['cierre'],
         ), 409
 
+    inicio_anterior = cita.fecha_inicio
+    if nueva_inicio != inicio_anterior:
+        # Los intentos de confirmacion de la fecha vieja ya no cuentan.
+        from services.tiempo import ahora_local
+        cita.confirmacion_reset_at = ahora_local()
     cita.fecha_inicio = nueva_inicio
     cita.fecha_fin = nueva_fin
     cita.consultorio_id = consultorio_id
     cita.status = EstatusCita.pendiente
     cita.reminder_24h_sent = False
     cita.fuera_de_horario = bool(fuera_horario)
+    avisos_service.limpiar_marca(cita)
+    avisos_service.crear_aviso(
+        avisos_service.TIPO_CANCELO_REAGENDO, cita=cita,
+        detalle=f'Reagendada por recepción: {_fmt_aviso(inicio_anterior)} → '
+                f'{_fmt_aviso(nueva_inicio)}',
+        origen='recepcion')
     db.session.commit()
 
     aviso_enviado = False
