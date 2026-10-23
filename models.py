@@ -45,6 +45,8 @@ class TipoSeguimiento(PyEnum):
     whatsapp_1 = 'whatsapp_1'
     whatsapp_2 = 'whatsapp_2'
     llamada = 'llamada'
+    # Comentario que el paciente dejo al bot y recepcion debe revisar
+    comentario_bot = 'comentario_bot'
 
 
 class TipoRecordatorio(PyEnum):
@@ -56,6 +58,7 @@ class TipoRecordatorio(PyEnum):
     # Agregados para el log unificado de mensajes
     confirmacion_mismo_dia = 'confirmacion_mismo_dia'
     recordatorio_cita_hoy = 'recordatorio_cita_hoy'
+    reagendado_mismo_dia = 'reagendado_mismo_dia'
     proxima_visita = 'proxima_visita'
     no_asistencia = 'no_asistencia'
     resumen_doctor = 'resumen_doctor'
@@ -420,6 +423,11 @@ class Cita(db.Model):
     reminder_24h_sent = db.Column(db.Boolean, default=False)
     postconsulta_sent = db.Column(db.Boolean, default=False)
     confirmacion_fecha = db.Column(db.DateTime, nullable=True)
+    # 'no_asistira' | 'sin_confirmar' | None (ver services/avisos_service.py)
+    aviso_asistencia = db.Column(db.String(20), nullable=True)
+    # Hora local (naive) del ultimo cambio de fecha: los intentos de
+    # confirmacion y reintentos anteriores no cuentan para la fecha nueva.
+    confirmacion_reset_at = db.Column(db.DateTime, nullable=True)
 
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -462,6 +470,7 @@ class Cita(db.Model):
             'confirmacion_fecha': self.confirmacion_fecha.isoformat() if self.confirmacion_fecha else None,
             'pre_cita_expira': self.pre_cita_expira.isoformat() if self.pre_cita_expira else None,
             'requiere_anticipo': self.paciente_requiere_anticipo,
+            'aviso_asistencia': self.aviso_asistencia,
         }
 
     def to_calendar_event(self):
@@ -502,6 +511,7 @@ class Cita(db.Model):
                 'notas': self.notas or '',
                 'es_pre_cita': es_pre_cita,
                 'pre_cita_expira': self.pre_cita_expira.isoformat() if self.pre_cita_expira else None,
+                'aviso_asistencia': self.aviso_asistencia,
             }
         }
 
@@ -511,6 +521,47 @@ class Cita(db.Model):
             event['borderColor'] = '#F2853D'
 
         return event
+
+
+class AvisoRecepcion(db.Model):
+    """Aviso para recepcion: confirmo, no contesto, cancelo/reagendo, comentario."""
+    __tablename__ = 'avisos_recepcion'
+
+    id = db.Column(db.Integer, primary_key=True)
+    tipo = db.Column(db.String(20), nullable=False, index=True)
+    cita_id = db.Column(db.Integer, db.ForeignKey('citas.id'), nullable=True)
+    paciente_id = db.Column(db.Integer, db.ForeignKey('pacientes.id'), nullable=True)
+    detalle = db.Column(db.Text)
+    origen = db.Column(db.String(20))  # 'bot' | 'recepcion' | 'sistema'
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    leido = db.Column(db.Boolean, default=False)
+
+    cita = db.relationship('Cita')
+    paciente = db.relationship('Paciente')
+
+    def to_dict(self):
+        from services.tiempo import TIMEZONE
+        from datetime import timezone
+        cita = self.cita
+        creado = None
+        if self.created_at:
+            creado = (self.created_at.replace(tzinfo=timezone.utc)
+                      .astimezone(TIMEZONE).strftime('%H:%M'))
+        paciente = self.paciente or (cita.paciente if cita else None)
+        return {
+            'id': self.id,
+            'tipo': self.tipo,
+            'cita_id': self.cita_id,
+            'paciente_id': self.paciente_id,
+            'paciente_nombre': paciente.nombre_completo if paciente else None,
+            'cita_fecha': cita.fecha_inicio.strftime('%Y-%m-%d') if cita else None,
+            'cita_hora': cita.fecha_inicio.strftime('%H:%M') if cita else None,
+            'dentista': cita.dentista.nombre if cita and cita.dentista else None,
+            'detalle': self.detalle,
+            'origen': self.origen,
+            'creado': creado,
+            'leido': bool(self.leido),
+        }
 
 
 class MensajeEnviado(db.Model):
